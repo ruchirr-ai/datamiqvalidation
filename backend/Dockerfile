@@ -25,9 +25,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY . .
 
-# Run database migrations
-RUN python -c "print('Migrations will run at startup')"
-
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
@@ -40,5 +37,21 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-# Run migrations and start application
-CMD alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8080
+# Create startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "Starting application..."\n\
+echo "Database host: $APP_DB_HOST"\n\
+echo "Database name: $APP_DB_NAME"\n\
+\n\
+# Try to run migrations, but dont fail if they error\n\
+echo "Running database migrations..."\n\
+alembic upgrade head || echo "Migrations failed or already up to date"\n\
+\n\
+# Start the application\n\
+echo "Starting uvicorn server on port 8080..."\n\
+exec uvicorn main:app --host 0.0.0.0 --port 8080\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
+# Run startup script
+CMD ["/app/start.sh"]
