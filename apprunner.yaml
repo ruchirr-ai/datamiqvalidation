@@ -13,7 +13,6 @@ build:
     post-build:
       - echo "Build completed successfully"
 run:
-  runtime-version: 3.9
   command: cd backend && uvicorn main:app --host 0.0.0.0 --port 8080
   network:
     port: 8080
