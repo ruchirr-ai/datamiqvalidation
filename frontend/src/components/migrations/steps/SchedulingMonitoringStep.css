@@ -1,0 +1,133 @@
+/* Config Section */
+.config-section {
+  padding: 24px;
+  background: var(--color-bg-secondary);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.config-section h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+/* Radio Group */
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: var(--color-bg-surface);
+  border: 2px solid var(--color-divider);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.radio-option:hover {
+  border-color: var(--color-primary);
+  background: #EFF6FF;
+}
+
+.radio-option input[type="radio"] {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.radio-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.radio-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.radio-description {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+/* Next Run Info */
+.next-run-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #DBEAFE;
+  border: 1px solid #93C5FD;
+  border-radius: 8px;
+  color: #1E40AF;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.next-run-info svg {
+  flex-shrink: 0;
+}
+
+/* Toggle Option */
+.toggle-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: 8px;
+}
+
+.toggle-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.toggle-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.toggle-description {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .config-section {
+    padding: 16px;
+  }
+
+  .toggle-option {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .radio-option {
+    padding: 12px;
+  }
+}

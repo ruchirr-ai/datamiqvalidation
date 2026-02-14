@@ -1,0 +1,40 @@
+# Worker Dockerfile for Background Scheduler
+
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for package management
+RUN pip install uv
+
+# Copy requirements files
+COPY requirements.txt requirements_bq_redshift.txt ./
+
+# Create virtual environment and install dependencies
+RUN uv venv .venv
+RUN . .venv/bin/activate && \
+    uv pip install -r requirements.txt && \
+    uv pip install -r requirements_bq_redshift.txt
+
+# Copy application code
+COPY . .
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Health check
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+    CMD python -c "from services.bq_redshift_migration.background_worker import BackgroundWorker; import os; worker = BackgroundWorker(os.getenv('DATABASE_URL')); exit(0 if worker.health_check() else 1)"
+
+# Run background worker
+CMD ["python", "-m", "services.bq_redshift_migration.background_worker"]

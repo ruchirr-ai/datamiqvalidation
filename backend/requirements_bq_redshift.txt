@@ -1,0 +1,19 @@
+# BigQuery to Redshift Migration Dependencies
+
+# Google Cloud Platform
+google-cloud-bigquery>=3.11.0
+google-cloud-storage>=2.10.0
+google-cloud-storage-transfer>=1.8.0
+
+# AWS
+boto3>=1.28.0
+psycopg2-binary>=2.9.0
+
+# Scheduling
+croniter>=1.4.0
+
+# Already in main requirements.txt:
+# fastapi
+# sqlalchemy
+# alembic
+# pydantic

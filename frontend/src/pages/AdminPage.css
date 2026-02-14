@@ -1,0 +1,233 @@
+/* Admin Page Layout */
+.admin-page {
+  display: flex;
+  height: 100%;
+  background: var(--color-bg-primary);
+}
+
+/* Secondary Left Sidebar */
+.admin-sidebar {
+  width: 240px;
+  background: var(--color-bg-surface);
+  border-right: 1px solid var(--color-divider);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  padding-top: var(--spacing-8);
+}
+
+/* Admin Navigation */
+.admin-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 2px;
+}
+
+.admin-nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-icon-label);
+  padding: 9px 0 9px 2px;
+  min-height: var(--nav-child-height);
+  font-size: var(--nav-font-size);
+  font-weight: var(--nav-font-weight-child);
+  color: var(--color-text-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+  border-radius: 0;
+  z-index: 1;
+}
+
+.admin-nav-item::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  right: 10px;
+  top: 2px;
+  bottom: 2px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  transition: background var(--transition-fast);
+  z-index: -1;
+}
+
+.admin-nav-item:hover::before {
+  background: var(--color-hover-bg);
+}
+
+.admin-nav-item.active::before {
+  background: var(--color-selected-bg);
+}
+
+.admin-nav-item.active {
+  color: var(--color-primary);
+  font-weight: var(--nav-font-weight-selected-child);
+}
+
+.admin-nav-icon {
+  flex-shrink: 0;
+  color: inherit;
+}
+
+/* Navigation Group */
+.admin-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.admin-nav-group-label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-icon-label);
+  padding: 9px 0 9px 2px;
+  min-height: var(--nav-child-height);
+  font-size: var(--nav-font-size);
+  font-weight: var(--nav-font-weight-child);
+  color: var(--color-text-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+  width: 100%;
+  border-radius: 0;
+  z-index: 1;
+}
+
+.admin-nav-group-label::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  right: 10px;
+  top: 2px;
+  bottom: 2px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  transition: background var(--transition-fast);
+  z-index: -1;
+}
+
+.admin-nav-group-label:hover::before {
+  background: var(--color-hover-bg);
+}
+
+/* Submenu */
+.admin-nav-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.admin-nav-item.submenu-item {
+  padding-left: 40px;
+  font-size: var(--nav-font-size);
+  font-weight: var(--nav-font-weight-child);
+}
+
+.admin-nav-item.submenu-item::before {
+  left: 20px;
+  right: 10px;
+}
+
+/* Main Content Area */
+.admin-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.admin-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.admin-content-header {
+  padding: 24px 32px;
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.admin-content-header h1 {
+  font-size: 20px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.admin-content-body {
+  flex: 1;
+  padding: 24px 32px;
+  overflow-y: auto;
+}
+
+/* Responsive */
+@media (max-width: 1023px) {
+  .admin-sidebar {
+    width: 200px;
+  }
+
+  .admin-nav-item {
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+
+  .admin-content-header {
+    padding: 20px 24px;
+  }
+
+  .admin-content-header h1 {
+    font-size: 18px;
+  }
+
+  .admin-content-body {
+    padding: 20px 24px;
+  }
+}
+
+@media (max-width: 767px) {
+  .admin-page {
+    flex-direction: column;
+  }
+
+  .admin-sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--color-divider);
+    padding-top: 0;
+  }
+
+  .admin-sidebar-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 8px 0;
+    gap: 0;
+  }
+
+  .admin-nav-item {
+    white-space: nowrap;
+  }
+
+  .admin-content-header {
+    padding: 16px 20px;
+  }
+
+  .admin-content-header h1 {
+    font-size: 16px;
+  }
+
+  .admin-content-body {
+    padding: 16px 20px;
+  }
+}

@@ -1,0 +1,21 @@
+/* Logo animations */
+
+/* Paper plane floats gently and continuously at 20-degree angle */
+.logo__plane--animated {
+  animation: floatPlane 3s ease-in-out infinite;
+}
+
+@keyframes floatPlane {
+  0%, 100% {
+    transform: rotate(-30deg) translateY(0) translateX(0);
+  }
+  25% {
+    transform: rotate(-30deg) translateY(-2px) translateX(5px);
+  }
+  50% {
+    transform: rotate(-30deg) translateY(-4px) translateX(11px);
+  }
+  75% {
+    transform: rotate(-30deg) translateY(-2px) translateX(5px);
+  }
+}

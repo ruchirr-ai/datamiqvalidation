@@ -1,0 +1,419 @@
+/* Migration Details Container */
+.migration-details {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+/* Collapsible Migration Details */
+.migration-details-collapsible {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Migration Stage - Original (Non-collapsible) */
+.migration-stage {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Migration Stage - Collapsible */
+.migration-stage-collapsible {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.migration-stage-collapsible:hover {
+  border-color: var(--color-primary);
+}
+
+/* Stage Header - Original */
+.stage-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+/* Stage Header - Collapsible */
+.stage-header-collapsible {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  background: var(--color-bg-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.stage-header-collapsible:hover {
+  background: var(--color-hover-bg);
+}
+
+.stage-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
+/* Stage Number - Original */
+.stage-number {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: white;
+  font-size: 18px;
+  font-weight: 600;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Stage Number - Collapsible */
+.stage-number-collapsible {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary);
+  color: white;
+  font-size: 18px;
+  font-weight: 600;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Stage Info - Original */
+.stage-info h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 4px 0;
+}
+
+.stage-info p {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+/* Stage Info - Collapsible */
+.stage-info-collapsible {
+  flex: 1;
+}
+
+.stage-info-collapsible h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stage-info-collapsible p {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+/* Pathway Badge */
+.pathway-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  background: var(--color-primary);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* Collapse Button */
+.collapse-button {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.collapse-button:hover {
+  background: var(--color-bg-surface);
+  color: var(--color-primary);
+}
+
+.collapse-button svg {
+  transition: transform 0.2s ease;
+}
+
+.collapse-button svg.expanded {
+  transform: rotate(180deg);
+}
+
+/* Stage Content - Original */
+.stage-content {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.stage-content h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 12px 0;
+}
+
+/* Stage Content - Collapsible */
+.stage-content-collapsible {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stage-content-collapsible h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 12px 0;
+}
+
+/* Stage Footer */
+.stage-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+  margin-top: 8px;
+  border-top: 1px solid var(--color-divider);
+}
+
+/* Save & Continue Button */
+.btn-save-continue {
+  padding: 10px 24px;
+  background: var(--color-primary);
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(42, 107, 219, 0.2);
+  min-width: 160px;
+}
+
+.btn-save-continue:hover:not(:disabled) {
+  background: var(--color-primary-dark);
+  box-shadow: 0 4px 8px rgba(42, 107, 219, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-save-continue:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(42, 107, 219, 0.2);
+}
+
+.btn-save-continue:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Textarea Input */
+.textarea-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: 'Courier New', monospace;
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: 6px;
+  resize: vertical;
+  transition: all 0.2s ease;
+  line-height: 1.4;
+}
+
+.textarea-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.textarea-input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+/* Select Input (for grouped options) */
+.select-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.select-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.select-input optgroup {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-secondary);
+  padding: 8px 0;
+}
+
+.select-input option {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+}
+
+/* Toggle Option - Enhanced Visibility */
+.toggle-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  background: #FFFFFF;
+  border: 2px solid var(--color-divider);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  transition: all 0.2s ease;
+}
+
+.toggle-option:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 8px rgba(42, 107, 219, 0.1);
+}
+
+.toggle-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.toggle-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.toggle-description {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+/* Info Box Spacing */
+.stage-content > .info-box:first-child {
+  margin-bottom: 8px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .migration-details {
+    gap: 24px;
+  }
+
+  .migration-details-collapsible {
+    gap: 12px;
+  }
+
+  .stage-header {
+    padding: 16px;
+  }
+
+  .stage-header-collapsible {
+    padding: 16px;
+  }
+
+  .stage-number,
+  .stage-number-collapsible {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+
+  .stage-content,
+  .stage-content-collapsible {
+    padding: 16px;
+  }
+
+  .stage-info-collapsible h3 {
+    font-size: 15px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .pathway-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+
+  .textarea-input {
+    font-size: 12px;
+  }
+
+  .toggle-option {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .btn-save-continue {
+    width: 100%;
+    padding: 12px 24px;
+  }
+}

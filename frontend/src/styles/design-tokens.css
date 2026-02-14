@@ -1,0 +1,250 @@
+/* DataMIQ Design Tokens - Centralized Style Variables */
+/* Based on Sidebar implementation - Use these tokens in all components */
+
+:root {
+  /* ========================================
+     COLORS
+     ======================================== */
+  
+  /* Primary Brand Colors */
+  --color-primary: #2A6BDB;
+  --color-primary-dark: #1E4FA0;
+  
+  /* Backgrounds */
+  --color-bg-primary: #FAFAFA;
+  --color-bg-secondary: #F7F7F7;
+  --color-bg-surface: #FFFFFF;
+  
+  /* Text Colors */
+  --color-text-primary: #1F2937;
+  --color-text-secondary: #66748C;
+  --color-text-disabled: #9AA6B2;
+  
+  /* Interactive States */
+  --color-selected-bg: #D4E4FC;
+  --color-hover-bg: #EFF5FF;
+  --color-divider: #E5E7EB;
+  
+  /* Semantic Colors */
+  --color-success: #4CAF50;
+  --color-error: #DC2626;
+  --color-error-bg: #FEE2E2;
+  --color-warning: #FFD140;
+  --color-info: #2A6BDB;
+  
+  /* Focus & Accessibility */
+  --color-focus-ring: rgba(42, 107, 219, 0.3);
+  
+  /* Grey Scale */
+  --color-grey-50: #FAFAFA;
+  --color-grey-100: #F7F7F7;
+  --color-grey-200: #EFF5FF;
+  --color-grey-300: #E5E7EB;
+  --color-grey-400: #D4E4FC;
+  --color-grey-500: #9AA6B2;
+  --color-grey-600: #66748C;
+  --color-grey-700: #1F2937;
+  --color-grey-800: #424242;
+  --color-grey-900: #212121;
+  
+  /* ========================================
+     TYPOGRAPHY
+     ======================================== */
+  
+  /* Font Families */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-family-code: 'Courier New', monospace;
+  
+  /* Font Sizes */
+  --font-size-xs: 0.75rem;      /* 12px */
+  --font-size-sm: 0.8125rem;    /* 13px */
+  --font-size-base: 0.875rem;   /* 14px */
+  --font-size-md: 1rem;         /* 16px */
+  --font-size-lg: 1.125rem;     /* 18px */
+  --font-size-xl: 1.25rem;      /* 20px */
+  --font-size-2xl: 1.5rem;      /* 24px */
+  --font-size-3xl: 1.875rem;    /* 30px */
+  --font-size-4xl: 2.25rem;     /* 36px */
+  
+  /* Font Weights */
+  --font-weight-normal: 400;
+  --font-weight-450: 450;
+  --font-weight-medium: 500;
+  --font-weight-550: 550;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  
+  /* ========================================
+     SPACING
+     ======================================== */
+  
+  --spacing-0: 0;
+  --spacing-1: 0.125rem;    /* 2px */
+  --spacing-2: 0.25rem;     /* 4px */
+  --spacing-3: 0.5rem;      /* 8px */
+  --spacing-4: 0.75rem;     /* 12px */
+  --spacing-5: 0.875rem;    /* 14px */
+  --spacing-6: 1rem;        /* 16px */
+  --spacing-7: 1.125rem;    /* 18px */
+  --spacing-8: 1.25rem;     /* 20px */
+  --spacing-10: 1.5rem;     /* 24px */
+  --spacing-12: 2rem;       /* 32px */
+  --spacing-16: 2.25rem;    /* 36px */
+  --spacing-20: 2.5rem;     /* 40px */
+  --spacing-24: 3rem;       /* 48px */
+  
+  /* ========================================
+     BORDER RADIUS
+     ======================================== */
+  
+  --radius-sm: 6px;         /* Small elements - child menu items */
+  --radius-md: 8px;         /* Medium elements - cards, modals */
+  --radius-lg: 12px;        /* Large/Interactive - buttons, inputs, dropdowns, parent nav items */
+  --radius-full: 50%;       /* Circular - avatars */
+  
+  /* ========================================
+     SHADOWS
+     ======================================== */
+  
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.15);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.15);
+  
+  /* ========================================
+     TRANSITIONS
+     ======================================== */
+  
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.3s ease;
+  
+  /* ========================================
+     COMPONENT-SPECIFIC TOKENS
+     ======================================== */
+  
+  /* Sidebar */
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 72px;
+  --sidebar-padding-x: 18px;
+  --sidebar-padding-top: 20px;
+  
+  /* Navigation */
+  --nav-row-height: 44px;
+  --nav-child-height: 38px;
+  --nav-item-spacing: 2px;
+  --nav-font-size: 13px;
+  --nav-font-weight: 500;
+  --nav-font-weight-child: 450;
+  --nav-font-weight-selected: 600;
+  --nav-font-weight-selected-child: 550;
+  
+  /* Icons */
+  --icon-size: 17px;
+  --icon-size-sm: 16px;
+  --icon-size-md: 20px;
+  --icon-size-lg: 24px;
+  --icon-container-width: 32px;
+  --icon-stroke-width: 1.5px;
+  --icon-stroke-width-bold: 2px;
+  
+  /* Gaps */
+  --gap-icon-label: 12px;
+  --gap-menu-items: 12px;
+  
+  /* Pills/Buttons */
+  --pill-radius: 12px;
+  --pill-padding-x: 14px;
+  
+  /* Brand */
+  --brand-font-size: 16px;
+  --brand-font-weight: 600;
+  
+  /* Account Block */
+  --account-name-size: 14px;
+  --account-name-weight: 600;
+  --account-name-spacing: 0.5px;
+  --account-role-size: 13px;
+  --account-role-weight: 450;
+  --avatar-size: 36px;
+  
+  /* User Menu */
+  --menu-item-size: 14px;
+  --menu-item-weight: 450;
+  --menu-item-spacing: -0.01em;
+  --menu-item-height: 38px;
+  --menu-item-padding: 9px 12px;
+  
+  /* ========================================
+     BREAKPOINTS
+     ======================================== */
+  
+  --breakpoint-mobile: 320px;
+  --breakpoint-mobile-max: 767px;
+  --breakpoint-tablet: 768px;
+  --breakpoint-tablet-max: 1023px;
+  --breakpoint-laptop: 1024px;
+  --breakpoint-desktop: 1440px;
+}
+
+/* ========================================
+   UTILITY CLASSES
+   ======================================== */
+
+/* Focus States */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.focus-ring-inset:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+/* Hover States */
+.hover-bg:hover {
+  background: var(--color-hover-bg);
+  transition: background var(--transition-fast);
+}
+
+.hover-bg-full:hover {
+  background: var(--color-hover-bg);
+  border-radius: 0;
+  transition: background var(--transition-fast);
+}
+
+/* Text Utilities */
+.text-primary {
+  color: var(--color-text-primary);
+}
+
+.text-secondary {
+  color: var(--color-text-secondary);
+}
+
+.text-disabled {
+  color: var(--color-text-disabled);
+}
+
+.text-uppercase-spaced {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (prefers-contrast: high) {
+  .focus-ring:focus-visible,
+  .focus-ring-inset:focus-visible {
+    outline-width: 3px;
+  }
+}

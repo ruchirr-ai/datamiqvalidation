@@ -1,0 +1,304 @@
+/* Metadata Summary */
+.metadata-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 20px;
+  background: #F7F7F7;
+  border-radius: 8px;
+}
+
+.summary-stat {
+  text-align: center;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: #66748C;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1F2937;
+}
+
+/* Metadata Actions */
+.metadata-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.metadata-actions input {
+  flex: 1;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+/* Loading State */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  gap: 16px;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #E5E7EB;
+  border-top-color: #2A6BDB;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-state p {
+  color: #66748C;
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  gap: 16px;
+}
+
+.empty-state svg {
+  color: #66748C;
+  opacity: 0.5;
+}
+
+.empty-state p {
+  color: #66748C;
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Metadata Table Container */
+.metadata-table-container {
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.dataset-section {
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.dataset-section:last-child {
+  border-bottom: none;
+}
+
+.dataset-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: #FAFAFA;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dataset-header:hover {
+  background: #F7F7F7;
+}
+
+.dataset-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.expand-button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #66748C;
+  transition: transform 0.2s ease;
+}
+
+.expand-button svg {
+  transition: transform 0.2s ease;
+}
+
+.expand-button svg.expanded {
+  transform: rotate(90deg);
+}
+
+.dataset-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1F2937;
+}
+
+.dataset-location {
+  font-size: 13px;
+  color: #66748C;
+  padding: 2px 8px;
+  background: #FFFFFF;
+  border-radius: 4px;
+  border: 1px solid #E5E7EB;
+}
+
+.dataset-table-count {
+  font-size: 13px;
+  color: #66748C;
+}
+
+/* Tables Table */
+.tables-container {
+  background: #FFFFFF;
+}
+
+.tables-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tables-table thead {
+  background: #F7F7F7;
+  border-top: 1px solid #E5E7EB;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.tables-table th {
+  padding: 12px 20px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: #66748C;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tables-table tbody tr {
+  border-bottom: 1px solid #E5E7EB;
+  transition: background 0.15s ease;
+}
+
+.tables-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.tables-table tbody tr:hover {
+  background: #FAFAFA;
+}
+
+.tables-table td {
+  padding: 12px 20px;
+  font-size: 14px;
+  color: #1F2937;
+}
+
+.table-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-name-cell svg {
+  color: #66748C;
+  flex-shrink: 0;
+}
+
+.tables-table input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #2A6BDB;
+}
+
+.loading-tables,
+.empty-tables {
+  padding: 40px 20px;
+  text-align: center;
+  color: #66748C;
+  font-size: 14px;
+}
+
+.loading-tables {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.spinner-small {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #E5E7EB;
+  border-top-color: #2A6BDB;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* Warning Box */
+.warning-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #FEF3C7;
+  border: 1px solid #FCD34D;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  color: #92400E;
+  font-size: 14px;
+}
+
+.warning-box svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .metadata-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .metadata-actions {
+    flex-direction: column;
+  }
+
+  .action-buttons {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .action-buttons button {
+    flex: 1;
+  }
+
+  .dataset-header {
+    padding: 12px 16px;
+  }
+
+  .tables-table th,
+  .tables-table td {
+    padding: 10px 16px;
+  }
+}

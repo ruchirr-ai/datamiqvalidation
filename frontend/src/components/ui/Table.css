@@ -1,0 +1,133 @@
+/* Global Table Styles - Based on Data Connections Table */
+
+/* Table Container */
+.table-container {
+  background: var(--color-bg-surface);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Table */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+/* Table Header */
+.table thead {
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.table th {
+  padding: 12px 20px;
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.table th:first-child {
+  padding-left: 24px;
+}
+
+/* Table Body */
+.table tbody tr {
+  border-bottom: 1px solid #D1D5DB;
+  transition: background var(--transition-fast);
+}
+
+/* Ensure last row has border */
+.table tbody tr:last-child {
+  border-bottom: 1px solid #D1D5DB;
+}
+
+.table tbody tr:hover {
+  background: var(--color-hover-bg);
+}
+
+.table td {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 450;
+  color: #1F2937;
+  vertical-align: middle;
+}
+
+.table td:first-child {
+  padding-left: 24px;
+}
+
+/* Table Cell Utilities */
+.table-cell-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.table-cell-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  color: #000000;
+}
+
+.table-cell-name {
+  font-weight: 500;
+  color: #000000;
+}
+
+.table-cell-with-avatar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.table-cell-timestamp {
+  color: #6B7280;
+  font-size: 13px;
+}
+
+/* Table Badge */
+.table-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: capitalize;
+  background: #F3F4F6;
+  color: #6B7280;
+}
+
+/* Table Action Button */
+.table-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #9CA3AF;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.table-action-btn:hover {
+  background: #F3F4F6;
+  color: #6B7280;
+}
+
+/* Responsive */
+@media (max-width: 767px) {
+  .table-container {
+    overflow-x: auto;
+  }
+
+  .table {
+    min-width: 800px;
+  }
+}

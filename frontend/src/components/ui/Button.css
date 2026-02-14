@@ -1,0 +1,155 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-3);
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-medium);
+  border-radius: 10px;
+  transition: all var(--transition-base);
+  cursor: pointer;
+  border: 1px solid transparent;
+  outline: none;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Sizes */
+.button--sm {
+  padding: var(--spacing-3) var(--spacing-6);
+  font-size: var(--font-size-sm);
+  min-height: 32px;
+}
+
+.button--md {
+  padding: 6px 16px;
+  font-size: var(--font-size-base);
+  min-height: 32px;
+}
+
+.button--lg {
+  padding: var(--spacing-4) var(--spacing-12);
+  font-size: var(--font-size-base);
+  min-height: 44px;
+}
+
+/* Variants */
+.button--primary {
+  background-color: var(--color-primary);
+  color: var(--color-bg-surface);
+}
+
+.button--primary:hover:not(:disabled) {
+  background-color: var(--color-primary-dark);
+}
+
+.button--primary:active:not(:disabled) {
+  background-color: var(--color-primary-dark);
+  transform: translateY(1px);
+}
+
+.button--secondary {
+  background-color: var(--color-grey-300);
+  color: var(--color-text-primary);
+}
+
+.button--secondary:hover:not(:disabled) {
+  background-color: var(--color-grey-400);
+}
+
+.button--secondary:active:not(:disabled) {
+  background-color: var(--color-grey-500);
+}
+
+.button--outline {
+  background-color: transparent;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.button--outline:hover:not(:disabled) {
+  background-color: var(--color-primary);
+  color: var(--color-bg-surface);
+}
+
+.button--outline:active:not(:disabled) {
+  background-color: var(--color-primary-dark);
+  border-color: var(--color-primary-dark);
+}
+
+.button--ghost {
+  background-color: transparent;
+  color: var(--color-primary);
+}
+
+.button--ghost:hover:not(:disabled) {
+  background-color: var(--color-hover-bg);
+}
+
+.button--ghost:active:not(:disabled) {
+  background-color: var(--color-selected-bg);
+}
+
+.button--success {
+  background-color: var(--color-success);
+  color: var(--color-bg-surface);
+}
+
+.button--success:hover:not(:disabled) {
+  background-color: #45a049;
+}
+
+.button--success:active:not(:disabled) {
+  background-color: #3d8b40;
+}
+
+/* States */
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button--full-width {
+  width: 100%;
+}
+
+.button--loading {
+  position: relative;
+  cursor: wait;
+}
+
+/* Loading Spinner */
+.button__spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.button__spinner-icon {
+  width: 16px;
+  height: 16px;
+  animation: spin 1s linear infinite;
+}
+
+.button__spinner-circle {
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-dasharray: 60;
+  stroke-dashoffset: 45;
+}
+
+.button__content--loading {
+  opacity: 0.7;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
