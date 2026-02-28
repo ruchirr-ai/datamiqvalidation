@@ -1,5 +1,75 @@
 # AWS App Runner Troubleshooting Guide
 
+## Current Issue: Container Exit Code 1
+
+### Diagnosis
+The container is starting but exiting with code 1, which typically means:
+1. Database connection failure
+2. Missing environment variables
+3. Migration errors
+4. Application startup errors
+
+### Updated Dockerfile
+I've updated the Dockerfile with comprehensive diagnostics that will:
+- Print all environment variables (sanitized)
+- Test database connectivity before starting
+- Show clear error messages if connection fails
+- Run migrations with better error handling
+- Provide detailed startup logs
+
+### Next Steps
+
+#### 1. Rebuild Docker Image
+```bash
+cd backend
+docker build -t datamiq-backend .
+```
+
+#### 2. Push to ECR
+```bash
+# Tag the image
+docker tag datamiq-backend:latest <your-ecr-repo-url>:latest
+
+# Push to ECR
+docker push <your-ecr-repo-url>:latest
+```
+
+#### 3. Check CloudWatch Logs
+After App Runner deploys the new image, check CloudWatch Logs for:
+- Environment variable values (to confirm they're set)
+- Database connection test results
+- Specific error messages
+
+**To access CloudWatch Logs:**
+1. Go to AWS App Runner console
+2. Select your service
+3. Click "Logs" tab
+4. Look for the startup messages
+
+#### 4. Common Issues and Solutions
+
+**Issue: Database connection timeout**
+- **Cause**: App Runner cannot reach database at 34.226.150.199:5432
+- **Solution**: Check security group rules on the database to allow App Runner IP ranges
+
+**Issue: Missing environment variables**
+- **Cause**: Variables not set in App Runner configuration
+- **Solution**: See "Solution 3: Add Variables After Service Creation" below
+
+**Issue: Database doesn't exist**
+- **Cause**: Database "datamiq" not created
+- **Solution**: Connect to PostgreSQL and create database:
+  ```sql
+  CREATE DATABASE datamiq;
+  ```
+
+**Issue: User doesn't have permissions**
+- **Cause**: User "datamig" lacks permissions
+- **Solution**: Grant permissions:
+  ```sql
+  GRANT ALL PRIVILEGES ON DATABASE datamiq TO datamig;
+  ```
+
 ## Issue: Unable to Add Environment Variables
 
 If you're having trouble adding environment variables in the AWS App Runner console, here are several solutions:

@@ -18,7 +18,7 @@ from .bigquery_exporter import BigQueryExporter
 from .pathway_a import PathwayA
 from .pathway_b import PathwayB
 from .pathway_c import PathwayC
-from services.encryption_service import get_encryption_service
+from services.kms_encryption_service import get_kms_encryption_service
 
 logger = logging.getLogger(__name__)
 
@@ -512,8 +512,15 @@ class MigrationOrchestrator:
                         'transfer',
                         "Decrypting AWS credentials for S3 access"
                     )
-                    encryption_service = get_encryption_service()
-                    aws_secret_key = encryption_service.decrypt(migration.aws_secret_access_key_encrypted)
+                    encryption_service = get_kms_encryption_service()
+                    encryption_context = {
+                        'migration_id': str(migration.id),
+                        'field': 'aws_secret_access_key'
+                    }
+                    aws_secret_key = encryption_service.decrypt(
+                        migration.aws_secret_access_key_encrypted,
+                        encryption_context
+                    )
                     logger.info("✓ AWS credentials decrypted successfully")
                 except Exception as e:
                     logger.error(f"Failed to decrypt AWS secret key: {e}")

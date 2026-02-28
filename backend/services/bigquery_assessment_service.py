@@ -23,15 +23,23 @@ class BigQueryAssessmentService:
         
         Args:
             connection_params: Dictionary containing:
-                - project_id: GCP project ID
+                - project_id: GCP project ID (optional, will be extracted from credentials if not provided)
                 - credentials_json: Service account JSON (as string or dict)
         """
-        self.project_id = connection_params.get('project_id')
-        
-        # Parse credentials
+        # Parse credentials first
         credentials_json = connection_params.get('credentials_json')
         if isinstance(credentials_json, str):
             credentials_json = json.loads(credentials_json)
+        
+        # Get project_id from connection_params or extract from credentials
+        self.project_id = connection_params.get('project_id')
+        if not self.project_id and credentials_json:
+            # Extract project_id from service account credentials
+            self.project_id = credentials_json.get('project_id')
+            print(f"Extracted project_id from credentials: {self.project_id}")
+        
+        if not self.project_id:
+            raise ValueError("project_id not found in connection_params or credentials_json")
         
         # Create credentials and client
         credentials = service_account.Credentials.from_service_account_info(credentials_json)
@@ -370,7 +378,16 @@ class BigQueryAssessmentService:
         """Collect stored procedures and functions with dependencies"""
         routines = []
         
-        # First pass: collect all routines
+        # First, collect all views to distinguish them from tables
+        view_names = set()
+        for dataset in self.client.list_datasets():
+            for table in self.client.list_tables(dataset.dataset_id):
+                table_ref = self.client.get_table(f"{self.project_id}.{dataset.dataset_id}.{table.table_id}")
+                if table_ref.table_type == 'VIEW':
+                    view_names.add(f"{dataset.dataset_id}.{table.table_id}")
+                    view_names.add(f"{self.project_id}.{dataset.dataset_id}.{table.table_id}")
+        
+        # Collect all routines with dependencies
         for dataset in self.client.list_datasets():
             for routine in self.client.list_routines(dataset.dataset_id):
                 routine_ref = self.client.get_routine(routine.reference)
@@ -382,6 +399,22 @@ class BigQueryAssessmentService:
                 # Extract procedure calls (CALL statements)
                 calls_procedures = self._extract_procedure_calls(routine_definition) if routine_definition else []
                 
+                # Categorize dependencies into tables and views
+                dependent_tables = []
+                dependent_views = []
+                
+                for dep in dependencies['tables']:
+                    # Check if this dependency is a view
+                    if dep in view_names:
+                        dependent_views.append(dep)
+                    else:
+                        # Check with project prefix
+                        full_name = f"{self.project_id}.{dep}" if '.' in dep and not dep.startswith(self.project_id) else dep
+                        if full_name in view_names:
+                            dependent_views.append(dep)
+                        else:
+                            dependent_tables.append(dep)
+                
                 routines.append({
                     'routine_name': f"{dataset.dataset_id}.{routine.routine_id}",
                     'routine_type': routine_ref.type_,
@@ -390,16 +423,12 @@ class BigQueryAssessmentService:
                     'external_language': routine_ref.language,
                     'creation_time': routine_ref.created,
                     'call_frequency': 0,  # Will be updated by query stats
-                    'dependent_tables': [],  # Will be populated in second pass
-                    'dependent_views': [],  # Will be populated in second pass
+                    'dependent_tables': dependent_tables,
+                    'dependent_views': dependent_views,
                     'dependent_functions': dependencies['functions'],
                     'calls_procedures': calls_procedures,
-                    'dependency_depth': 1
+                    'dependency_depth': len(dependent_tables) + len(dependent_views) + len(dependencies['functions'])
                 })
-        
-        # Second pass: categorize dependencies (would need view list to distinguish)
-        # For now, all dependencies are marked as tables
-        # This can be enhanced by cross-referencing with collected views
         
         return routines
     
@@ -466,16 +495,14 @@ class BigQueryAssessmentService:
             if datasets:
                 first_dataset = self.client.get_dataset(datasets[0].dataset_id)
                 if first_dataset.location:
-                    # Convert location to region format (e.g., 'us-central1' -> 'us', 'US' -> 'us')
+                    # Use the exact location for INFORMATION_SCHEMA
+                    # BigQuery supports multi-region (us, eu) and specific regions (us-central1, asia-south1, etc.)
                     location = first_dataset.location.lower()
-                    if location.startswith('us'):
-                        region = 'us'
-                    elif location.startswith('eu'):
-                        region = 'eu'
-                    elif location.startswith('asia'):
-                        region = 'asia'
+                    # For multi-region locations, use as-is
+                    if location in ['us', 'eu']:
+                        region = location
                     else:
-                        # For specific regions like 'us-central1', use the full location
+                        # For specific regions, use the full location
                         region = location
                     print(f"Detected BigQuery region: {region} (from location: {first_dataset.location})")
         except Exception as e:
@@ -513,7 +540,16 @@ class BigQueryAssessmentService:
                 referenced_tables = []
                 if row.referenced_tables:
                     for table_ref in row.referenced_tables:
-                        referenced_tables.append(f"{table_ref.project}.{table_ref.dataset_id}.{table_ref.table_id}")
+                        # Handle both object and dict formats
+                        if isinstance(table_ref, dict):
+                            project = table_ref.get('projectId') or table_ref.get('project_id')
+                            dataset = table_ref.get('datasetId') or table_ref.get('dataset_id')
+                            table = table_ref.get('tableId') or table_ref.get('table_id')
+                            if project and dataset and table:
+                                referenced_tables.append(f"{project}.{dataset}.{table}")
+                        else:
+                            # Object format
+                            referenced_tables.append(f"{table_ref.project}.{table_ref.dataset_id}.{table_ref.table_id}")
                 
                 query_stats.append({
                     'job_id': row.job_id,
@@ -683,48 +719,169 @@ class BigQueryAssessmentService:
     async def collect_security_policies_detailed(self) -> List[Dict]:
         """
         Collect Row-Level Security (RLS) and Column-Level Security (CLS) policies
+        
+        Tries multiple methods to collect RLS policies:
+        1. INFORMATION_SCHEMA.ROW_ACCESS_POLICIES (requires specific permissions)
+        2. Per-dataset INFORMATION_SCHEMA queries
+        3. Direct table inspection via API
         """
         security_policies = []
         
-        # Query for row-level security policies with creation time
-        rls_query = f"""
-        SELECT
-            table_catalog,
-            table_schema,
-            table_name,
-            policy_name,
-            filter_predicate,
-            grantee_list,
-            ddl AS creation_ddl
-        FROM `{self.project_id}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
-        """
-        
+        # Method 1: Try project-level INFORMATION_SCHEMA (requires bigquery.rowAccessPolicies.list)
         try:
+            rls_query = f"""
+            SELECT
+                table_catalog,
+                table_schema,
+                table_name,
+                policy_name,
+                filter_predicate,
+                grantee_list,
+                ddl AS creation_ddl
+            FROM `{self.project_id}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
+            """
+            
             query_job = self.client.query(rls_query)
             results = query_job.result()
             
             for row in results:
-                # Try to extract creation time from DDL or use None
-                creation_time = None
-                # Note: BigQuery doesn't expose creation_time directly for policies
-                # We capture the DDL which contains the policy definition
-                
                 security_policies.append({
                     'security_type': 'RLS',
-                    'table_name': f"{row.table_schema}.{row.table_name}",  # Include dataset in table name
+                    'table_name': f"{row.table_schema}.{row.table_name}",
                     'policy_name': row.policy_name,
                     'filter_predicate': row.filter_predicate,
                     'grantees': row.grantee_list.split(',') if row.grantee_list else [],
-                    'creation_time': creation_time,  # Will be None for now
+                    'creation_time': None,
                     'security_metadata': {
                         'ddl': row.creation_ddl if hasattr(row, 'creation_ddl') else None
                     }
                 })
+            
+            print(f"✓ Collected {len(security_policies)} RLS policies via project-level INFORMATION_SCHEMA")
+            return security_policies
+            
         except Exception as e:
-            print(f"Warning: Could not collect RLS policies: {e}")
+            print(f"Method 1 failed (project-level INFORMATION_SCHEMA): {e}")
         
-        # Column-level security is collected via policy tags on columns
-        # This is already handled in collect_columns()
+        # Method 2: Try per-dataset INFORMATION_SCHEMA queries
+        try:
+            print("Trying per-dataset INFORMATION_SCHEMA queries...")
+            datasets = list(self.client.list_datasets())
+            
+            for dataset in datasets:
+                dataset_id = dataset.dataset_id
+                
+                try:
+                    rls_query = f"""
+                    SELECT
+                        table_catalog,
+                        table_schema,
+                        table_name,
+                        policy_name,
+                        filter_predicate,
+                        grantee_list
+                    FROM `{self.project_id}.{dataset_id}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
+                    """
+                    
+                    query_job = self.client.query(rls_query)
+                    results = query_job.result()
+                    
+                    for row in results:
+                        # Try to get DDL for the policy
+                        ddl = None
+                        try:
+                            ddl_query = f"""
+                            SELECT ddl
+                            FROM `{self.project_id}.{dataset_id}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
+                            WHERE policy_name = '{row.policy_name}'
+                            AND table_name = '{row.table_name}'
+                            """
+                            ddl_job = self.client.query(ddl_query)
+                            ddl_result = list(ddl_job.result())
+                            if ddl_result:
+                                ddl = ddl_result[0].ddl
+                        except:
+                            pass
+                        
+                        security_policies.append({
+                            'security_type': 'RLS',
+                            'table_name': f"{row.table_schema}.{row.table_name}",
+                            'policy_name': row.policy_name,
+                            'filter_predicate': row.filter_predicate,
+                            'grantees': row.grantee_list.split(',') if row.grantee_list else [],
+                            'creation_time': None,
+                            'security_metadata': {
+                                'ddl': ddl
+                            }
+                        })
+                    
+                except Exception as dataset_error:
+                    # This dataset might not have RLS policies or permissions issue
+                    continue
+            
+            if security_policies:
+                print(f"✓ Collected {len(security_policies)} RLS policies via per-dataset queries")
+                return security_policies
+            else:
+                print("No RLS policies found via per-dataset queries")
+                
+        except Exception as e:
+            print(f"Method 2 failed (per-dataset queries): {e}")
+        
+        # Method 3: Try direct table inspection via API
+        try:
+            print("Trying direct table inspection via BigQuery API...")
+            datasets = list(self.client.list_datasets())
+            
+            for dataset in datasets:
+                dataset_id = dataset.dataset_id
+                tables = list(self.client.list_tables(dataset_id))
+                
+                for table_item in tables:
+                    try:
+                        # Get full table object
+                        table = self.client.get_table(f"{self.project_id}.{dataset_id}.{table_item.table_id}")
+                        
+                        # Check if table has row access policies
+                        # Note: This requires the table object to expose policy information
+                        # which may not be available in all BigQuery client versions
+                        if hasattr(table, '_properties') and 'rowAccessPolicies' in table._properties:
+                            policies = table._properties['rowAccessPolicies']
+                            
+                            for policy in policies:
+                                security_policies.append({
+                                    'security_type': 'RLS',
+                                    'table_name': f"{dataset_id}.{table_item.table_id}",
+                                    'policy_name': policy.get('policyName', 'unknown'),
+                                    'filter_predicate': policy.get('filterPredicate', ''),
+                                    'grantees': policy.get('grantees', []),
+                                    'creation_time': None,
+                                    'security_metadata': {
+                                        'ddl': None,
+                                        'raw_policy': policy
+                                    }
+                                })
+                    except Exception as table_error:
+                        # Skip tables we can't access
+                        continue
+            
+            if security_policies:
+                print(f"✓ Collected {len(security_policies)} RLS policies via direct API inspection")
+                return security_policies
+            else:
+                print("No RLS policies found via direct API inspection")
+                
+        except Exception as e:
+            print(f"Method 3 failed (direct API inspection): {e}")
+        
+        # If all methods failed
+        print("⚠️  Could not collect RLS policies using any method")
+        print("This could mean:")
+        print("  1. No RLS policies exist in the project")
+        print("  2. Service account lacks required permissions:")
+        print("     - bigquery.rowAccessPolicies.list")
+        print("     - bigquery.tables.get")
+        print("     - bigquery.tables.getData")
         
         return security_policies
     

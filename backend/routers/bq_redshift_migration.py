@@ -17,7 +17,7 @@ from shared.middleware.auth_middleware import get_current_user
 from models.connection import Connection
 from models.bq_redshift_migration import MigrationBQRedshift, MigrationLog
 from services.aws_secrets import AWSSecretsService
-from services.encryption_service import get_encryption_service
+from services.kms_encryption_service import get_kms_encryption_service
 
 router = APIRouter(prefix="/api/migrations/bq-redshift", tags=["BQ-Redshift Migrations"])
 
@@ -462,8 +462,13 @@ async def create_migration(
         # Encrypt AWS secret key if provided
         aws_secret_encrypted = None
         if req.aws_secret_access_key:
-            encryption_service = get_encryption_service()
-            aws_secret_encrypted = encryption_service.encrypt(req.aws_secret_access_key)
+            encryption_service = get_kms_encryption_service()
+            encryption_context = {
+                'workspace_id': str(workspace_id),
+                'field': 'aws_secret_access_key',
+                'created_at': datetime.utcnow().isoformat()
+            }
+            aws_secret_encrypted = encryption_service.encrypt(req.aws_secret_access_key, encryption_context)
         
         # Create migration with provided fields (handle empty strings and None)
         migration_data = {
@@ -525,11 +530,9 @@ async def list_migrations(
     status_filter: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user),
-    workspace_id: int = Depends(get_workspace_id)
+    db: Session = Depends(get_db)
 ):
-    """List all migrations for the current workspace"""
+    """List all migrations"""
     try:
         repo = BQRedshiftMigrationRepository(db)
         
@@ -1248,8 +1251,13 @@ async def update_migration(
         # Encrypt AWS secret key if provided
         aws_secret_encrypted = None
         if req.aws_secret_access_key:
-            encryption_service = get_encryption_service()
-            aws_secret_encrypted = encryption_service.encrypt(req.aws_secret_access_key)
+            encryption_service = get_kms_encryption_service()
+            encryption_context = {
+                'migration_id': str(migration_id),
+                'field': 'aws_secret_access_key',
+                'updated_at': datetime.utcnow().isoformat()
+            }
+            aws_secret_encrypted = encryption_service.encrypt(req.aws_secret_access_key, encryption_context)
         
         # Update only provided fields
         if req.migration_name is not None:

@@ -39,10 +39,42 @@ except ImportError:
 
 from database import get_db
 from models.connection import Connection, Base
+from services.kms_encryption_service import get_kms_encryption_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/connections", tags=["connections"])
+
+
+# Helper function to get decrypted connection params
+def get_decrypted_connection_params(connection: Connection) -> Dict[str, Any]:
+    """
+    Get decrypted connection parameters.
+    
+    Tries encrypted params first, falls back to unencrypted for backward compatibility.
+    """
+    # Try encrypted params first (new method)
+    if connection.connection_params_encrypted:
+        try:
+            kms_service = get_kms_encryption_service()
+            encryption_context = {
+                'connection_id': str(connection.id),
+                'field': 'connection_params'
+            }
+            params_json = kms_service.decrypt(
+                connection.connection_params_encrypted,
+                encryption_context
+            )
+            return json.loads(params_json)
+        except Exception as e:
+            logger.error(f"Failed to decrypt connection params for connection {connection.id}: {e}")
+            # Fall through to unencrypted params
+    
+    # Fall back to unencrypted params (backward compatibility)
+    if connection.connection_params:
+        return connection.connection_params
+    
+    return {}
 
 
 # Request Models
@@ -520,7 +552,7 @@ async def create_connection(request: CreateConnectionRequest, db: Session = Depe
             name=request.name,
             type=request.type,
             database=request.database,
-            connection_params=request.connection_params,  # TODO: Encrypt in production
+            connection_params=request.connection_params,  # Store unencrypted for now (backward compatibility)
             created_by=request.created_by,
             status=request.status,
             last_tested_at=last_tested_at,
@@ -529,6 +561,25 @@ async def create_connection(request: CreateConnectionRequest, db: Session = Depe
         )
         
         db.add(connection)
+        db.flush()  # Get the connection ID
+        
+        # Encrypt connection parameters with KMS
+        try:
+            logger.info(f"Encrypting connection parameters for connection {connection.id}")
+            kms_service = get_kms_encryption_service()
+            encryption_context = {
+                'connection_id': str(connection.id),
+                'field': 'connection_params',
+                'created_at': datetime.utcnow().isoformat()
+            }
+            params_json = json.dumps(request.connection_params)
+            connection.connection_params_encrypted = kms_service.encrypt(params_json, encryption_context)
+            logger.info(f"✓ Connection parameters encrypted successfully")
+        except Exception as e:
+            logger.error(f"Failed to encrypt connection parameters: {e}")
+            # Continue without encryption for backward compatibility
+            logger.warning("Connection created without encrypted parameters")
+        
         db.commit()
         db.refresh(connection)
         
@@ -719,11 +770,28 @@ async def update_connection(
         connection.name = request.name
         connection.type = request.type
         connection.database = request.database
-        connection.connection_params = request.connection_params  # TODO: Encrypt in production
+        connection.connection_params = request.connection_params  # Store unencrypted for backward compatibility
         connection.status = request.status
         if last_tested_at:
             connection.last_tested_at = last_tested_at
         connection.updated_at = datetime.utcnow()
+        
+        # Encrypt connection parameters with KMS
+        try:
+            logger.info(f"Encrypting connection parameters for connection {connection_id}")
+            kms_service = get_kms_encryption_service()
+            encryption_context = {
+                'connection_id': str(connection_id),
+                'field': 'connection_params',
+                'updated_at': datetime.utcnow().isoformat()
+            }
+            params_json = json.dumps(request.connection_params)
+            connection.connection_params_encrypted = kms_service.encrypt(params_json, encryption_context)
+            logger.info(f"✓ Connection parameters encrypted successfully")
+        except Exception as e:
+            logger.error(f"Failed to encrypt connection parameters: {e}")
+            # Continue without encryption for backward compatibility
+            logger.warning("Connection updated without encrypted parameters")
         
         db.commit()
         db.refresh(connection)

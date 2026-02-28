@@ -525,56 +525,47 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                 <path d="M8 6v4M8 11h.01" strokeLinecap="round" />
               </svg>
               <div>
-                <strong>AWS DataSync</strong>
+                <strong>AWS DataSync with GCP Agent</strong>
                 <p>
-                  Automated data transfer using AWS DataSync agent. Deploys an EC2 agent in your VPC
-                  to securely transfer data from GCS to S3 with automatic retry and delta sync capabilities.
+                  For private connectivity between GCS and S3, the AWS DataSync agent must be deployed 
+                  in GCP (as a Compute Engine VM). This enables secure, direct transfer from GCS to S3 
+                  without exposing data to the public internet.
+                </p>
+                <p style={{ marginTop: '8px', fontSize: '13px', color: '#666' }}>
+                  <strong>Note:</strong> You'll need to deploy the DataSync agent in your GCP project before starting the migration.
                 </p>
               </div>
             </div>
 
-            <div className="form-section">
-              <h4>AWS Infrastructure Configuration</h4>
+            <div className="form-section" style={{ marginTop: '24px' }}>
+              <h4>GCS Source</h4>
+              <p className="form-help" style={{ marginBottom: '16px' }}>
+                Specify the Google Cloud Storage bucket and path where BigQuery exported data is located.
+              </p>
               
               <div className="form-row">
                 <div className="form-section">
-                  <label className="form-label required">VPC Subnet ID</label>
+                  <label className="form-label required">GCS Bucket Name</label>
                   <Input
                     type="text"
-                    placeholder="subnet-0123456789abcdef0"
-                    value={formData.datasyncSubnetId || ''}
-                    onChange={(e) => updateFormData({ datasyncSubnetId: e.target.value })}
+                    placeholder="my-gcs-bucket"
+                    value={formData.gcsBucket || ''}
+                    onChange={(e) => updateFormData({ gcsBucket: e.target.value })}
                     required
                   />
-                  <p className="form-help">Private subnet for DataSync agent deployment</p>
+                  <p className="form-help">Source GCS bucket containing exported data</p>
                 </div>
 
                 <div className="form-section">
-                  <label className="form-label required">Security Group ID</label>
+                  <label className="form-label">GCS Prefix (Optional)</label>
                   <Input
                     type="text"
-                    placeholder="sg-0123456789abcdef0"
-                    value={formData.datasyncSecurityGroupId || ''}
-                    onChange={(e) => updateFormData({ datasyncSecurityGroupId: e.target.value })}
-                    required
+                    placeholder="exports/bigquery/"
+                    value={formData.gcsPrefix || ''}
+                    onChange={(e) => updateFormData({ gcsPrefix: e.target.value })}
                   />
-                  <p className="form-help">Security group for DataSync agent (allow HTTPS outbound)</p>
+                  <p className="form-help">Path prefix within GCS bucket (leave empty for root)</p>
                 </div>
-              </div>
-
-              <div className="form-section">
-                <label className="form-label">EC2 Instance Type</label>
-                <Select
-                  value={formData.datasyncInstanceType || 'm5.xlarge'}
-                  onChange={(value) => updateFormData({ datasyncInstanceType: String(value) })}
-                  options={[
-                    { value: 'm5.large', label: 'm5.large (2 vCPU, 8 GB RAM)' },
-                    { value: 'm5.xlarge', label: 'm5.xlarge (4 vCPU, 16 GB RAM) - Recommended' },
-                    { value: 'm5.2xlarge', label: 'm5.2xlarge (8 vCPU, 32 GB RAM)' },
-                    { value: 'm5.4xlarge', label: 'm5.4xlarge (16 vCPU, 64 GB RAM)' },
-                  ]}
-                />
-                <p className="form-help">Instance type for DataSync agent (larger for better performance)</p>
               </div>
             </div>
 

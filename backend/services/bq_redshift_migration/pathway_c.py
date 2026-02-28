@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from .checkpoint_manager import CheckpointManager
 from .manifest_handler import ManifestHandler
 from .gcs_to_s3_transfer import GCSToS3Transfer
+from services.kms_encryption_service import get_kms_encryption_service
 
 logger = logging.getLogger(__name__)
 
@@ -370,9 +371,13 @@ class PathwayC:
             self._log(migration_id, 'INFO', 'transfer', "Decrypting AWS secret access key...")
             logger.info("Decrypting AWS secret access key...")
             try:
-                from services.encryption_service import get_encryption_service
-                encryption_service = get_encryption_service()
-                aws_secret_access_key = encryption_service.decrypt(aws_secret_encrypted)
+                from services.kms_encryption_service import get_kms_encryption_service
+                encryption_service = get_kms_encryption_service()
+                encryption_context = {
+                    'migration_id': str(migration_id),
+                    'field': 'aws_secret_access_key'
+                }
+                aws_secret_access_key = encryption_service.decrypt(aws_secret_encrypted, encryption_context)
                 self._log(migration_id, 'INFO', 'transfer', "✓ AWS secret key decrypted successfully")
                 logger.info("✓ AWS secret key decrypted successfully")
             except Exception as e:
@@ -600,9 +605,13 @@ class PathwayC:
             # Decrypt AWS secret key
             logger.info("Decrypting AWS secret access key...")
             try:
-                from services.encryption_service import get_encryption_service
-                encryption_service = get_encryption_service()
-                aws_secret_access_key = encryption_service.decrypt(aws_secret_encrypted)
+                from services.kms_encryption_service import get_kms_encryption_service
+                encryption_service = get_kms_encryption_service()
+                encryption_context = {
+                    'migration_id': str(migration_id),
+                    'field': 'aws_secret_access_key'
+                }
+                aws_secret_access_key = encryption_service.decrypt(aws_secret_encrypted, encryption_context)
                 logger.info("✓ AWS secret key decrypted successfully")
             except Exception as e:
                 logger.error(f"✗ Failed to decrypt AWS secret key: {e}")
@@ -881,18 +890,27 @@ class PathwayC:
             logger.info("="*80)
             logger.info("DECRYPTING CREDENTIALS")
             logger.info("="*80)
-            encryption_service = get_encryption_service()
+            encryption_service = get_kms_encryption_service()
             
             try:
-                target_password = encryption_service.decrypt(password_encrypted)
+                encryption_context = {
+                    'connection_id': str(migration.target_connection_id),
+                    'field': 'password'
+                }
+                target_password = encryption_service.decrypt(password_encrypted, encryption_context)
                 logger.info("✓ Target password decrypted")
             except Exception as e:
                 logger.error(f"✗ Failed to decrypt target password: {e}")
                 return False
             
             try:
+                encryption_context = {
+                    'migration_id': str(migration_id),
+                    'field': 'aws_secret_access_key'
+                }
                 aws_secret_access_key = encryption_service.decrypt(
-                    migration.aws_secret_access_key_encrypted
+                    migration.aws_secret_access_key_encrypted,
+                    encryption_context
                 )
                 logger.info("✓ AWS secret key decrypted")
             except Exception as e:

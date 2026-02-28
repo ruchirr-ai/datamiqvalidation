@@ -1002,6 +1002,378 @@ const MLModelsSection: React.FC<any> = ({ mlModels, sparkModels, formatDate }) =
 // Continue in next part...
 
 // Query Insights Section Component with Time Filters and Charts
+const QueryInsightsSection: React.FC<any> = ({ queryStats, formatDate, formatNumber }) => {
+  const [timeFilter, setTimeFilter] = useState('all'); // all, 24h, 7d, 30d - matching User Insights
+
+  // Detect query type (read vs write)
+  const detectQueryType = (queryText: string | null): 'read' | 'write' => {
+    if (!queryText) return 'read';
+    const upperQuery = queryText.toUpperCase().trim();
+    const writeKeywords = ['INSERT', 'UPDATE', 'DELETE', 'MERGE', 'CREATE', 'DROP', 'ALTER', 'TRUNCATE'];
+    return writeKeywords.some(keyword => upperQuery.startsWith(keyword)) ? 'write' : 'read';
+  };
+
+  // Filter queries by time - matching User Insights logic
+  const filterQueriesByTime = (queries: any[]) => {
+    if (timeFilter === 'all') return queries;
+    
+    const now = new Date();
+    const cutoffTime = new Date();
+    
+    switch (timeFilter) {
+      case '24h':
+        cutoffTime.setHours(now.getHours() - 24);
+        break;
+      case '7d':
+        cutoffTime.setDate(now.getDate() - 7);
+        break;
+      case '30d':
+        cutoffTime.setDate(now.getDate() - 30);
+        break;
+      default:
+        return queries;
+    }
+
+    return queries.filter(q => {
+      if (!q.execution_time) return false;
+      const execTime = new Date(q.execution_time);
+      return execTime >= cutoffTime;
+    });
+  };
+
+  const filteredQueries = filterQueriesByTime(queryStats);
+
+  // Debug logging to understand data
+  React.useEffect(() => {
+    console.log('[Query Insights Debug]');
+    console.log('Total queryStats received:', queryStats?.length || 0);
+    console.log('After time filter:', filteredQueries.length);
+    console.log('Time filter:', timeFilter);
+    console.log('Unique users:', new Set(queryStats?.map((q: any) => q.user_email)).size);
+    console.log('Sample query data:', queryStats?.[0]);
+    if (filteredQueries.length > 0) {
+      console.log('Filtered sample:', filteredQueries[0]);
+    }
+  }, [queryStats, timeFilter, filteredQueries.length]);
+
+  // Calculate KPI metrics
+  const totalQueries = filteredQueries.length;
+  const readQueries = filteredQueries.filter(q => detectQueryType(q.query_text) === 'read').length;
+  const writeQueries = filteredQueries.filter(q => detectQueryType(q.query_text) === 'write').length;
+  
+  // Average execution time (using slot_milliseconds as proxy)
+  const avgExecutionTime = totalQueries > 0
+    ? filteredQueries.reduce((sum, q) => sum + (q.slot_milliseconds || 0), 0) / totalQueries
+    : 0;
+  
+  // Cache hit rate
+  const cacheHitRate = totalQueries > 0 
+    ? (filteredQueries.filter((q: any) => q.cache_hit).length / totalQueries * 100)
+    : 0;
+  
+  // Total bytes scanned
+  const totalBytesScanned = filteredQueries.reduce((sum: number, q: any) => sum + (q.bytes_scanned || 0), 0);
+  
+  // Read vs write percentages
+  const readPercentage = totalQueries > 0 ? ((readQueries / totalQueries) * 100) : 0;
+  const writePercentage = totalQueries > 0 ? ((writeQueries / totalQueries) * 100) : 0;
+
+  // Calculate hourly/daily aggregations based on time filter
+  const getHourlyStats = () => {
+    const statsData: { [key: string]: { 
+      label: string; 
+      queries: number; 
+      totalSlots: number; 
+      totalBytes: number; 
+      totalExecTime: number;
+      count: number;
+    } } = {};
+    
+    filteredQueries.forEach(q => {
+      if (!q.execution_time) return;
+      const date = new Date(q.execution_time);
+      
+      let label: string;
+      // Group by hour for 24h, by day for longer periods
+      if (timeFilter === '24h') {
+        // Group by hour for last 24 hours
+        label = `${date.getHours().toString().padStart(2, '0')}:00`;
+      } else {
+        // Group by date for 7d, 30d, all
+        label = `${(date.getMonth() + 1).toString().padStart(2, '0')}/${date.getDate().toString().padStart(2, '0')}`;
+      }
+      
+      if (!statsData[label]) {
+        statsData[label] = { label, queries: 0, totalSlots: 0, totalBytes: 0, totalExecTime: 0, count: 0 };
+      }
+      
+      statsData[label].queries++;
+      statsData[label].totalSlots += q.slot_milliseconds || 0;
+      statsData[label].totalBytes += q.bytes_scanned || 0;
+      statsData[label].totalExecTime += q.slot_milliseconds || 0;
+      statsData[label].count++;
+    });
+
+    // Calculate averages and return sorted
+    const result = Object.values(statsData).map(h => ({
+      label: h.label,
+      queries: h.queries,
+      avgSlotMs: h.count > 0 ? Math.round(h.totalSlots / h.count) : 0,
+      avgBytesScanned: h.count > 0 ? Math.round(h.totalBytes / h.count) : 0,
+      avgExecutionTime: h.count > 0 ? Math.round(h.totalExecTime / h.count) : 0,
+      totalSlots: h.totalSlots
+    })).sort((a, b) => a.label.localeCompare(b.label));
+    
+    // Limit to reasonable number of bars for display
+    if (result.length > 24) {
+      // For very long periods, show only last 24 data points
+      return result.slice(-24);
+    }
+    
+    return result;
+  };
+
+  const hourlyStats = getHourlyStats();
+
+  // Format time duration
+  const formatDuration = (ms: number): string => {
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
+    return `${(ms / 60000).toFixed(2)}m`;
+  };
+
+  // Format bytes
+  const formatBytes = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)}KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)}MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}GB`;
+  };
+
+  return (
+    <div className="section-content">
+      <div className="query-insights-header">
+        <h2 className="section-heading">Query Insights</h2>
+        
+        {/* Time Filter Dropdown */}
+        <div className="time-filter-dropdown">
+          <select 
+            className="filter-select"
+            value={timeFilter}
+            onChange={(e) => setTimeFilter(e.target.value)}
+          >
+            <option value="all">All Time</option>
+            <option value="24h">Last 24 Hours</option>
+            <option value="7d">Last 7 Days</option>
+            <option value="30d">Last 30 Days</option>
+          </select>
+        </div>
+      </div>
+
+      {filteredQueries.length === 0 ? (
+        <div className="empty-state">
+          <Activity size={48} />
+          <p>No query statistics found for selected time period</p>
+        </div>
+      ) : (
+        <>
+          {/* KPI Tiles */}
+          <div className="kpi-tiles">
+            <div className="kpi-tile">
+              <div className="kpi-icon">
+                <Activity size={24} />
+              </div>
+              <div className="kpi-content">
+                <div className="kpi-label">Total Queries</div>
+                <div className="kpi-value">{formatNumber(totalQueries)}</div>
+                <div className="kpi-subtitle">
+                  {readQueries} read · {writeQueries} write
+                </div>
+              </div>
+            </div>
+            
+            <div className="kpi-tile">
+              <div className="kpi-icon">
+                <Brain size={24} />
+              </div>
+              <div className="kpi-content">
+                <div className="kpi-label">Avg Execution Time</div>
+                <div className="kpi-value">{formatDuration(avgExecutionTime)}</div>
+                <div className="kpi-subtitle">
+                  Per query average
+                </div>
+              </div>
+            </div>
+            
+            <div className="kpi-tile">
+              <div className="kpi-icon">
+                <TrendingUp size={24} />
+              </div>
+              <div className="kpi-content">
+                <div className="kpi-label">Cache Hit Rate</div>
+                <div className="kpi-value">{cacheHitRate.toFixed(1)}%</div>
+                <div className="kpi-subtitle">
+                  {filteredQueries.filter(q => q.cache_hit).length} cached queries
+                </div>
+              </div>
+            </div>
+            
+            <div className="kpi-tile">
+              <div className="kpi-icon">
+                <Database size={24} />
+              </div>
+              <div className="kpi-content">
+                <div className="kpi-label">Total Bytes Scanned</div>
+                <div className="kpi-value">{formatBytes(totalBytesScanned)}</div>
+                <div className="kpi-subtitle">
+                  Avg: {formatBytes(totalQueries > 0 ? totalBytesScanned / totalQueries : 0)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Charts Row */}
+          <div className="charts-row">
+            {/* Read vs Write Pie Chart */}
+            <div className="chart-card">
+              <h3 className="chart-title">Query Type Distribution</h3>
+              <div className="pie-chart-wrapper">
+                <svg viewBox="0 0 200 200" className="pie-chart">
+                  {totalQueries > 0 && (
+                    <>
+                      {/* Read slice */}
+                      <circle
+                        cx="100"
+                        cy="100"
+                        r="70"
+                        fill="none"
+                        stroke="#4CAF50"
+                        strokeWidth="50"
+                        strokeDasharray={`${(readQueries / totalQueries) * 439.82} 439.82`}
+                        transform="rotate(-90 100 100)"
+                      />
+                      {/* Write slice */}
+                      <circle
+                        cx="100"
+                        cy="100"
+                        r="70"
+                        fill="none"
+                        stroke="#2A6BDB"
+                        strokeWidth="50"
+                        strokeDasharray={`${(writeQueries / totalQueries) * 439.82} 439.82`}
+                        strokeDashoffset={`-${(readQueries / totalQueries) * 439.82}`}
+                        transform="rotate(-90 100 100)"
+                      />
+                      {/* Center text */}
+                      <text x="100" y="95" textAnchor="middle" className="pie-center-text">
+                        {totalQueries}
+                      </text>
+                      <text x="100" y="110" textAnchor="middle" className="pie-center-label">
+                        queries
+                      </text>
+                    </>
+                  )}
+                </svg>
+                <div className="pie-legend">
+                  <div className="legend-item">
+                    <span className="legend-dot" style={{ background: '#4CAF50' }}></span>
+                    <span className="legend-text">Read: {readQueries} ({readPercentage.toFixed(1)}%)</span>
+                  </div>
+                  <div className="legend-item">
+                    <span className="legend-dot" style={{ background: '#2A6BDB' }}></span>
+                    <span className="legend-text">Write: {writeQueries} ({writePercentage.toFixed(1)}%)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Hourly Activity Chart */}
+            <div className="chart-card chart-card-wide">
+              <h3 className="chart-title">
+                {timeFilter === '24h' ? 'Hourly Query Activity' : 'Daily Query Activity'}
+              </h3>
+              {hourlyStats.length > 0 ? (
+                <div className="multi-bar-chart">
+                  <div className="chart-y-axis">
+                    <span className="y-label">Queries</span>
+                  </div>
+                  <div className="chart-bars">
+                    {hourlyStats.map((stat, idx) => {
+                      const maxQueries = Math.max(...hourlyStats.map(s => s.queries), 1);
+                      const queryHeight = (stat.queries / maxQueries) * 100;
+                      
+                      return (
+                        <div key={idx} className="bar-group" title={`${stat.label}\nQueries: ${stat.queries}\nAvg Exec: ${formatDuration(stat.avgExecutionTime)}\nSlots: ${formatNumber(stat.totalSlots)}ms`}>
+                          <div className="bar-stack">
+                            <div className="bar bar-primary" style={{ height: `${queryHeight}%` }}>
+                              {stat.queries > 0 && <span className="bar-value">{stat.queries}</span>}
+                            </div>
+                          </div>
+                          <div className="bar-label">{stat.label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="chart-empty">No activity data available</div>
+              )}
+            </div>
+          </div>
+
+          {/* Query List */}
+          <div className="query-list-section">
+            <h3 className="subsection-heading">Recent Queries (Top 50)</h3>
+            <div className="queries-table-container">
+              <table className="queries-table">
+                <thead>
+                  <tr>
+                    <th>Query User</th>
+                    <th>Execution Time</th>
+                    <th>Data Scanned</th>
+                    <th>Cache Status</th>
+                    <th>Query Slots Utilised</th>
+                    <th>Query Start Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredQueries.slice(0, 50).map((query: any, index: number) => {
+                    const startTime = query.execution_time ? new Date(query.execution_time) : null;
+                    
+                    return (
+                      <tr key={index}>
+                        <td className="query-user-cell">
+                          <span className="text-sm">{query.user_email || 'Unknown'}</span>
+                        </td>
+                        <td className="execution-time-cell">
+                          <span className="text-sm">{formatDuration(query.slot_milliseconds || 0)}</span>
+                        </td>
+                        <td className="data-scanned-cell">
+                          <span className="text-sm">{formatBytes(query.bytes_scanned || 0)}</span>
+                        </td>
+                        <td className="cache-status-cell">
+                          <Badge variant={query.cache_hit ? 'success' : 'default'}>
+                            {query.cache_hit ? 'Cache' : 'Non-Cache'}
+                          </Badge>
+                        </td>
+                        <td className="slots-cell">
+                          <span className="text-sm">{formatNumber(query.slot_milliseconds || 0)}ms</span>
+                        </td>
+                        <td className="start-time-cell">
+                          <span className="text-sm">{startTime ? formatDate(startTime) : 'N/A'}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
 
 // User Insights Section Component
 const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
