@@ -1038,9 +1038,10 @@ class PathwayB:
                 self.log_callback(migration_id, "INFO", "transfer",
                     f"Using DataSync agent VM at: {agent_ip}")
             
-            # Load checkpoint data to check for saved agent/location ARNs
+            # Load checkpoint data to check for saved location ARNs
             from database import get_db
             from models.bq_redshift_migration import MigrationBQRedshift
+            from models.datasync_agent import DataSyncAgent
             _db = next(get_db())
             try:
                 _mig = _db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
@@ -1048,18 +1049,14 @@ class PathwayB:
             finally:
                 _db.close()
             
-            saved_agent_arn = _cp.get("datasync_agent_arn")
             saved_source_arn = _cp.get("datasync_source_location_arn")
             saved_dest_arn = _cp.get("datasync_dest_location_arn")
             
-            # Step 2: Resolve agent ARN — check registry, checkpoint, or activate new
-            agent_arn = self._resolve_agent_arn(
-                migration_id=migration_id,
-                agent=agent,
-                agent_ip=agent_ip,
-                aws_region=aws_region,
-                saved_agent_arn=saved_agent_arn,
+            # Step 2: Get or create agent using shared registry (one agent per VM IP)
+            agent_arn = self._get_or_create_agent(
+                migration_id, agent, agent_ip, aws_region
             )
+            agent.agent_arn = agent_arn
             
             # Step 3: Create source location (GCS) (or reuse saved)
             if saved_source_arn:
@@ -1097,25 +1094,22 @@ class PathwayB:
             
             # Handle agent offline — clear saved ARNs, re-activate, and retry once
             if result.get("status") == "agent_offline":
-                logger.warning("Agent is offline — re-activating agent")
+                logger.warning("Agent is offline — re-activating via registry")
                 if self.log_callback:
                     self.log_callback(migration_id, "WARNING", "transfer",
                         "DataSync agent is offline. Re-activating...")
                 
-                # Clear checkpoint and registry, then re-activate
+                # Clear location ARNs from checkpoint (they're tied to the old agent)
                 self._save_checkpoint(migration_id, {
-                    "datasync_agent_arn": None,
                     "datasync_source_location_arn": None,
                     "datasync_dest_location_arn": None,
                 })
                 
-                # Force re-activation (clears registry for this IP too)
-                agent_arn = self._activate_and_register_agent(
-                    migration_id=migration_id,
-                    agent=agent,
-                    agent_ip=agent_ip,
-                    aws_region=aws_region,
+                # Force re-activate via registry
+                agent_arn = self._get_or_create_agent(
+                    migration_id, agent, agent_ip, aws_region, force_reactivate=True
                 )
+                agent.agent_arn = agent_arn
                 
                 # Re-create locations with new agent
                 gcs_subdir = f"/{gcs_path}" if gcs_path else "/"
@@ -1137,7 +1131,7 @@ class PathwayB:
                 
                 # Retry the task
                 if self.log_callback:
-                    self.log_callback(migration_id, "INFO", "transfer", "Retrying DataSync task with new agent...")
+                    self.log_callback(migration_id, "INFO", "transfer", "Retrying DataSync task with re-activated agent...")
                 result = agent.create_and_run_task(
                     source_location_arn=source_arn,
                     dest_location_arn=dest_arn,
@@ -1376,148 +1370,110 @@ class PathwayB:
         finally:
             db.close()
     
-    def _resolve_agent_arn(
+    def _get_or_create_agent(
         self,
         migration_id: int,
         agent: 'GCPDataSyncAgent',
-        agent_ip: str,
+        vm_ip: str,
         aws_region: str,
-        saved_agent_arn: Optional[str] = None,
+        force_reactivate: bool = False,
     ) -> str:
         """
-        Resolve the DataSync agent ARN for a given VM IP.
+        Look up the VM IP in the datasync_agents registry.
+        If an agent ARN exists and is usable, return it.
+        Otherwise activate a new agent and save to registry.
         
-        Priority:
-        1. Migration checkpoint (saved_agent_arn) — fastest, already verified for this migration
-        2. Agent registry (datasync_agents table) — shared across migrations, verify it's online
-        3. Activate new agent — last resort, creates a new agent registration
-        
-        Returns:
-            Agent ARN
-        """
-        from database import get_db
-        from models.datasync_agent import DataSyncAgent
-        
-        # 1. Check migration checkpoint first
-        if saved_agent_arn:
-            # Verify it's still online
-            if self._verify_agent_online(agent, saved_agent_arn):
-                agent.agent_arn = saved_agent_arn
-                logger.info(f"Reusing agent from checkpoint: {saved_agent_arn}")
-                if self.log_callback:
-                    self.log_callback(migration_id, "INFO", "transfer",
-                        f"Reusing previously activated agent: {saved_agent_arn}")
-                return saved_agent_arn
-            else:
-                logger.warning(f"Agent from checkpoint is offline: {saved_agent_arn}")
-        
-        # 2. Check agent registry by VM IP
-        db = next(get_db())
-        try:
-            registry_entry = db.query(DataSyncAgent).filter_by(
-                vm_ip=agent_ip, aws_region=aws_region, is_active=True
-            ).first()
+        Args:
+            migration_id: For logging
+            agent: GCPDataSyncAgent instance (used to activate)
+            vm_ip: IP address of the DataSync agent VM
+            aws_region: AWS region
+            force_reactivate: If True, skip registry lookup and re-activate
             
-            if registry_entry:
-                logger.info(f"Found agent in registry for VM {agent_ip}: {registry_entry.agent_arn}")
-                if self._verify_agent_online(agent, registry_entry.agent_arn):
-                    agent.agent_arn = registry_entry.agent_arn
-                    # Update last_verified_at
-                    registry_entry.last_verified_at = datetime.utcnow()
-                    db.commit()
-                    # Save to this migration's checkpoint too
-                    self._save_checkpoint(migration_id, {"datasync_agent_arn": registry_entry.agent_arn})
-                    if self.log_callback:
-                        self.log_callback(migration_id, "INFO", "transfer",
-                            f"Reusing registered agent for VM {agent_ip}: {registry_entry.agent_arn}")
-                    return registry_entry.agent_arn
-                else:
-                    logger.warning(f"Registered agent for VM {agent_ip} is offline, will re-activate")
-                    registry_entry.is_active = False
-                    db.commit()
-        finally:
-            db.close()
-        
-        # 3. Activate new agent
-        return self._activate_and_register_agent(
-            migration_id=migration_id,
-            agent=agent,
-            agent_ip=agent_ip,
-            aws_region=aws_region,
-        )
-    
-    def _activate_and_register_agent(
-        self,
-        migration_id: int,
-        agent: 'GCPDataSyncAgent',
-        agent_ip: str,
-        aws_region: str,
-    ) -> str:
-        """
-        Activate a new DataSync agent and register it in the database.
-        
         Returns:
-            Agent ARN
+            Agent ARN string
         """
         from database import get_db
         from models.datasync_agent import DataSyncAgent
         
+        # Step 1: Check registry (unless forced)
+        if not force_reactivate:
+            db = next(get_db())
+            try:
+                existing = db.query(DataSyncAgent).filter_by(vm_ip=vm_ip).first()
+                if existing:
+                    logger.info(f"Found agent in registry: {existing.agent_arn} (status={existing.status})")
+                    
+                    # Verify agent is still reachable by describing it
+                    try:
+                        resp = agent.datasync_client.describe_agent(AgentArn=existing.agent_arn)
+                        status = resp.get("Status", "UNKNOWN")
+                        
+                        if status == "ONLINE":
+                            logger.info(f"Agent {existing.agent_arn} is ONLINE — reusing")
+                            existing.status = "online"
+                            existing.last_used_at = datetime.utcnow()
+                            db.commit()
+                            
+                            if self.log_callback:
+                                self.log_callback(migration_id, "INFO", "transfer",
+                                    f"Reusing registered agent for VM {vm_ip}: {existing.agent_arn}")
+                            return existing.agent_arn
+                        else:
+                            logger.warning(f"Agent {existing.agent_arn} status is {status} — will re-activate")
+                            existing.status = "offline"
+                            db.commit()
+                    except Exception as e:
+                        logger.warning(f"Could not verify agent {existing.agent_arn}: {e} — will re-activate")
+            finally:
+                db.close()
+        
+        # Step 2: Activate new agent
         if self.log_callback:
             self.log_callback(migration_id, "INFO", "transfer",
-                f"Getting activation key from DataSync agent at {agent_ip}...")
-        activation_key = agent.get_activation_key(agent_ip)
-        self._save_checkpoint(migration_id, {"datasync_activation_key": activation_key})
+                f"Activating DataSync agent on VM {vm_ip}...")
+        
+        logger.info(f"Getting activation key from {vm_ip}")
+        activation_key = agent.get_activation_key(vm_ip)
         
         if self.log_callback:
             self.log_callback(migration_id, "INFO", "transfer",
-                "Activating agent with AWS DataSync service...")
+                "Registering agent with AWS DataSync service...")
+        
         agent_arn = agent.activate_agent(activation_key)
+        logger.info(f"Agent activated: {agent_arn}")
         
-        # Save to migration checkpoint
-        self._save_checkpoint(migration_id, {"datasync_agent_arn": agent_arn})
+        if self.log_callback:
+            self.log_callback(migration_id, "INFO", "transfer",
+                f"Agent activated: {agent_arn}")
         
-        # Save/update in agent registry
+        # Step 3: Save to registry (upsert)
         db = next(get_db())
         try:
-            existing = db.query(DataSyncAgent).filter_by(vm_ip=agent_ip).first()
+            existing = db.query(DataSyncAgent).filter_by(vm_ip=vm_ip).first()
             if existing:
                 existing.agent_arn = agent_arn
                 existing.aws_region = aws_region
-                existing.is_active = True
-                existing.last_verified_at = datetime.utcnow()
+                existing.status = "online"
+                existing.last_used_at = datetime.utcnow()
+                logger.info(f"Updated agent registry: {vm_ip} -> {agent_arn}")
             else:
-                new_entry = DataSyncAgent(
-                    vm_ip=agent_ip,
+                new_agent = DataSyncAgent(
+                    vm_ip=vm_ip,
                     agent_arn=agent_arn,
                     aws_region=aws_region,
-                    is_active=True,
-                    last_verified_at=datetime.utcnow(),
+                    status="online",
                 )
-                db.add(new_entry)
+                db.add(new_agent)
+                logger.info(f"Added to agent registry: {vm_ip} -> {agent_arn}")
             db.commit()
-            logger.info(f"Agent registered in DB: VM {agent_ip} → {agent_arn}")
-        except Exception as e:
-            logger.warning(f"Failed to save agent to registry (non-fatal): {e}")
-            db.rollback()
         finally:
             db.close()
         
-        if self.log_callback:
-            self.log_callback(migration_id, "INFO", "transfer",
-                f"Agent activated and registered: {agent_arn}")
+        # Also save to migration checkpoint for backward compatibility
+        self._save_checkpoint(migration_id, {"datasync_agent_arn": agent_arn})
         
         return agent_arn
-    
-    def _verify_agent_online(self, agent: 'GCPDataSyncAgent', agent_arn: str) -> bool:
-        """Check if a DataSync agent is online by calling describe_agent."""
-        try:
-            response = agent.datasync_client.describe_agent(AgentArn=agent_arn)
-            status = response.get("Status", "OFFLINE")
-            logger.info(f"Agent {agent_arn} status: {status}")
-            return status == "ONLINE"
-        except Exception as e:
-            logger.warning(f"Failed to verify agent {agent_arn}: {e}")
-            return False
     
     def _decrypt_gcs_secret(self, storage_config: Dict, migration_id: int) -> Optional[str]:
         """Decrypt GCS HMAC secret key."""
