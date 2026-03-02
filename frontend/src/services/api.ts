@@ -3,7 +3,20 @@
  * Centralized API client with authentication and error handling
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const getApiBaseUrl = () => {
+  if (import.meta.env.VITE_API_URL !== undefined && import.meta.env.VITE_API_URL !== '') {
+    return import.meta.env.VITE_API_URL;
+  }
+  // In production (served via nginx), use relative URLs (empty base)
+  // In dev (localhost:3000/5173), point to backend on port 8000
+  const hostname = window.location.hostname;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:8000';
+  }
+  return '';  // nginx proxies /api/ to backend
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export interface ApiError {
   message: string;
