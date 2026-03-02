@@ -365,7 +365,8 @@ async def test_s3_to_redshift_load(
             port=port,
             database=database,
             user=username,
-            password=password
+            password=password,
+            sslmode='require'
         )
         cursor = conn.cursor()
         

@@ -370,9 +370,15 @@ class PathwayC:
             self._log(migration_id, 'INFO', 'transfer', "Decrypting AWS secret access key...")
             logger.info("Decrypting AWS secret access key...")
             try:
-                from services.encryption_service import get_encryption_service
-                encryption_service = get_encryption_service()
-                aws_secret_access_key = encryption_service.decrypt(aws_secret_encrypted)
+                from services.unified_kms_service import get_unified_kms_service
+                kms = get_unified_kms_service()
+                aws_secret_access_key = kms.decrypt_credential(
+                    ciphertext=aws_secret_encrypted,
+                    credential_type='aws_secret_key',
+                    resource_type='migration',
+                    resource_id=migration_id,
+                    allow_plaintext_fallback=True
+                )
                 self._log(migration_id, 'INFO', 'transfer', "✓ AWS secret key decrypted successfully")
                 logger.info("✓ AWS secret key decrypted successfully")
             except Exception as e:
@@ -600,9 +606,15 @@ class PathwayC:
             # Decrypt AWS secret key
             logger.info("Decrypting AWS secret access key...")
             try:
-                from services.encryption_service import get_encryption_service
-                encryption_service = get_encryption_service()
-                aws_secret_access_key = encryption_service.decrypt(aws_secret_encrypted)
+                from services.unified_kms_service import get_unified_kms_service
+                kms = get_unified_kms_service()
+                aws_secret_access_key = kms.decrypt_credential(
+                    ciphertext=aws_secret_encrypted,
+                    credential_type='aws_secret_key',
+                    resource_type='migration',
+                    resource_id=migration_id,
+                    allow_plaintext_fallback=True
+                )
                 logger.info("✓ AWS secret key decrypted successfully")
             except Exception as e:
                 logger.error(f"✗ Failed to decrypt AWS secret key: {e}")
@@ -800,6 +812,7 @@ class PathwayC:
             migration = db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
             if not migration:
                 logger.error(f"Migration {migration_id} not found")
+                self._log(migration_id, 'ERROR', 'load', f"Migration {migration_id} not found in database")
                 return False
             
             checkpoint_data = migration.checkpoint_data or {}
@@ -808,12 +821,14 @@ class PathwayC:
             if not export_results:
                 logger.error("No export results found in checkpoint data")
                 logger.error("Export stage must complete before load stage")
+                self._log(migration_id, 'ERROR', 'load', "No export results found in checkpoint data — export stage must complete first")
                 return False
             
             # Filter successful exports
             successful_exports = [r for r in export_results if r.get('success')]
             if not successful_exports:
                 logger.error("No successful exports found")
+                self._log(migration_id, 'ERROR', 'load', "No successful exports found in checkpoint data")
                 return False
             
             logger.info(f"Found {len(successful_exports)} successfully exported tables")
@@ -825,11 +840,13 @@ class PathwayC:
             
             if not migration.target_connection_id:
                 logger.error("No target connection ID set in migration")
+                self._log(migration_id, 'ERROR', 'load', "No target connection ID set in migration")
                 return False
             
             target_conn = db.query(Connection).filter_by(id=migration.target_connection_id).first()
             if not target_conn:
                 logger.error(f"Target connection {migration.target_connection_id} not found")
+                self._log(migration_id, 'ERROR', 'load', f"Target connection {migration.target_connection_id} not found")
                 return False
             
             logger.info(f"✓ Found target connection: {target_conn.name}")
@@ -849,6 +866,7 @@ class PathwayC:
             if not redshift_host:
                 logger.error("Redshift host not found in connection params")
                 logger.error(f"Available params: {list(conn_params.keys())}")
+                self._log(migration_id, 'ERROR', 'load', f"Redshift host not found in connection params. Available: {list(conn_params.keys())}")
                 return False
             
             # Handle different field name variations for database
@@ -861,43 +879,70 @@ class PathwayC:
             # Get other connection details
             redshift_port = int(conn_params.get('port', 5439))
             redshift_user = conn_params.get('username')
+            
+            # Handle both encrypted and unencrypted passwords (backward compatibility)
             password_encrypted = conn_params.get('password_encrypted')
+            password_plain = conn_params.get('password')
             
             # Validate required fields
             if not redshift_user:
                 logger.error("Redshift username not found in connection params")
+                self._log(migration_id, 'ERROR', 'load', "Redshift username not found in connection params")
                 return False
             
-            if not password_encrypted:
+            if not password_encrypted and not password_plain:
                 logger.error("Redshift password not found in connection params")
+                logger.error("Expected either 'password_encrypted' or 'password' field")
+                self._log(migration_id, 'ERROR', 'load', "Redshift password not found in connection params")
                 return False
             
             if not migration.iam_role_arn:
                 logger.error("IAM role ARN not specified in migration")
                 logger.error("IAM role is required for Redshift to access S3")
+                self._log(migration_id, 'ERROR', 'load', "IAM role ARN not specified — required for Redshift to access S3")
                 return False
             
             # Decrypt credentials
             logger.info("="*80)
             logger.info("DECRYPTING CREDENTIALS")
             logger.info("="*80)
-            encryption_service = get_encryption_service()
+            from services.unified_kms_service import get_unified_kms_service
+            kms = get_unified_kms_service()
             
-            try:
-                target_password = encryption_service.decrypt(password_encrypted)
-                logger.info("✓ Target password decrypted")
-            except Exception as e:
-                logger.error(f"✗ Failed to decrypt target password: {e}")
-                return False
+            # Decrypt target password (if encrypted)
+            if password_encrypted:
+                try:
+                    target_password = kms.decrypt_credential(
+                        ciphertext=password_encrypted,
+                        credential_type='connection_password',
+                        resource_type='connection',
+                        resource_id=migration.target_connection_id,
+                        allow_plaintext_fallback=True
+                    )
+                    logger.info("✓ Target password decrypted")
+                except Exception as e:
+                    logger.error(f"✗ Failed to decrypt target password: {e}")
+                    return False
+            else:
+                # Use plain password (backward compatibility)
+                target_password = password_plain
+                logger.info("✓ Using plain text password (not encrypted)")
             
+            # Decrypt AWS secret key
             try:
-                aws_secret_access_key = encryption_service.decrypt(
-                    migration.aws_secret_access_key_encrypted
+                aws_secret_access_key = kms.decrypt_credential(
+                    ciphertext=migration.aws_secret_access_key_encrypted,
+                    credential_type='aws_secret_key',
+                    resource_type='migration',
+                    resource_id=migration_id,
+                    allow_plaintext_fallback=True
                 )
                 logger.info("✓ AWS secret key decrypted")
             except Exception as e:
-                logger.error(f"✗ Failed to decrypt AWS secret key: {e}")
-                return False
+                # Fallback: try using the value as-is (dev mode without KMS)
+                logger.warning(f"KMS decryption failed, using value as-is (dev mode): {e}")
+                aws_secret_access_key = migration.aws_secret_access_key_encrypted
+                logger.info("✓ Using AWS secret key without decryption (dev mode)")
             
             # Get project ID and dataset for naming convention
             project_id = migration.source_project_id
@@ -958,6 +1003,7 @@ class PathwayC:
             if not loader.connect():
                 logger.error("Failed to connect to Redshift")
                 logger.error("Check cluster endpoint, credentials, and network access")
+                self._log(migration_id, 'ERROR', 'load', f"Failed to connect to Redshift at {redshift_host}:{redshift_port}/{redshift_database}")
                 return False
             
             logger.info("✓ Connected to Redshift")
@@ -987,6 +1033,7 @@ class PathwayC:
                         logger.info(f"✓ Database '{database_name}' created successfully")
             except Exception as e:
                 logger.error(f"✗ Failed to create database: {e}")
+                self._log(migration_id, 'ERROR', 'load', f"Failed to create Redshift database '{database_name}': {e}")
                 loader.disconnect()
                 return False
             
@@ -1001,6 +1048,7 @@ class PathwayC:
             loader.redshift_database = database_name
             if not loader.connect():
                 logger.error(f"Failed to connect to database '{database_name}'")
+                self._log(migration_id, 'ERROR', 'load', f"Failed to reconnect to Redshift database '{database_name}'")
                 return False
             
             logger.info(f"✓ Connected to database '{database_name}'")
@@ -1017,6 +1065,7 @@ class PathwayC:
                     logger.info(f"✓ Schema '{schema_name}' ready")
             except Exception as e:
                 logger.error(f"✗ Failed to create schema: {e}")
+                self._log(migration_id, 'ERROR', 'load', f"Failed to create Redshift schema '{schema_name}': {e}")
                 loader.disconnect()
                 return False
             
@@ -1030,6 +1079,11 @@ class PathwayC:
             failed_loads = 0
             total_rows_loaded = 0
             
+            # Get per-table load configs
+            table_load_configs = migration.table_load_configs or {}
+            global_load_type = storage_config.get('load_type', 'full')
+            global_pk_column = storage_config.get('primary_key_column', '')
+            
             for i, export_result in enumerate(successful_exports, 1):
                 # Extract table name from full table reference
                 table_ref = export_result.get('table', '')
@@ -1042,6 +1096,11 @@ class PathwayC:
                     logger.warning(f"Skipping table {table_name} - no schema found")
                     continue
                 
+                # Resolve per-table config (fall back to global defaults)
+                table_config = table_load_configs.get(table_name, {})
+                effective_load_type = table_config.get('load_type', global_load_type)
+                effective_pk_column = table_config.get('primary_key_column', global_pk_column) or None
+                
                 logger.info("")
                 logger.info("="*80)
                 logger.info(f"TABLE {i}/{len(successful_exports)}: {table_name}")
@@ -1049,6 +1108,7 @@ class PathwayC:
                 logger.info(f"BigQuery Source: {project_id}.{dataset_name}.{table_name}")
                 logger.info(f"Redshift Target: {database_name}.{schema_name}.{table_name}")
                 logger.info(f"Columns: {len(columns)}")
+                logger.info(f"Load Type: {effective_load_type}, PK: {effective_pk_column or 'N/A'}")
                 
                 # Construct S3 prefix for this table
                 # S3 structure: bucket/path/dataset/table/files
@@ -1067,7 +1127,10 @@ class PathwayC:
                     s3_prefix=table_s3_prefix,
                     columns=columns,
                     file_format=storage_config.get('export_format', 'PARQUET'),
-                    compression=storage_config.get('compression')
+                    compression=storage_config.get('compression'),
+                    truncate_before_load=storage_config.get('truncate_before_load', False),
+                    load_type=effective_load_type,
+                    primary_key_column=effective_pk_column
                 )
                 
                 load_results.append({
@@ -1100,6 +1163,19 @@ class PathwayC:
                 logger.error(f"Failed loads: {failed_loads}")
                 logger.error("Check error logs above for details")
                 logger.error("="*80)
+                # Build error summary from load_results
+                error_summary = "; ".join([f"{r['table']}: {r.get('error', 'unknown')}" for r in load_results if not r.get('success')])
+                self._log(migration_id, 'ERROR', 'load', f"No tables loaded successfully. {failed_loads} failed: {error_summary}")
+                
+                # Log detailed stl_load_errors if available
+                for r in load_results:
+                    if not r.get('success') and r.get('error_details'):
+                        for err in r['error_details'][:3]:
+                            self._log(migration_id, 'ERROR', 'load',
+                                f"stl_load_errors for {r['table']}: col={err.get('column_name')}, "
+                                f"err={err.get('error_message')}, line={err.get('line_number')}, "
+                                f"raw={str(err.get('raw_line', ''))[:200]}")
+                
                 return False
             
             # Save checkpoint
@@ -1141,9 +1217,13 @@ class PathwayC:
             logger.error(f"Error Message: {str(e)}")
             
             import traceback
+            tb = traceback.format_exc()
             logger.error("Full Traceback:")
-            logger.error(traceback.format_exc())
+            logger.error(tb)
             logger.error("="*80)
+            
+            # Log to DB so error appears in UI
+            self._log(migration_id, 'ERROR', 'load', f"Load stage failed: {type(e).__name__}: {str(e)}")
             
             return False
     

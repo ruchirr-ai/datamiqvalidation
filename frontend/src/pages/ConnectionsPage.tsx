@@ -23,6 +23,15 @@ export const ConnectionsPage: React.FC = () => {
   const [testResult, setTestResult] = useState<{ connectionId: number; success: boolean; message: string; details?: any } | null>(null);
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   // Fetch connections on mount
   useEffect(() => {
@@ -227,10 +236,10 @@ export const ConnectionsPage: React.FC = () => {
       await fetchConnections();
       
       // Show success message
-      alert(`${type} connection created successfully!`);
+      setToast({ message: `${type} connection created`, type: 'success' });
     } catch (error: any) {
       console.error('Failed to create connection:', error);
-      alert(`Failed to create connection: ${error.detail || error.message}`);
+      setToast({ message: `Failed to create connection: ${error.detail || error.message}`, type: 'error' });
       throw error; // Re-throw so modal can handle it
     }
   };
@@ -272,7 +281,7 @@ export const ConnectionsPage: React.FC = () => {
       setDeleteConfirmId(null);
     } catch (error: any) {
       console.error('Failed to delete connection:', error);
-      alert(`Failed to delete connection: ${error.detail || error.message}`);
+      setToast({ message: `Failed to delete connection: ${error.detail || error.message}`, type: 'error' });
     }
   };
 
@@ -311,10 +320,10 @@ export const ConnectionsPage: React.FC = () => {
       setEditingConnection(null);
       
       // Show success message
-      alert(`Connection updated successfully!`);
+      setToast({ message: 'Connection updated', type: 'success' });
     } catch (error: any) {
       console.error('Failed to update connection:', error);
-      alert(`Failed to update connection: ${error.detail || error.message}`);
+      setToast({ message: `Failed to update connection: ${error.detail || error.message}`, type: 'error' });
       throw error; // Re-throw so modal can handle it
     }
   };
@@ -329,8 +338,10 @@ export const ConnectionsPage: React.FC = () => {
         c.id === connection.id ? { ...c, status: 'testing' } : c
       ));
       
-      console.log('Testing connection:', connection.database, connection.connection_params);
-      const result = await testConnection(connection.database, connection.connection_params);
+      console.log('Testing connection by ID:', connection.id);
+      
+      // Use the new endpoint that tests by ID (handles decryption server-side)
+      const result = await api.post<any>(`/api/connections/${connection.id}/test`, {});
       console.log('Test result:', result);
       
       // Store test result for display
@@ -341,20 +352,9 @@ export const ConnectionsPage: React.FC = () => {
         details: result.details
       });
       
-      // Update connection status in backend
-      const statusUpdate = {
-        status: result.success ? 'connected' : 'disconnected',
-        last_tested_at: new Date().toISOString()
-      };
-      console.log('Updating status in backend:', statusUpdate);
-      
-      const updatedConnection = await api.put<Connection>(`/api/connections/${connection.id}/status`, statusUpdate);
-      console.log('Backend response:', updatedConnection);
-      
-      // Update local state immediately with the backend response
-      setConnections(prev => prev.map(c => 
-        c.id === connection.id ? updatedConnection : c
-      ));
+      // The backend endpoint already updates the status, so just refresh the connection
+      // Fetch the updated connection from the backend
+      await fetchConnections();
       
     } catch (error: any) {
       console.error('Failed to test connection:', error);
@@ -751,6 +751,21 @@ export const ConnectionsPage: React.FC = () => {
               </Button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div
+          onClick={() => setToast(null)}
+          style={{
+            position: 'fixed', bottom: 24, right: 24, padding: '12px 20px', borderRadius: 8,
+            color: '#fff', fontSize: 14, fontWeight: 500, zIndex: 9999, cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            background: toast.type === 'success' ? '#16a34a' : '#dc2626',
+          }}
+        >
+          {toast.message}
         </div>
       )}
     </div>

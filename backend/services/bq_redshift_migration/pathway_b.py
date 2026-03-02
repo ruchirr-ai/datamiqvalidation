@@ -1,993 +1,1470 @@
 """
-Pathway B: GCS to S3 Migration using AWS DataSync
+Pathway B: GCS to S3 Migration using AWS DataSync Agent on GCP VM
 
-This module automates AWS DataSync for migrating data from Google Cloud Storage (GCS)
-to Amazon S3. It handles:
-- EC2 DataSync Agent deployment
-- Agent activation
-- Source (GCS) and destination (S3) location setup
-- Sync task creation and execution
-- Failure recovery with delta transfer support
+Architecture:
+  DataSync Agent runs as a GCP Compute Engine VM inside the user's VPC.
+  This gives the agent private network access to GCS (no public internet for reads).
+  The agent then transfers data to S3 over an encrypted channel.
+
+Flow:
+  1. Deploy DataSync agent VM in GCP (or use existing VM)
+  2. Activate the agent with AWS DataSync service
+  3. Create GCS source location (object-storage via HMAC)
+  4. Create S3 destination location
+  5. Create and execute DataSync transfer task
+  6. Monitor until completion
+  7. Optionally clean up GCP VM
+
+User options:
+  - create_vm: App creates a new GCP Compute Engine VM with the DataSync agent image
+  - existing_vm: User provides IP of an existing VM running the DataSync agent
 """
 
 import boto3
 import time
 import logging
 import requests
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from botocore.exceptions import ClientError
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
+# AWS DataSync agent OVA is deployed as a VM in GCP.
+# Google publishes a community image for this, or user imports the OVA.
+# The official approach: download OVA from AWS console, import to GCP as custom image.
+DATASYNC_AGENT_GCP_IMAGE_FAMILY = "datasync-agent"
+DATASYNC_AGENT_GCP_IMAGE_PROJECT = None  # User's project (custom image)
 
-class PathwayBDataSync:
+
+class GCPDataSyncAgent:
     """
-    AWS DataSync automation for GCS to S3 migration.
+    Manages the AWS DataSync agent running on a GCP Compute Engine VM.
     
-    Features:
-    - Automated EC2 agent deployment from latest SSM AMI
-    - Agent activation via local network curl
-    - GCS source location using HMAC keys
-    - S3 destination location
-    - Transfer task with CHANGED mode for delta sync
-    - Automatic failure recovery with resume capability
+    The agent VM sits inside the GCP VPC, giving it private access to GCS.
+    It communicates with the AWS DataSync service to transfer data to S3.
     """
     
     def __init__(
         self,
+        gcp_project_id: str,
+        gcp_zone: str,
         aws_region: str,
-        subnet_id: str,
-        security_group_id: str,
-        instance_type: str = "m5.xlarge",
-        key_name: Optional[str] = None
+        service_account_info: Optional[Dict] = None,
+        aws_access_key_id: Optional[str] = None,
+        aws_secret_access_key: Optional[str] = None,
     ):
-        """
-        Initialize PathwayBDataSync.
-        
-        Args:
-            aws_region: AWS region for deployment
-            subnet_id: Private subnet ID for agent deployment
-            security_group_id: Security group ID for agent
-            instance_type: EC2 instance type for agent
-            key_name: Optional SSH key pair name
-        """
+        self.gcp_project_id = gcp_project_id
+        self.gcp_zone = gcp_zone
         self.aws_region = aws_region
-        self.subnet_id = subnet_id
-        self.security_group_id = security_group_id
-        self.instance_type = instance_type
-        self.key_name = key_name
+        self.service_account_info = service_account_info
         
-        # Initialize AWS clients
-        self.ec2_client = boto3.client('ec2', region_name=aws_region)
-        self.ssm_client = boto3.client('ssm', region_name=aws_region)
-        self.datasync_client = boto3.client('datasync', region_name=aws_region)
+        # Store AWS credentials for use in _ensure_datasync_image_exists and boto3 calls
+        self._aws_access_key_id = aws_access_key_id
+        self._aws_secret_access_key = aws_secret_access_key
         
-        self.agent_instance_id: Optional[str] = None
+        # S3 bucket for AMI export and GCS bucket for image import
+        # These are set by the caller (PathwayB._execute_transfer_stage) before create_agent_vm
+        self._export_s3_bucket: Optional[str] = None
+        self._gcs_bucket: Optional[str] = None
+        
+        # Initialize GCP Compute client
+        try:
+            from google.cloud import compute_v1
+            from google.oauth2 import service_account as sa_module
+            
+            if service_account_info:
+                credentials = sa_module.Credentials.from_service_account_info(service_account_info)
+                self.compute_client = compute_v1.InstancesClient(credentials=credentials)
+            else:
+                self.compute_client = compute_v1.InstancesClient()
+            
+            logger.info("GCP Compute client initialized")
+        except ImportError:
+            logger.warning("google-cloud-compute not installed, GCP VM creation will not work")
+            self.compute_client = None
+        
+        # Initialize AWS DataSync client
+        boto_kwargs = {"region_name": aws_region}
+        if aws_access_key_id and aws_secret_access_key:
+            boto_kwargs["aws_access_key_id"] = aws_access_key_id
+            boto_kwargs["aws_secret_access_key"] = aws_secret_access_key
+        
+        self.datasync_client = boto3.client("datasync", **boto_kwargs)
+        
+        self.vm_instance_name: Optional[str] = None
+        self.agent_ip: Optional[str] = None
         self.agent_arn: Optional[str] = None
-        self.source_location_arn: Optional[str] = None
-        self.destination_location_arn: Optional[str] = None
-        self.task_arn: Optional[str] = None
     
-    def get_latest_datasync_ami(self) -> str:
+    def _ensure_datasync_image_exists(self) -> str:
         """
-        Retrieve the latest AWS DataSync agent AMI from SSM Parameter Store.
-        
-        Returns:
-            AMI ID for the latest DataSync agent
-            
-        Raises:
-            Exception: If AMI cannot be retrieved
+        This method is no longer used - we expect users to manually create the DataSync agent VM.
+        Kept for backward compatibility but will raise an error if called.
         """
-        try:
-            logger.info("Retrieving latest DataSync AMI from SSM")
-            
-            # AWS publishes DataSync AMI IDs in SSM Parameter Store
-            parameter_name = f"/aws/service/datasync/ami-{self.aws_region}-latest"
-            
-            response = self.ssm_client.get_parameter(Name=parameter_name)
-            ami_id = response['Parameter']['Value']
-            
-            logger.info(f"Latest DataSync AMI: {ami_id}")
-            return ami_id
-            
-        except ClientError as e:
-            logger.error(f"Failed to retrieve DataSync AMI: {e}")
-            raise Exception(f"Cannot get DataSync AMI: {e}")
+        raise Exception(
+            "Automatic DataSync agent VM creation is not supported. "
+            "Please manually create the VM following the setup guide and use 'Use Existing VM' mode."
+        )
     
-    def deploy_datasync_agent(self) -> str:
+    def create_agent_vm(
+        self,
+        machine_type: str = "n1-standard-4",
+        network: str = "default",
+        subnet: str = "",
+        datasync_image: str = "",
+    ) -> str:
         """
-        Deploy EC2 DataSync agent in private subnet.
+        This method is no longer used - we expect users to manually create the DataSync agent VM.
         
-        Returns:
-            Instance ID of deployed agent
-            
+        Automatic VM creation has been removed in favor of a manual setup process for reliability.
+        Users should follow the setup guide to create the VM and then provide its IP address.
+        
         Raises:
-            Exception: If deployment fails
+            Exception with instructions
         """
-        try:
-            logger.info("Deploying DataSync agent EC2 instance")
-            
-            # Get latest AMI
-            ami_id = self.get_latest_datasync_ami()
-            
-            # Prepare launch parameters
-            launch_params = {
-                'ImageId': ami_id,
-                'InstanceType': self.instance_type,
-                'SubnetId': self.subnet_id,
-                'SecurityGroupIds': [self.security_group_id],
-                'MinCount': 1,
-                'MaxCount': 1,
-                'TagSpecifications': [
-                    {
-                        'ResourceType': 'instance',
-                        'Tags': [
-                            {'Key': 'Name', 'Value': 'DataSync-Agent-GCS-S3'},
-                            {'Key': 'Purpose', 'Value': 'GCS-to-S3-Migration'},
-                            {'Key': 'ManagedBy', 'Value': 'PathwayB'}
-                        ]
-                    }
-                ]
-            }
-            
-            # Add key pair if provided
-            if self.key_name:
-                launch_params['KeyName'] = self.key_name
-            
-            # Launch instance
-            response = self.ec2_client.run_instances(**launch_params)
-            instance_id = response['Instances'][0]['InstanceId']
-            self.agent_instance_id = instance_id
-            
-            logger.info(f"DataSync agent instance launched: {instance_id}")
-            
-            # Wait for instance to be running
-            logger.info("Waiting for instance to be running...")
-            waiter = self.ec2_client.get_waiter('instance_running')
-            waiter.wait(InstanceIds=[instance_id])
-            
-            # Get private IP
-            response = self.ec2_client.describe_instances(InstanceIds=[instance_id])
-            private_ip = response['Reservations'][0]['Instances'][0]['PrivateIpAddress']
-            
-            logger.info(f"Agent instance running with private IP: {private_ip}")
-            
-            # Wait additional time for agent to initialize
-            logger.info("Waiting for DataSync agent to initialize (60 seconds)...")
-            time.sleep(60)
-            
-            return instance_id
-            
-        except ClientError as e:
-            logger.error(f"Failed to deploy DataSync agent: {e}")
-            raise Exception(f"Agent deployment failed: {e}")
+        raise Exception(
+            "Automatic DataSync agent VM creation is not supported. "
+            "Please manually create the VM following the AWS_DATASYNC_SETUP_GUIDE.md and use 'Use Existing VM' mode."
+        )
     
-    def get_agent_private_ip(self) -> str:
-        """
-        Get private IP address of the DataSync agent.
+    def _wait_for_gcp_operation(self, operation, zone: str, timeout: int = 300):
+        """Wait for a GCP zone operation to complete."""
+        from google.cloud import compute_v1
+        from google.oauth2 import service_account as sa_module
         
-        Returns:
-            Private IP address
-            
-        Raises:
-            Exception: If IP cannot be retrieved
-        """
-        try:
-            response = self.ec2_client.describe_instances(
-                InstanceIds=[self.agent_instance_id]
+        if self.service_account_info:
+            credentials = sa_module.Credentials.from_service_account_info(self.service_account_info)
+            op_client = compute_v1.ZoneOperationsClient(credentials=credentials)
+        else:
+            op_client = compute_v1.ZoneOperationsClient()
+        
+        start = time.time()
+        
+        while time.time() - start < timeout:
+            result = op_client.get(
+                project=self.gcp_project_id,
+                zone=zone,
+                operation=operation.name,
             )
-            private_ip = response['Reservations'][0]['Instances'][0]['PrivateIpAddress']
-            return private_ip
-        except Exception as e:
-            logger.error(f"Failed to get agent private IP: {e}")
-            raise
-    
-    def get_activation_key(self, agent_private_ip: str) -> str:
-        """
-        Retrieve activation key from DataSync agent via local network curl.
+            if result.status == compute_v1.Operation.Status.DONE:
+                if result.error:
+                    raise Exception(f"GCP operation failed: {result.error}")
+                return result
+            time.sleep(5)
         
-        Args:
-            agent_private_ip: Private IP address of the agent
-            
-        Returns:
-            Activation key string
-            
-        Raises:
-            Exception: If activation key cannot be retrieved
-        """
-        try:
-            logger.info(f"Retrieving activation key from agent at {agent_private_ip}")
-            
-            # DataSync agent activation endpoint
-            activation_url = f"http://{agent_private_ip}/?gatewayType=SYNC&activationRegion={self.aws_region}&no_redirect"
-            
-            # Make request to agent (must be from same VPC/network)
-            response = requests.get(activation_url, timeout=30)
-            response.raise_for_status()
-            
-            # Extract activation key from response
-            activation_key = response.text.strip()
-            
-            logger.info("Activation key retrieved successfully")
-            return activation_key
-            
-        except requests.RequestException as e:
-            logger.error(f"Failed to retrieve activation key: {e}")
-            raise Exception(f"Cannot get activation key: {e}")
+        raise Exception(f"GCP operation timed out after {timeout}s")
     
-    def activate_agent(self, activation_key: str, agent_name: str = "GCS-S3-DataSync-Agent") -> str:
+    def get_activation_key(self, agent_ip: str) -> str:
         """
-        Activate DataSync agent using the activation key.
+        Get activation key from the DataSync agent running on the GCP VM.
         
-        Args:
-            activation_key: Activation key from agent
-            agent_name: Name for the agent
-            
-        Returns:
-            Agent ARN
-            
-        Raises:
-            Exception: If activation fails
+        The agent exposes an HTTP endpoint on port 80 for activation.
+        This must be called from a machine that can reach the agent's IP.
+        
+        For GCP VMs, this means the backend must be able to reach the VM's
+        internal IP (e.g., via VPN, Cloud Interconnect, or running in same VPC).
         """
-        try:
-            logger.info(f"Activating DataSync agent: {agent_name}")
-            
-            response = self.datasync_client.create_agent(
-                ActivationKey=activation_key,
-                AgentName=agent_name,
-                Tags=[
-                    {'Key': 'Purpose', 'Value': 'GCS-to-S3-Migration'},
-                    {'Key': 'ManagedBy', 'Value': 'PathwayB'}
-                ]
-            )
-            
-            agent_arn = response['AgentArn']
-            self.agent_arn = agent_arn
-            
-            logger.info(f"Agent activated successfully: {agent_arn}")
-            return agent_arn
-            
-        except ClientError as e:
-            logger.error(f"Failed to activate agent: {e}")
-            raise Exception(f"Agent activation failed: {e}")
+        logger.info(f"Retrieving activation key from agent at {agent_ip}")
+        
+        activation_url = (
+            f"http://{agent_ip}/?gatewayType=SYNC"
+            f"&activationRegion={self.aws_region}"
+            f"&no_redirect"
+        )
+        
+        # Retry a few times as agent may still be booting
+        for attempt in range(5):
+            try:
+                response = requests.get(activation_url, timeout=30)
+                response.raise_for_status()
+                activation_key = response.text.strip()
+                logger.info("Activation key retrieved successfully")
+                return activation_key
+            except requests.RequestException as e:
+                logger.warning(f"Attempt {attempt + 1}/5 failed: {e}")
+                if attempt < 4:
+                    time.sleep(30)
+        
+        raise Exception(f"Failed to get activation key from {agent_ip} after 5 attempts")
     
-    def create_gcs_location(
+    def activate_agent(self, activation_key: str) -> str:
+        """Activate the DataSync agent with AWS."""
+        logger.info("Activating DataSync agent with AWS")
+        
+        response = self.datasync_client.create_agent(
+            ActivationKey=activation_key,
+            AgentName=f"gcp-datasync-agent-{int(time.time())}",
+            Tags=[
+                {"Key": "Source", "Value": "GCP"},
+                {"Key": "ManagedBy", "Value": "DataMIQ-PathB"},
+            ],
+        )
+        
+        self.agent_arn = response["AgentArn"]
+        logger.info(f"Agent activated: {self.agent_arn}")
+        return self.agent_arn
+    
+    def create_gcs_source_location(
         self,
         bucket_name: str,
-        access_key: str,
-        secret_key: str,
-        subdirectory: str = "/"
-    ) -> str:
-        """
-        Create DataSync location for GCS source using HMAC keys.
-        
-        Args:
-            bucket_name: GCS bucket name
-            access_key: GCS HMAC access key
-            secret_key: GCS HMAC secret key
-            subdirectory: Subdirectory in bucket (default: root)
-            
-        Returns:
-            Location ARN for GCS
-            
-        Raises:
-            Exception: If location creation fails
-        """
-        try:
-            logger.info(f"Creating GCS source location for bucket: {bucket_name}")
-            
-            response = self.datasync_client.create_location_object_storage(
-                ServerHostname='storage.googleapis.com',
-                ServerPort=443,
-                ServerProtocol='HTTPS',
-                Subdirectory=subdirectory,
-                BucketName=bucket_name,
-                AccessKey=access_key,
-                SecretKey=secret_key,
-                AgentArns=[self.agent_arn],
-                Tags=[
-                    {'Key': 'Source', 'Value': 'GCS'},
-                    {'Key': 'Bucket', 'Value': bucket_name},
-                    {'Key': 'ManagedBy', 'Value': 'PathwayB'}
-                ]
-            )
-            
-            location_arn = response['LocationArn']
-            self.source_location_arn = location_arn
-            
-            logger.info(f"GCS location created: {location_arn}")
-            return location_arn
-            
-        except ClientError as e:
-            logger.error(f"Failed to create GCS location: {e}")
-            raise Exception(f"GCS location creation failed: {e}")
-    
-    def create_s3_location(
-        self,
-        bucket_arn: str,
+        gcs_access_key: str,
+        gcs_secret_key: str,
         subdirectory: str = "/",
-        s3_storage_class: str = "STANDARD"
+    ) -> str:
+        """Create DataSync source location for GCS using HMAC keys."""
+        logger.info(f"Creating GCS source location: {bucket_name}{subdirectory}")
+        
+        response = self.datasync_client.create_location_object_storage(
+            ServerHostname="storage.googleapis.com",
+            ServerPort=443,
+            ServerProtocol="HTTPS",
+            Subdirectory=subdirectory,
+            BucketName=bucket_name,
+            AccessKey=gcs_access_key,
+            SecretKey=gcs_secret_key,
+            AgentArns=[self.agent_arn],
+            Tags=[
+                {"Key": "Source", "Value": "GCS"},
+                {"Key": "Bucket", "Value": bucket_name},
+            ],
+        )
+        
+        location_arn = response["LocationArn"]
+        logger.info(f"GCS source location created: {location_arn}")
+        return location_arn
+    
+    def create_s3_destination_location(
+        self,
+        s3_bucket_name: str,
+        subdirectory: str = "/",
+        s3_config_role_arn: Optional[str] = None,
     ) -> str:
         """
-        Create DataSync location for S3 destination.
+        Create DataSync destination location for S3.
         
-        Args:
-            bucket_arn: S3 bucket ARN
-            subdirectory: Subdirectory in bucket (default: root)
-            s3_storage_class: S3 storage class
-            
-        Returns:
-            Location ARN for S3
-            
-        Raises:
-            Exception: If location creation fails
+        Requires an IAM role ARN that DataSync can assume to access S3.
+        The role must have a trust policy for datasync.amazonaws.com and S3 permissions.
         """
-        try:
-            logger.info(f"Creating S3 destination location: {bucket_arn}")
-            
-            response = self.datasync_client.create_location_s3(
-                S3BucketArn=bucket_arn,
-                Subdirectory=subdirectory,
-                S3StorageClass=s3_storage_class,
-                S3Config={
-                    'BucketAccessRoleArn': self._get_datasync_s3_role_arn()
-                },
-                Tags=[
-                    {'Key': 'Destination', 'Value': 'S3'},
-                    {'Key': 'Bucket', 'Value': bucket_arn.split(':')[-1]},
-                    {'Key': 'ManagedBy', 'Value': 'PathwayB'}
-                ]
+        logger.info(f"Creating S3 destination location: {s3_bucket_name}{subdirectory}")
+        
+        if not s3_config_role_arn:
+            raise Exception(
+                "DataSync S3 IAM Role ARN is required. "
+                "Please provide an IAM role ARN in the migration configuration (Stage 2). "
+                "The role must trust datasync.amazonaws.com and have S3 access permissions."
             )
-            
-            location_arn = response['LocationArn']
-            self.destination_location_arn = location_arn
-            
-            logger.info(f"S3 location created: {location_arn}")
-            return location_arn
-            
-        except ClientError as e:
-            logger.error(f"Failed to create S3 location: {e}")
-            raise Exception(f"S3 location creation failed: {e}")
-    
-    def _get_datasync_s3_role_arn(self) -> str:
-        """
-        Get or create IAM role for DataSync to access S3.
         
-        Returns:
-            IAM role ARN
-        """
-        # This should be pre-created or retrieved from configuration
-        # For now, return a placeholder that should be configured
-        role_name = "DataSyncS3AccessRole"
-        account_id = boto3.client('sts').get_caller_identity()['Account']
-        return f"arn:aws:iam::{account_id}:role/{role_name}"
+        s3_bucket_arn = f"arn:aws:s3:::{s3_bucket_name}"
+        
+        response = self.datasync_client.create_location_s3(
+            S3BucketArn=s3_bucket_arn,
+            Subdirectory=subdirectory,
+            S3StorageClass="STANDARD",
+            S3Config={"BucketAccessRoleArn": s3_config_role_arn},
+            Tags=[
+                {"Key": "Destination", "Value": "S3"},
+            ],
+        )
+        
+        location_arn = response["LocationArn"]
+        logger.info(f"S3 destination location created: {location_arn}")
+        return location_arn
     
-    def create_sync_task(
+    def create_and_run_task(
         self,
-        task_name: str = "GCS-to-S3-Migration-Task",
-        schedule: Optional[str] = None
-    ) -> str:
-        """
-        Create DataSync task with CHANGED transfer mode for delta sync.
-        
-        Args:
-            task_name: Name for the sync task
-            schedule: Optional cron schedule for recurring sync
-            
-        Returns:
-            Task ARN
-            
-        Raises:
-            Exception: If task creation fails
-        """
-        try:
-            logger.info(f"Creating DataSync task: {task_name}")
-            
-            task_params = {
-                'SourceLocationArn': self.source_location_arn,
-                'DestinationLocationArn': self.destination_location_arn,
-                'Name': task_name,
-                'Options': {
-                    'VerifyMode': 'ONLY_FILES_TRANSFERRED',
-                    'OverwriteMode': 'ALWAYS',
-                    'TransferMode': 'CHANGED',  # Only transfer changed/new files
-                    'Atime': 'BEST_EFFORT',
-                    'Mtime': 'PRESERVE',
-                    'Uid': 'NONE',
-                    'Gid': 'NONE',
-                    'PreserveDeletedFiles': 'PRESERVE',
-                    'PreserveDevices': 'NONE',
-                    'PosixPermissions': 'NONE',
-                    'BytesPerSecond': -1,  # No bandwidth limit
-                    'TaskQueueing': 'ENABLED'
-                },
-                'Tags': [
-                    {'Key': 'Purpose', 'Value': 'GCS-to-S3-Migration'},
-                    {'Key': 'ManagedBy', 'Value': 'PathwayB'}
-                ]
-            }
-            
-            # Add schedule if provided
-            if schedule:
-                task_params['Schedule'] = {'ScheduleExpression': schedule}
-            
-            response = self.datasync_client.create_task(**task_params)
-            
-            task_arn = response['TaskArn']
-            self.task_arn = task_arn
-            
-            logger.info(f"DataSync task created: {task_arn}")
-            return task_arn
-            
-        except ClientError as e:
-            logger.error(f"Failed to create sync task: {e}")
-            raise Exception(f"Task creation failed: {e}")
-    
-    def start_task_execution(self) -> str:
-        """
-        Start execution of the DataSync task.
-        
-        Returns:
-            Task execution ARN
-            
-        Raises:
-            Exception: If task execution fails to start
-        """
-        try:
-            logger.info(f"Starting task execution: {self.task_arn}")
-            
-            response = self.datasync_client.start_task_execution(
-                TaskArn=self.task_arn
-            )
-            
-            execution_arn = response['TaskExecutionArn']
-            
-            logger.info(f"Task execution started: {execution_arn}")
-            return execution_arn
-            
-        except ClientError as e:
-            logger.error(f"Failed to start task execution: {e}")
-            raise Exception(f"Task execution failed: {e}")
-    
-    def monitor_task_execution(
-        self,
-        execution_arn: str,
-        poll_interval: int = 30
+        source_location_arn: str,
+        dest_location_arn: str,
+        task_name: str = "GCS-to-S3-DataMIQ",
     ) -> Dict[str, Any]:
-        """
-        Monitor DataSync task execution until completion.
+        """Create a DataSync task and execute it. Returns final result."""
+        logger.info(f"Creating DataSync task: {task_name}")
         
-        Args:
-            execution_arn: Task execution ARN to monitor
-            poll_interval: Seconds between status checks
+        try:
+            task_response = self.datasync_client.create_task(
+                SourceLocationArn=source_location_arn,
+                DestinationLocationArn=dest_location_arn,
+                Name=task_name,
+                Options={
+                    "VerifyMode": "ONLY_FILES_TRANSFERRED",
+                    "OverwriteMode": "ALWAYS",
+                    "TransferMode": "CHANGED",
+                    "Atime": "BEST_EFFORT",
+                    "Mtime": "PRESERVE",
+                    "PreserveDeletedFiles": "PRESERVE",
+                    "BytesPerSecond": -1,
+                    "TaskQueueing": "ENABLED",
+                },
+                Tags=[{"Key": "ManagedBy", "Value": "DataMIQ-PathB"}],
+            )
+        except ClientError as e:
+            error_msg = str(e)
+            # Detect "agent is offline" error
+            if "agent is offline" in error_msg.lower() or "agent" in error_msg.lower() and "offline" in error_msg.lower():
+                logger.error(f"Agent is offline: {error_msg}")
+                return {
+                    "status": "agent_offline",
+                    "task_arn": None,
+                    "execution_arn": None,
+                    "files_transferred": 0,
+                    "bytes_transferred": 0,
+                    "error": error_msg,
+                    "result": {},
+                }
+            raise
+        
+        task_arn = task_response["TaskArn"]
+        logger.info(f"Task created: {task_arn}")
+        
+        # Start execution
+        try:
+            exec_response = self.datasync_client.start_task_execution(TaskArn=task_arn)
+        except ClientError as e:
+            error_msg = str(e)
+            if "agent is offline" in error_msg.lower() or ("agent" in error_msg.lower() and "offline" in error_msg.lower()):
+                logger.error(f"Agent is offline during StartTaskExecution: {error_msg}")
+                return {
+                    "status": "agent_offline",
+                    "task_arn": task_arn,
+                    "execution_arn": None,
+                    "files_transferred": 0,
+                    "bytes_transferred": 0,
+                    "error": error_msg,
+                    "result": {},
+                }
+            raise
+        
+        execution_arn = exec_response["TaskExecutionArn"]
+        logger.info(f"Task execution started: {execution_arn}")
+        
+        # Monitor
+        result = self._monitor_execution(execution_arn)
+        
+        # Check for permission errors — no point retrying these
+        error_detail = result.get("Result", {}).get("ErrorDetail", "") if isinstance(result.get("Result"), dict) else ""
+        error_code = result.get("Result", {}).get("ErrorCode", "") if isinstance(result.get("Result"), dict) else ""
+        
+        if result["Status"] == "ERROR":
+            logger.error(f"Task execution FAILED: {error_detail or error_code or 'Unknown error'}")
             
-        Returns:
-            Final execution status details
-        """
-        logger.info(f"Monitoring task execution: {execution_arn}")
+            # Don't retry permission errors — they won't fix themselves
+            if "Permission denied" in error_detail or "Access denied" in error_detail:
+                logger.error("Permission error detected — skipping retries (fix credentials/permissions first)")
+                return {
+                    "status": "failed",
+                    "task_arn": task_arn,
+                    "execution_arn": execution_arn,
+                    "files_transferred": 0,
+                    "bytes_transferred": 0,
+                    "error": error_detail or error_code,
+                    "result": result,
+                }
+            
+            # Retry transient errors (up to 2 retries, shorter waits)
+            logger.warning("Transient error, retrying...")
+            for attempt in range(1, 3):
+                wait_secs = 30 * attempt
+                logger.info(f"Retry {attempt}/2 — waiting {wait_secs}s...")
+                time.sleep(wait_secs)
+                try:
+                    exec_response = self.datasync_client.start_task_execution(TaskArn=task_arn)
+                except ClientError as retry_err:
+                    error_msg = str(retry_err)
+                    if "agent is offline" in error_msg.lower() or ("agent" in error_msg.lower() and "offline" in error_msg.lower()):
+                        logger.error(f"Agent went offline during retry: {error_msg}")
+                        return {
+                            "status": "agent_offline",
+                            "task_arn": task_arn,
+                            "execution_arn": None,
+                            "files_transferred": 0,
+                            "bytes_transferred": 0,
+                            "error": error_msg,
+                            "result": {},
+                        }
+                    raise
+                result = self._monitor_execution(exec_response["TaskExecutionArn"])
+                if result["Status"] == "SUCCESS":
+                    break
+                # Extract error from retry
+                retry_error = result.get("Result", {}).get("ErrorDetail", "") if isinstance(result.get("Result"), dict) else ""
+                logger.error(f"Retry {attempt} failed: {retry_error}")
+        
+        return {
+            "status": "success" if result["Status"] == "SUCCESS" else "failed",
+            "task_arn": task_arn,
+            "execution_arn": execution_arn,
+            "files_transferred": result.get("FilesTransferred", 0),
+            "bytes_transferred": result.get("BytesTransferred", 0),
+            "error": error_detail or error_code if result["Status"] == "ERROR" else None,
+            "result": result,
+        }
+    
+    def _monitor_execution(self, execution_arn: str, poll_interval: int = 15) -> Dict:
+        """Poll DataSync task execution until done."""
+        logger.info(f"Monitoring execution: {execution_arn}")
         
         while True:
-            try:
-                response = self.datasync_client.describe_task_execution(
-                    TaskExecutionArn=execution_arn
-                )
-                
-                status = response['Status']
-                
-                # Log progress
-                if 'BytesTransferred' in response:
-                    bytes_transferred = response['BytesTransferred']
-                    files_transferred = response.get('FilesTransferred', 0)
-                    logger.info(
-                        f"Status: {status} | "
-                        f"Files: {files_transferred} | "
-                        f"Bytes: {bytes_transferred}"
-                    )
-                
-                # Check if completed
-                if status in ['SUCCESS', 'ERROR']:
-                    logger.info(f"Task execution completed with status: {status}")
-                    return response
-                
-                # Continue monitoring
-                time.sleep(poll_interval)
-                
-            except ClientError as e:
-                logger.error(f"Error monitoring task: {e}")
-                raise
-    
-    def retry_failed_task(self, max_retries: int = 3) -> Dict[str, Any]:
-        """
-        Retry failed task execution with automatic delta transfer.
-        
-        DataSync with TransferMode='CHANGED' automatically handles delta sync,
-        only transferring remaining files on retry.
-        
-        Args:
-            max_retries: Maximum number of retry attempts
+            response = self.datasync_client.describe_task_execution(
+                TaskExecutionArn=execution_arn
+            )
+            status = response["Status"]
             
-        Returns:
-            Final execution status
+            bytes_xfer = response.get("BytesTransferred", 0)
+            files_xfer = response.get("FilesTransferred", 0)
+            logger.info(f"  Status: {status} | Files: {files_xfer} | Bytes: {bytes_xfer}")
             
-        Raises:
-            Exception: If all retries fail
-        """
-        logger.info(f"Initiating task retry (max {max_retries} attempts)")
-        
-        for attempt in range(1, max_retries + 1):
-            try:
-                logger.info(f"Retry attempt {attempt}/{max_retries}")
-                
-                # Start new execution (DataSync handles delta automatically)
-                execution_arn = self.start_task_execution()
-                
-                # Monitor execution
-                result = self.monitor_task_execution(execution_arn)
-                
-                if result['Status'] == 'SUCCESS':
-                    logger.info(f"Task succeeded on retry attempt {attempt}")
-                    return result
-                else:
-                    logger.warning(f"Retry attempt {attempt} failed: {result.get('ErrorCode', 'Unknown')}")
-                    
-                    if attempt < max_retries:
-                        wait_time = 60 * attempt  # Exponential backoff
-                        logger.info(f"Waiting {wait_time} seconds before next retry...")
-                        time.sleep(wait_time)
-                
-            except Exception as e:
-                logger.error(f"Retry attempt {attempt} encountered error: {e}")
-                if attempt >= max_retries:
-                    raise
-        
-        raise Exception(f"Task failed after {max_retries} retry attempts")
+            if status in ("SUCCESS", "ERROR"):
+                # Log error details if available
+                result_info = response.get("Result", {})
+                if status == "ERROR" and result_info:
+                    error_detail = result_info.get("ErrorDetail", "No details")
+                    error_code = result_info.get("ErrorCode", "Unknown")
+                    logger.error(f"  ERROR: {error_code} — {error_detail}")
+                return response
+            
+            time.sleep(poll_interval)
     
-    def get_task_status(self) -> Dict[str, Any]:
-        """
-        Get current status of the DataSync task.
-        
-        Returns:
-            Task status details
-        """
-        try:
-            response = self.datasync_client.describe_task(TaskArn=self.task_arn)
-            return response
-        except ClientError as e:
-            logger.error(f"Failed to get task status: {e}")
-            raise
-    
-    def cleanup_resources(self, delete_agent: bool = False):
-        """
-        Clean up DataSync resources.
-        
-        Args:
-            delete_agent: Whether to terminate the EC2 agent instance
-        """
-        logger.info("Cleaning up DataSync resources")
+    def cleanup_vm(self):
+        """Delete the GCP VM created for the DataSync agent."""
+        if not self.vm_instance_name or not self.compute_client:
+            return
         
         try:
-            # Delete task
-            if self.task_arn:
-                logger.info(f"Deleting task: {self.task_arn}")
-                self.datasync_client.delete_task(TaskArn=self.task_arn)
+            from google.cloud import compute_v1
             
-            # Delete locations
-            if self.source_location_arn:
-                logger.info(f"Deleting source location: {self.source_location_arn}")
-                self.datasync_client.delete_location(LocationArn=self.source_location_arn)
-            
-            if self.destination_location_arn:
-                logger.info(f"Deleting destination location: {self.destination_location_arn}")
-                self.datasync_client.delete_location(LocationArn=self.destination_location_arn)
-            
-            # Delete agent
-            if self.agent_arn:
-                logger.info(f"Deleting agent: {self.agent_arn}")
-                self.datasync_client.delete_agent(AgentArn=self.agent_arn)
-            
-            # Terminate EC2 instance if requested
-            if delete_agent and self.agent_instance_id:
-                logger.info(f"Terminating agent instance: {self.agent_instance_id}")
-                self.ec2_client.terminate_instances(InstanceIds=[self.agent_instance_id])
-            
-            logger.info("Cleanup completed")
-            
-        except ClientError as e:
-            logger.error(f"Error during cleanup: {e}")
-
-
-def execute_pathway_b_migration(
-    aws_region: str,
-    subnet_id: str,
-    security_group_id: str,
-    gcs_bucket: str,
-    gcs_access_key: str,
-    gcs_secret_key: str,
-    s3_bucket_arn: str,
-    gcs_subdirectory: str = "/",
-    s3_subdirectory: str = "/",
-    instance_type: str = "m5.xlarge",
-    key_name: Optional[str] = None,
-    auto_retry: bool = True,
-    max_retries: int = 3
-) -> Dict[str, Any]:
-    """
-    Execute complete Pathway B migration from GCS to S3.
-    
-    Args:
-        aws_region: AWS region for deployment
-        subnet_id: Private subnet ID for agent
-        security_group_id: Security group ID for agent
-        gcs_bucket: GCS bucket name
-        gcs_access_key: GCS HMAC access key
-        gcs_secret_key: GCS HMAC secret key
-        s3_bucket_arn: S3 bucket ARN
-        gcs_subdirectory: GCS subdirectory path
-        s3_subdirectory: S3 subdirectory path
-        instance_type: EC2 instance type
-        key_name: SSH key pair name
-        auto_retry: Enable automatic retry on failure
-        max_retries: Maximum retry attempts
-        
-    Returns:
-        Migration result with status and details
-    """
-    datasync = PathwayBDataSync(
-        aws_region=aws_region,
-        subnet_id=subnet_id,
-        security_group_id=security_group_id,
-        instance_type=instance_type,
-        key_name=key_name
-    )
-    
-    try:
-        # Step 1: Deploy agent
-        logger.info("=== Step 1: Deploying DataSync Agent ===")
-        instance_id = datasync.deploy_datasync_agent()
-        
-        # Step 2: Get activation key
-        logger.info("=== Step 2: Retrieving Activation Key ===")
-        agent_ip = datasync.get_agent_private_ip()
-        activation_key = datasync.get_activation_key(agent_ip)
-        
-        # Step 3: Activate agent
-        logger.info("=== Step 3: Activating Agent ===")
-        agent_arn = datasync.activate_agent(activation_key)
-        
-        # Step 4: Create GCS location
-        logger.info("=== Step 4: Creating GCS Source Location ===")
-        source_location = datasync.create_gcs_location(
-            bucket_name=gcs_bucket,
-            access_key=gcs_access_key,
-            secret_key=gcs_secret_key,
-            subdirectory=gcs_subdirectory
-        )
-        
-        # Step 5: Create S3 location
-        logger.info("=== Step 5: Creating S3 Destination Location ===")
-        dest_location = datasync.create_s3_location(
-            bucket_arn=s3_bucket_arn,
-            subdirectory=s3_subdirectory
-        )
-        
-        # Step 6: Create sync task
-        logger.info("=== Step 6: Creating Sync Task ===")
-        task_arn = datasync.create_sync_task()
-        
-        # Step 7: Execute task
-        logger.info("=== Step 7: Executing Sync Task ===")
-        execution_arn = datasync.start_task_execution()
-        result = datasync.monitor_task_execution(execution_arn)
-        
-        # Step 8: Handle failures with retry
-        if result['Status'] == 'ERROR' and auto_retry:
-            logger.warning("Task failed, initiating automatic retry...")
-            result = datasync.retry_failed_task(max_retries=max_retries)
-        
-        return {
-            'status': 'success' if result['Status'] == 'SUCCESS' else 'failed',
-            'instance_id': instance_id,
-            'agent_arn': agent_arn,
-            'task_arn': task_arn,
-            'execution_arn': execution_arn,
-            'files_transferred': result.get('FilesTransferred', 0),
-            'bytes_transferred': result.get('BytesTransferred', 0),
-            'result': result
-        }
-        
-    except Exception as e:
-        logger.error(f"Pathway B migration failed: {e}")
-        return {
-            'status': 'error',
-            'error': str(e),
-            'instance_id': datasync.agent_instance_id,
-            'agent_arn': datasync.agent_arn,
-            'task_arn': datasync.task_arn
-        }
-
+            logger.info(f"Deleting DataSync agent VM: {self.vm_instance_name}")
+            request = compute_v1.DeleteInstanceRequest(
+                project=self.gcp_project_id,
+                zone=self.gcp_zone,
+                instance=self.vm_instance_name,
+            )
+            self.compute_client.delete(request=request)
+            logger.info("VM deletion initiated")
+        except Exception as e:
+            logger.error(f"Failed to delete VM: {e}")
 
 
 class PathwayB:
     """
-    Path B: Hybrid Sync Migration Pathway (Simplified)
+    Path B: GCS → S3 via AWS DataSync Agent on GCP VM
     
-    BigQuery → GCS → S3 (via direct transfer) → Redshift
-    
-    Note: This is a simplified implementation that uses the same approach as Path C.
-    The full AWS DataSync implementation (PathwayBDataSync) is available above but
-    requires additional AWS infrastructure setup.
+    The DataSync agent runs inside GCP for private GCS access.
     
     Stages:
     1. Export BigQuery tables to GCS (handled by orchestrator)
-    2. Transfer from GCS to S3 using direct download/upload
+    2. Transfer from GCS to S3 using DataSync agent on GCP VM
     3. Load from S3 to Redshift using RedshiftLoader
     """
     
-    def __init__(
-        self,
-        checkpoint_manager,
-        manifest_handler,
-        log_callback: Optional[callable] = None
-    ):
-        """
-        Initialize PathwayB.
-        
-        Args:
-            checkpoint_manager: CheckpointManager instance
-            manifest_handler: ManifestHandler instance
-            log_callback: Optional callback function for logging
-        """
+    # Size thresholds for parallel task count (in bytes)
+    PARALLEL_THRESHOLDS = [
+        (1_000_000_000_000, 16),  # 1 TB+ → up to 16 tasks
+        (100_000_000_000, 8),     # 100 GB+ → up to 8 tasks
+        (10_000_000_000, 4),      # 10 GB+ → up to 4 tasks
+    ]
+    PARALLEL_MIN_BYTES = 10_000_000_000  # 10 GB minimum to trigger parallelism
+    
+    def __init__(self, checkpoint_manager, manifest_handler, log_callback=None):
         self.checkpoint_manager = checkpoint_manager
         self.manifest_handler = manifest_handler
         self.log_callback = log_callback
+    
+    def _plan_parallel_tasks(self, migration_id: int) -> List[Dict]:
+        """
+        Plan parallel DataSync tasks based on export results stored in checkpoint_data.
+        
+        Returns a list of task groups. Each group is a dict:
+          {
+            "tables": ["table_a", "table_b"],
+            "subdirectory": "/path/dataset"  (for single-task, whole directory)
+                        or "/path/dataset/table_a" (for per-table tasks),
+            "total_bytes": 123456,
+            "task_index": 0
+          }
+        
+        For small datasets or single tables, returns one group (current behavior).
+        For large datasets, splits into multiple groups by table.
+        """
+        from database import get_db
+        from models.bq_redshift_migration import MigrationBQRedshift
+        
+        db = next(get_db())
+        try:
+            migration = db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
+            if not migration:
+                return []
+            
+            checkpoint_data = migration.checkpoint_data or {}
+            export_results = checkpoint_data.get('export_results', [])
+            
+            if not export_results:
+                logger.warning("No export_results in checkpoint_data, falling back to single task")
+                return [{"tables": [], "subdirectory": None, "total_bytes": 0, "task_index": 0, "single_task": True}]
+            
+            # Build table size map from export results
+            table_sizes = []
+            for result in export_results:
+                if not result.get('success'):
+                    continue
+                table_ref = result.get('table', '')
+                # table_ref is like "project.dataset.table_name"
+                table_name = table_ref.split('.')[-1] if '.' in table_ref else table_ref
+                num_bytes = result.get('num_bytes', 0)
+                table_sizes.append({"table": table_name, "bytes": num_bytes})
+            
+            if not table_sizes:
+                logger.warning("No successful exports found, falling back to single task")
+                return [{"tables": [], "subdirectory": None, "total_bytes": 0, "task_index": 0, "single_task": True}]
+            
+            total_bytes = sum(t["bytes"] for t in table_sizes)
+            num_tables = len(table_sizes)
+            
+            logger.info(f"Parallel planning: {num_tables} tables, {total_bytes:,} bytes ({total_bytes / (1024**3):.2f} GB)")
+            
+            # Determine max parallel tasks based on total size
+            if total_bytes < self.PARALLEL_MIN_BYTES or num_tables <= 1:
+                logger.info("Below parallel threshold or single table — using single DataSync task")
+                return [{"tables": [t["table"] for t in table_sizes], "subdirectory": None, "total_bytes": total_bytes, "task_index": 0, "single_task": True}]
+            
+            max_tasks = 2  # default
+            for threshold_bytes, max_t in self.PARALLEL_THRESHOLDS:
+                if total_bytes >= threshold_bytes:
+                    max_tasks = max_t
+                    break
+            
+            num_tasks = min(max_tasks, num_tables)
+            logger.info(f"Planning {num_tasks} parallel DataSync tasks for {total_bytes / (1024**3):.2f} GB across {num_tables} tables")
+            
+            # Greedy bin-packing: sort tables by size descending, assign each to the lightest batch
+            table_sizes.sort(key=lambda t: t["bytes"], reverse=True)
+            
+            batches: List[Dict] = [{"tables": [], "total_bytes": 0, "task_index": i} for i in range(num_tasks)]
+            
+            for table_info in table_sizes:
+                # Find the batch with the least total bytes
+                lightest = min(batches, key=lambda b: b["total_bytes"])
+                lightest["tables"].append(table_info["table"])
+                lightest["total_bytes"] += table_info["bytes"]
+            
+            # Remove empty batches (shouldn't happen but safety)
+            batches = [b for b in batches if b["tables"]]
+            
+            for batch in batches:
+                logger.info(f"  Task {batch['task_index']}: {len(batch['tables'])} tables, {batch['total_bytes'] / (1024**3):.2f} GB — {batch['tables']}")
+            
+            if self.log_callback:
+                self.log_callback(
+                    migration_id, "INFO", "transfer",
+                    f"Parallel transfer plan: {len(batches)} DataSync tasks for {total_bytes / (1024**3):.2f} GB across {num_tables} tables",
+                    log_metadata={"batches": [{"task_index": b["task_index"], "tables": b["tables"], "bytes": b["total_bytes"]} for b in batches]}
+                )
+            
+            return batches
+        finally:
+            db.close()
+    
+    def _execute_parallel_tasks(
+        self,
+        migration_id: int,
+        agent: 'GCPDataSyncAgent',
+        batches: List[Dict],
+        gcs_bucket: str,
+        gcs_path: str,
+        s3_bucket: str,
+        s3_path: str,
+        dataset: str,
+        gcs_access_key: str,
+        gcs_secret_key: str,
+        datasync_s3_role_arn: str,
+        aws_access_key: str,
+        aws_secret_key: str,
+        aws_region: str,
+    ) -> bool:
+        """
+        Execute multiple DataSync tasks in parallel, one per batch of tables.
+        
+        Each batch gets its own GCS source location (pointing to a per-table subdirectory
+        or a combined filter). The S3 destination is shared.
+        
+        For batches with a single table, the source location points directly to that table's
+        subdirectory. For batches with multiple tables, we create one task per table within
+        the batch (since DataSync source locations can only point to one subdirectory).
+        """
+        # Load existing parallel task checkpoint
+        from database import get_db
+        from models.bq_redshift_migration import MigrationBQRedshift
+        
+        db = next(get_db())
+        try:
+            mig = db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
+            checkpoint_data = mig.checkpoint_data or {} if mig else {}
+            parallel_status = checkpoint_data.get("parallel_tasks", {})
+        finally:
+            db.close()
+        
+        # Flatten batches into individual table-level tasks
+        # DataSync source locations are per-subdirectory, so each table needs its own task
+        table_tasks = []
+        for batch in batches:
+            for table_name in batch["tables"]:
+                task_key = f"table_{table_name}"
+                if parallel_status.get(task_key, {}).get("status") == "success":
+                    logger.info(f"Skipping already-completed task for table: {table_name}")
+                    if self.log_callback:
+                        self.log_callback(migration_id, "INFO", "transfer", f"Table '{table_name}' transfer already completed, skipping")
+                    continue
+                table_tasks.append({
+                    "table": table_name,
+                    "task_key": task_key,
+                    "batch_index": batch["task_index"],
+                })
+        
+        if not table_tasks:
+            logger.info("All parallel tasks already completed")
+            return True
+        
+        total_tasks = len(table_tasks)
+        logger.info(f"Executing {total_tasks} parallel DataSync tasks")
+        if self.log_callback:
+            self.log_callback(migration_id, "INFO", "transfer", f"Starting {total_tasks} parallel DataSync tasks")
+        
+        # Create shared S3 destination location (reuse if already saved)
+        db = next(get_db())
+        try:
+            mig = db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
+            cp = mig.checkpoint_data or {} if mig else {}
+            saved_dest_arn = cp.get("datasync_dest_location_arn")
+        finally:
+            db.close()
+        
+        if saved_dest_arn:
+            dest_arn = saved_dest_arn
+            logger.info(f"Reusing saved S3 destination location: {dest_arn}")
+        else:
+            s3_subdir = f"/{s3_path}" if s3_path else "/"
+            dest_arn = agent.create_s3_destination_location(
+                s3_bucket_name=s3_bucket,
+                subdirectory=s3_subdir,
+                s3_config_role_arn=datasync_s3_role_arn,
+            )
+            self._save_checkpoint(migration_id, {"datasync_dest_location_arn": dest_arn})
+        
+        # Worker function for each table task
+        def run_table_task(task_info: Dict) -> Dict:
+            table_name = task_info["table"]
+            task_key = task_info["task_key"]
+            try:
+                # Build per-table GCS subdirectory: /gcs_path/dataset/table_name/
+                if gcs_path:
+                    table_subdir = f"/{gcs_path}/{dataset}/{table_name}/"
+                else:
+                    table_subdir = f"/{dataset}/{table_name}/"
+                
+                logger.info(f"[{table_name}] Creating GCS source location: gs://{gcs_bucket}{table_subdir}")
+                
+                source_arn = agent.create_gcs_source_location(
+                    bucket_name=gcs_bucket,
+                    gcs_access_key=gcs_access_key,
+                    gcs_secret_key=gcs_secret_key,
+                    subdirectory=table_subdir,
+                )
+                
+                # Build per-table S3 destination: /s3_path/dataset/table_name/
+                if s3_path:
+                    s3_table_subdir = f"/{s3_path}/{dataset}/{table_name}/"
+                else:
+                    s3_table_subdir = f"/{dataset}/{table_name}/"
+                
+                table_dest_arn = agent.create_s3_destination_location(
+                    s3_bucket_name=s3_bucket,
+                    subdirectory=s3_table_subdir,
+                    s3_config_role_arn=datasync_s3_role_arn,
+                )
+                
+                result = agent.create_and_run_task(
+                    source_location_arn=source_arn,
+                    dest_location_arn=table_dest_arn,
+                    task_name=f"DataMIQ-Mig{migration_id}-{table_name}",
+                )
+                
+                return {
+                    "task_key": task_key,
+                    "table": table_name,
+                    "status": result.get("status", "failed"),
+                    "files_transferred": result.get("files_transferred", 0),
+                    "bytes_transferred": result.get("bytes_transferred", 0),
+                    "error": result.get("error"),
+                    "task_arn": result.get("task_arn"),
+                }
+            except Exception as e:
+                logger.error(f"[{table_name}] DataSync task failed: {e}")
+                return {
+                    "task_key": task_key,
+                    "table": table_name,
+                    "status": "failed",
+                    "error": str(e),
+                    "files_transferred": 0,
+                    "bytes_transferred": 0,
+                }
+        
+        # Execute tasks in parallel with ThreadPoolExecutor
+        max_workers = min(total_tasks, 16)
+        results = []
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_task = {executor.submit(run_table_task, task): task for task in table_tasks}
+            
+            for future in as_completed(future_to_task):
+                task_info = future_to_task[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                    
+                    # Save per-task checkpoint immediately
+                    self._save_checkpoint(migration_id, {
+                        f"parallel_tasks": {
+                            **parallel_status,
+                            result["task_key"]: {
+                                "status": result["status"],
+                                "files": result["files_transferred"],
+                                "bytes": result["bytes_transferred"],
+                                "error": result.get("error"),
+                            }
+                        }
+                    })
+                    # Update local tracking
+                    parallel_status[result["task_key"]] = {"status": result["status"]}
+                    
+                    status_icon = "OK" if result["status"] == "success" else "FAILED"
+                    log_msg = f"[{result['table']}] {status_icon} — {result['files_transferred']} files, {result['bytes_transferred']} bytes"
+                    if result.get("error"):
+                        log_msg += f" — Error: {result['error']}"
+                    
+                    logger.info(log_msg)
+                    if self.log_callback:
+                        level = "INFO" if result["status"] == "success" else "ERROR"
+                        self.log_callback(migration_id, level, "transfer", log_msg)
+                    
+                except Exception as e:
+                    logger.error(f"[{task_info['table']}] Future raised exception: {e}")
+                    results.append({
+                        "task_key": task_info["task_key"],
+                        "table": task_info["table"],
+                        "status": "failed",
+                        "error": str(e),
+                    })
+        
+        # Summarize
+        succeeded = [r for r in results if r["status"] == "success"]
+        failed = [r for r in results if r["status"] != "success"]
+        total_files = sum(r.get("files_transferred", 0) for r in results)
+        total_bytes = sum(r.get("bytes_transferred", 0) for r in results)
+        
+        summary = f"Parallel transfer complete: {len(succeeded)}/{len(results)} tasks succeeded, {total_files} files, {total_bytes:,} bytes"
+        logger.info(summary)
+        if self.log_callback:
+            self.log_callback(migration_id, "INFO", "transfer", summary,
+                log_metadata={"succeeded": len(succeeded), "failed": len(failed), "total_files": total_files, "total_bytes": total_bytes})
+        
+        if failed:
+            for r in failed:
+                logger.error(f"Failed task: table={r['table']}, error={r.get('error')}")
+            if self.log_callback:
+                self.log_callback(migration_id, "ERROR", "transfer",
+                    f"{len(failed)} table transfers failed: {[r['table'] for r in failed]}")
+            return False
+        
+        return True
     
     def execute(
         self,
         migration_id: int,
         source_config: Dict,
         target_config: Dict,
-        storage_config: Dict
+        storage_config: Dict,
     ) -> bool:
-        """
-        Execute the complete Path B migration using AWS DataSync.
-        
-        Stages:
-        1. Export BigQuery tables to GCS (already completed by orchestrator)
-        2. Transfer from GCS to S3 using AWS DataSync
-        3. Load from S3 to Redshift using RedshiftLoader
-        
-        Args:
-            migration_id: Migration ID
-            source_config: Source configuration (BigQuery)
-            target_config: Target configuration (Redshift)
-            storage_config: Storage configuration (GCS, S3, AWS DataSync params)
-            
-        Returns:
-            True if successful, False otherwise
-        """
         try:
-            logger.info("="*80)
-            logger.info(f"STARTING PATH B MIGRATION {migration_id} - AWS DataSync")
-            logger.info("="*80)
+            logger.info("=" * 80)
+            logger.info(f"STARTING PATH B MIGRATION {migration_id} - DataSync Agent on GCP")
+            logger.info("=" * 80)
             
-            # Get checkpoint to determine which stage to execute
-            checkpoint = self.checkpoint_manager.get_checkpoint(migration_id)
+            # Get checkpoint data from migration object (like PathwayC does)
+            from database import get_db
+            from models.bq_redshift_migration import MigrationBQRedshift
             
-            # Stage 1: Export (handled by orchestrator before this)
-            if not checkpoint.get('export_completed_at'):
-                logger.error("Export stage not completed. Cannot proceed with transfer.")
-                return False
-            
-            # Stage 2: Transfer using AWS DataSync
-            if not checkpoint.get('transfer_completed_at'):
-                logger.info("="*80)
-                logger.info("STAGE 2: TRANSFER (GCS → S3 via AWS DataSync)")
-                logger.info("="*80)
-                
-                success = self._execute_transfer_stage_datasync(
-                    migration_id,
-                    storage_config
-                )
-                
-                if not success:
-                    logger.error("Transfer stage failed")
+            db = next(get_db())
+            try:
+                migration = db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
+                if not migration:
+                    logger.error(f"Migration {migration_id} not found")
                     return False
                 
-                # Mark transfer as completed
-                self.checkpoint_manager.mark_transfer_completed(migration_id)
-                logger.info("✓ Transfer stage completed")
-            else:
-                logger.info("Transfer stage already completed, skipping...")
-            
-            # Stage 3: Load to Redshift
-            if not checkpoint.get('load_completed_at'):
-                logger.info("="*80)
-                logger.info("STAGE 3: LOAD (S3 → Redshift)")
-                logger.info("="*80)
+                checkpoint_data = migration.checkpoint_data or {}
                 
-                # Import PathwayC to reuse load stage
-                from .pathway_c import PathwayC
-                pathway_c = PathwayC(self.checkpoint_manager, self.manifest_handler, self.log_callback)
+                # Determine which stages are completed
+                export_completed = checkpoint_data.get('export_completed_at') is not None
+                transfer_completed = checkpoint_data.get('transfer_completed_at') is not None
+                load_completed = checkpoint_data.get('load_completed_at') is not None
                 
-                # Get database session from checkpoint manager
-                from database import get_db
-                db = next(get_db())
+                logger.info("Checkpoint Status:")
+                logger.info(f"  Export: {'✓ Completed' if export_completed else '✗ Pending'}")
+                logger.info(f"  Transfer: {'✓ Completed' if transfer_completed else '✗ Pending'}")
+                logger.info(f"  Load: {'✓ Completed' if load_completed else '✗ Pending'}")
                 
-                try:
-                    success = pathway_c._execute_load_stage(
-                        migration_id,
-                        target_config,
-                        storage_config,
-                        [],  # No shards in Path B
-                        db
-                    )
+                # Stage 1: Export (handled by orchestrator)
+                if not export_completed:
+                    logger.error("Export stage not completed. Cannot proceed.")
+                    return False
+                
+                # Stage 2: Transfer via DataSync
+                if not transfer_completed:
+                    logger.info("=" * 80)
+                    logger.info("STAGE 2: TRANSFER (GCS → S3 via DataSync on GCP VM)")
+                    logger.info("=" * 80)
                     
+                    success = self._execute_transfer_stage(migration_id, storage_config, source_config)
                     if not success:
-                        logger.error("Load stage failed")
+                        logger.error("Transfer stage failed")
                         return False
                     
-                    # Mark load as completed
-                    self.checkpoint_manager.mark_load_completed(migration_id)
+                    # Refresh from DB to pick up checkpoint changes made by _save_checkpoint
+                    # (_save_checkpoint uses separate DB sessions)
+                    db.expire_all()
+                    db.refresh(migration)
+                    checkpoint_data = migration.checkpoint_data or {}
+                    
+                    # Mark transfer completed in checkpoint
+                    checkpoint_data['transfer_completed_at'] = datetime.utcnow().isoformat()
+                    migration.checkpoint_data = checkpoint_data
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(migration, 'checkpoint_data')
+                    migration.current_stage = 'load'
+                    migration.updated_at = datetime.utcnow()
+                    db.commit()
+                    
+                    logger.info("✓ Transfer stage completed")
+                else:
+                    logger.info("Transfer stage already completed, skipping...")
+                
+                # Stage 3: Load to Redshift (reuse PathwayC's load logic)
+                if not load_completed:
+                    logger.info("=" * 80)
+                    logger.info("STAGE 3: LOAD (S3 → Redshift)")
+                    logger.info("=" * 80)
+                    
+                    # Refresh session to pick up checkpoint changes made by transfer stage
+                    # (transfer stage uses separate DB sessions via _save_checkpoint)
+                    db.expire_all()
+                    
+                    from .pathway_c import PathwayC
+                    pathway_c = PathwayC(self.checkpoint_manager, self.manifest_handler, self.log_callback)
+                    
+                    success = pathway_c._execute_load_stage(
+                        migration_id, target_config, storage_config, [], db
+                    )
+                    if not success:
+                        logger.error("Load stage failed")
+                        if self.log_callback:
+                            self.log_callback(migration_id, "ERROR", "load", "Load stage (S3 → Redshift) failed — check backend console logs for details")
+                        return False
+                    
+                    # Refresh from DB to pick up checkpoint changes made by load stage
+                    db.expire_all()
+                    db.refresh(migration)
+                    checkpoint_data = migration.checkpoint_data or {}
+                    
+                    # Mark load completed in checkpoint (if not already set by load stage)
+                    if not checkpoint_data.get('load_completed_at'):
+                        checkpoint_data['load_completed_at'] = datetime.utcnow().isoformat()
+                    migration.checkpoint_data = checkpoint_data
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(migration, 'checkpoint_data')
+                    migration.current_stage = 'completed'
+                    migration.updated_at = datetime.utcnow()
+                    db.commit()
+                    
                     logger.info("✓ Load stage completed")
-                finally:
-                    db.close()
-            else:
-                logger.info("Load stage already completed, skipping...")
-            
-            logger.info("="*80)
-            logger.info(f"✓ PATH B MIGRATION {migration_id} COMPLETED SUCCESSFULLY")
-            logger.info("="*80)
-            
-            return True
+                else:
+                    logger.info("Load stage already completed, skipping...")
+                
+                logger.info("=" * 80)
+                logger.info(f"✓ PATH B MIGRATION {migration_id} COMPLETED SUCCESSFULLY")
+                logger.info("=" * 80)
+                return True
+                
+            finally:
+                db.close()
             
         except Exception as e:
-            logger.error("="*80)
-            logger.error(f"✗ PATH B MIGRATION {migration_id} FAILED")
-            logger.error("="*80)
-            logger.error(f"Error: {e}")
-            
             import traceback
-            logger.error(traceback.format_exc())
-            logger.error("="*80)
-            
+            tb = traceback.format_exc()
+            logger.error(f"PATH B MIGRATION {migration_id} FAILED: {e}")
+            logger.error(tb)
+            # Write error to migration logs so it shows in the UI
+            if self.log_callback:
+                self.log_callback(migration_id, "CRITICAL", "transfer", f"Path B failed: {str(e)}", log_metadata={"stack_trace": tb})
             return False
     
-    def _execute_transfer_stage_datasync(
+    def _execute_transfer_stage(
         self,
         migration_id: int,
-        storage_config: Dict
+        storage_config: Dict,
+        source_config: Dict,
     ) -> bool:
-        """
-        Execute transfer stage using AWS DataSync.
-        
-        Args:
-            migration_id: Migration ID
-            storage_config: Storage configuration with DataSync parameters
-            
-        Returns:
-            True if successful, False otherwise
-        """
+        """Execute GCS → S3 transfer using DataSync agent on GCP VM."""
         try:
-            logger.info("Initializing AWS DataSync transfer")
+            # Extract config
+            gcs_bucket = storage_config.get("gcs_bucket", "").replace("gs://", "").strip("/")
+            gcs_path = storage_config.get("gcs_path", "").strip("/")
+            s3_bucket = storage_config.get("s3_bucket", "").replace("s3://", "").strip("/")
+            s3_path = storage_config.get("s3_path", "").strip("/")
+            aws_region = storage_config.get("aws_region", "us-east-1")
             
-            # Extract configuration
-            gcs_bucket = storage_config.get('gcs_bucket', '').replace('gs://', '').strip('/')
-            gcs_path = storage_config.get('gcs_path', '').strip('/')
-            s3_bucket = storage_config.get('s3_bucket', '').replace('s3://', '').strip('/')
-            s3_path = storage_config.get('s3_path', '').strip('/')
-            
-            # AWS DataSync configuration
-            aws_region = storage_config.get('aws_region', 'us-east-1')
-            subnet_id = storage_config.get('datasync_subnet_id')
-            security_group_id = storage_config.get('datasync_security_group_id')
-            instance_type = storage_config.get('datasync_instance_type', 'm5.xlarge')
+            agent_mode = storage_config.get("datasync_agent_mode", "existing_vm")
+            gcp_zone = storage_config.get("datasync_gcp_zone", "")
+            gcp_machine_type = storage_config.get("datasync_gcp_machine_type", "n1-standard-4")
+            gcp_network = storage_config.get("datasync_gcp_network", "default")
+            gcp_subnet = storage_config.get("datasync_gcp_subnet", "")
+            existing_vm_ip = storage_config.get("datasync_existing_vm_ip", "")
+            datasync_s3_role_arn = storage_config.get("datasync_s3_role_arn", "")
             
             # GCS HMAC credentials
-            gcs_access_key = storage_config.get('gcs_access_key')
-            gcs_secret_key = storage_config.get('gcs_secret_key')
+            gcs_access_key = storage_config.get("gcs_access_key", "")
+            gcs_secret_key = self._decrypt_gcs_secret(storage_config, migration_id)
             
-            # Validate required parameters
-            if not subnet_id:
-                logger.error("DataSync subnet_id not provided in storage_config")
-                logger.error("Required: storage_config['datasync_subnet_id']")
-                return False
+            # AWS credentials
+            aws_access_key = storage_config.get("aws_access_key_id", "")
+            aws_secret_key = self._decrypt_aws_secret(storage_config, migration_id)
             
-            if not security_group_id:
-                logger.error("DataSync security_group_id not provided in storage_config")
-                logger.error("Required: storage_config['datasync_security_group_id']")
-                return False
+            # GCP project from source config
+            gcp_project_id = source_config.get("project_id", "")
             
+            # Parse service account JSON for GCP API calls
+            sa_info = self._get_service_account_info(storage_config, migration_id)
+            if sa_info:
+                gcp_project_id = gcp_project_id or sa_info.get("project_id", "")
+            
+            # Validate
             if not gcs_access_key or not gcs_secret_key:
-                logger.error("GCS HMAC credentials not provided")
-                logger.error("Required: storage_config['gcs_access_key'] and storage_config['gcs_secret_key']")
+                msg = "GCS HMAC credentials not provided"
+                logger.error(msg)
+                if self.log_callback:
+                    self.log_callback(migration_id, "ERROR", "transfer", msg)
+                return False
+            if not aws_access_key or not aws_secret_key:
+                msg = "AWS credentials not provided"
+                logger.error(msg)
+                if self.log_callback:
+                    self.log_callback(migration_id, "ERROR", "transfer", msg)
+                return False
+            if agent_mode == "create_vm" and not gcp_zone:
+                msg = "GCP zone required for create_vm mode"
+                logger.error(msg)
+                if self.log_callback:
+                    self.log_callback(migration_id, "ERROR", "transfer", msg)
+                return False
+            if agent_mode == "existing_vm" and not existing_vm_ip:
+                msg = "Existing VM IP required for existing_vm mode"
+                logger.error(msg)
+                if self.log_callback:
+                    self.log_callback(migration_id, "ERROR", "transfer", msg)
+                return False
+            if not gcp_project_id:
+                msg = "GCP project ID not found. Ensure service account JSON is provided in Stage 1."
+                logger.error(msg)
+                if self.log_callback:
+                    self.log_callback(migration_id, "ERROR", "transfer", msg)
                 return False
             
             logger.info(f"GCS Source: gs://{gcs_bucket}/{gcs_path}")
             logger.info(f"S3 Destination: s3://{s3_bucket}/{s3_path}")
+            logger.info(f"Agent mode: {agent_mode}")
             logger.info(f"AWS Region: {aws_region}")
-            logger.info(f"Instance Type: {instance_type}")
+            logger.info(f"VM IP: {existing_vm_ip}")
             
-            # Get AWS account ID for S3 bucket ARN
-            import boto3
-            sts_client = boto3.client('sts', region_name=aws_region)
-            account_id = sts_client.get_caller_identity()['Account']
-            s3_bucket_arn = f"arn:aws:s3:::{s3_bucket}"
+            # Validate VM IP doesn't look like an HMAC key (common misconfiguration)
+            if existing_vm_ip and (existing_vm_ip.startswith("GOOG") or len(existing_vm_ip) > 50):
+                msg = (
+                    f"VM IP '{existing_vm_ip[:20]}...' looks like a GCS HMAC key, not an IP address. "
+                    f"Please check the 'DataSync Agent VM IP' field in Stage 2."
+                )
+                logger.error(msg)
+                if self.log_callback:
+                    self.log_callback(migration_id, "ERROR", "transfer", msg)
+                return False
             
-            # Execute DataSync migration
-            logger.info("Starting AWS DataSync migration...")
+            if self.log_callback:
+                self.log_callback(migration_id, "INFO", "transfer",
+                    f"DataSync config: mode={agent_mode}, GCS=gs://{gcs_bucket}/{gcs_path}, S3=s3://{s3_bucket}/{s3_path}, region={aws_region}",
+                    log_metadata={"agent_mode": agent_mode, "gcp_zone": gcp_zone, "aws_region": aws_region})
             
-            result = execute_pathway_b_migration(
+            # Debug: Log credential info (not the actual values for security)
+            logger.info(f"AWS Access Key ID length: {len(aws_access_key) if aws_access_key else 0}")
+            logger.info(f"AWS Secret Key length: {len(aws_secret_key) if aws_secret_key else 0}")
+            logger.info(f"AWS Access Key ID starts with: {aws_access_key[:4] if aws_access_key and len(aws_access_key) >= 4 else 'N/A'}")
+            
+            # Initialize agent manager
+            agent = GCPDataSyncAgent(
+                gcp_project_id=gcp_project_id,
+                gcp_zone=gcp_zone or "us-central1-a",
                 aws_region=aws_region,
-                subnet_id=subnet_id,
-                security_group_id=security_group_id,
-                gcs_bucket=gcs_bucket,
-                gcs_access_key=gcs_access_key,
-                gcs_secret_key=gcs_secret_key,
-                s3_bucket_arn=s3_bucket_arn,
-                gcs_subdirectory=f"/{gcs_path}" if gcs_path else "/",
-                s3_subdirectory=f"/{s3_path}" if s3_path else "/",
-                instance_type=instance_type,
-                key_name=storage_config.get('datasync_key_name'),
-                auto_retry=True,
-                max_retries=3
+                service_account_info=sa_info,
+                aws_access_key_id=aws_access_key.strip() if aws_access_key else None,
+                aws_secret_access_key=aws_secret_key.strip() if aws_secret_key else None,
             )
             
-            if result['status'] == 'success':
-                logger.info("="*80)
-                logger.info("AWS DataSync Transfer Completed Successfully")
-                logger.info("="*80)
-                logger.info(f"Files Transferred: {result.get('files_transferred', 0)}")
-                logger.info(f"Bytes Transferred: {result.get('bytes_transferred', 0)}")
-                logger.info(f"Agent Instance: {result.get('instance_id')}")
-                logger.info(f"Task ARN: {result.get('task_arn')}")
-                logger.info("="*80)
+            # Set S3/GCS buckets for AMI export/import flow in _ensure_datasync_image_exists
+            agent._export_s3_bucket = s3_bucket
+            agent._gcs_bucket = gcs_bucket
+            
+            # Step 1: Get agent IP (only existing VM mode is supported)
+            if agent_mode == "create_vm":
+                msg = "Automatic VM creation is no longer supported. Please manually create the DataSync agent VM and use 'Use Existing VM' mode."
+                logger.error(msg)
+                if self.log_callback:
+                    self.log_callback(migration_id, "ERROR", "transfer", msg)
+                return False
+            
+            if not existing_vm_ip:
+                msg = "VM IP address is required. Please provide the IP of your DataSync agent VM."
+                logger.error(msg)
+                if self.log_callback:
+                    self.log_callback(migration_id, "ERROR", "transfer", msg)
+                return False
+            
+            agent_ip = existing_vm_ip
+            agent.agent_ip = agent_ip
+            if self.log_callback:
+                self.log_callback(migration_id, "INFO", "transfer",
+                    f"Using DataSync agent VM at: {agent_ip}")
+            
+            # Load checkpoint data to check for saved agent/location ARNs
+            from database import get_db
+            from models.bq_redshift_migration import MigrationBQRedshift
+            _db = next(get_db())
+            try:
+                _mig = _db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
+                _cp = _mig.checkpoint_data or {} if _mig else {}
+            finally:
+                _db.close()
+            
+            saved_agent_arn = _cp.get("datasync_agent_arn")
+            saved_source_arn = _cp.get("datasync_source_location_arn")
+            saved_dest_arn = _cp.get("datasync_dest_location_arn")
+            
+            # Step 2: Activate agent with AWS (or reuse saved ARN)
+            if saved_agent_arn:
+                agent_arn = saved_agent_arn
+                agent.agent_arn = agent_arn
+                logger.info(f"Reusing saved agent ARN: {agent_arn}")
+                if self.log_callback:
+                    self.log_callback(migration_id, "INFO", "transfer", f"Reusing previously activated agent: {agent_arn}")
+            else:
+                if self.log_callback:
+                    self.log_callback(migration_id, "INFO", "transfer", "Getting activation key from DataSync agent...")
+                activation_key = agent.get_activation_key(agent_ip)
+                
+                # Save activation key to checkpoint immediately
+                self._save_checkpoint(migration_id, {"datasync_activation_key": activation_key})
+                
+                if self.log_callback:
+                    self.log_callback(migration_id, "INFO", "transfer", "Activating agent with AWS DataSync service...")
+                agent_arn = agent.activate_agent(activation_key)
+                
+                # Save agent ARN to checkpoint
+                self._save_checkpoint(migration_id, {"datasync_agent_arn": agent_arn})
+                
+                if self.log_callback:
+                    self.log_callback(migration_id, "INFO", "transfer", f"Agent activated: {agent_arn}")
+            
+            # Step 3: Create source location (GCS) (or reuse saved)
+            if saved_source_arn:
+                source_arn = saved_source_arn
+                logger.info(f"Reusing saved source location: {source_arn}")
+            else:
+                gcs_subdir = f"/{gcs_path}" if gcs_path else "/"
+                source_arn = agent.create_gcs_source_location(
+                    bucket_name=gcs_bucket,
+                    gcs_access_key=gcs_access_key,
+                    gcs_secret_key=gcs_secret_key,
+                    subdirectory=gcs_subdir,
+                )
+                self._save_checkpoint(migration_id, {"datasync_source_location_arn": source_arn})
+            
+            # Step 4: Create destination location (S3) (or reuse saved)
+            if saved_dest_arn:
+                dest_arn = saved_dest_arn
+                logger.info(f"Reusing saved dest location: {dest_arn}")
+            else:
+                s3_subdir = f"/{s3_path}" if s3_path else "/"
+                dest_arn = agent.create_s3_destination_location(
+                    s3_bucket_name=s3_bucket,
+                    subdirectory=s3_subdir,
+                    s3_config_role_arn=datasync_s3_role_arn,
+                )
+                self._save_checkpoint(migration_id, {"datasync_dest_location_arn": dest_arn})
+            
+            # Step 5: Create and run task
+            result = agent.create_and_run_task(
+                source_location_arn=source_arn,
+                dest_location_arn=dest_arn,
+                task_name=f"DataMIQ-Migration-{migration_id}",
+            )
+            
+            # Handle agent offline — clear saved ARNs, re-activate, and retry once
+            if result.get("status") == "agent_offline":
+                logger.warning("Agent is offline — clearing saved ARNs and re-activating agent")
+                if self.log_callback:
+                    self.log_callback(migration_id, "WARNING", "transfer",
+                        "DataSync agent is offline. Clearing cached agent and re-activating...")
+                
+                # Clear all saved DataSync ARNs from checkpoint
+                self._save_checkpoint(migration_id, {
+                    "datasync_agent_arn": None,
+                    "datasync_source_location_arn": None,
+                    "datasync_dest_location_arn": None,
+                })
+                
+                # Re-activate: get new activation key and activate
+                if self.log_callback:
+                    self.log_callback(migration_id, "INFO", "transfer",
+                        f"Getting new activation key from agent at {agent_ip}...")
+                activation_key = agent.get_activation_key(agent_ip)
+                self._save_checkpoint(migration_id, {"datasync_activation_key": activation_key})
+                
+                if self.log_callback:
+                    self.log_callback(migration_id, "INFO", "transfer", "Re-activating agent with AWS DataSync...")
+                agent_arn = agent.activate_agent(activation_key)
+                self._save_checkpoint(migration_id, {"datasync_agent_arn": agent_arn})
+                
+                if self.log_callback:
+                    self.log_callback(migration_id, "INFO", "transfer", f"Agent re-activated: {agent_arn}")
+                
+                # Re-create locations with new agent
+                gcs_subdir = f"/{gcs_path}" if gcs_path else "/"
+                source_arn = agent.create_gcs_source_location(
+                    bucket_name=gcs_bucket,
+                    gcs_access_key=gcs_access_key,
+                    gcs_secret_key=gcs_secret_key,
+                    subdirectory=gcs_subdir,
+                )
+                self._save_checkpoint(migration_id, {"datasync_source_location_arn": source_arn})
+                
+                s3_subdir = f"/{s3_path}" if s3_path else "/"
+                dest_arn = agent.create_s3_destination_location(
+                    s3_bucket_name=s3_bucket,
+                    subdirectory=s3_subdir,
+                    s3_config_role_arn=datasync_s3_role_arn,
+                )
+                self._save_checkpoint(migration_id, {"datasync_dest_location_arn": dest_arn})
+                
+                # Retry the task
+                if self.log_callback:
+                    self.log_callback(migration_id, "INFO", "transfer", "Retrying DataSync task with new agent...")
+                result = agent.create_and_run_task(
+                    source_location_arn=source_arn,
+                    dest_location_arn=dest_arn,
+                    task_name=f"DataMIQ-Migration-{migration_id}-retry",
+                )
+                
+                # If still offline after retry, fail
+                if result.get("status") == "agent_offline":
+                    error_msg = "Agent is still offline after re-activation. Please reboot the DataSync VM and try again."
+                    logger.error(error_msg)
+                    if self.log_callback:
+                        self.log_callback(migration_id, "ERROR", "transfer", error_msg)
+                    return False
+            
+            if result["status"] == "success":
+                logger.info("=" * 80)
+                logger.info("DataSync Transfer Completed Successfully")
+                logger.info(f"  Files: {result.get('files_transferred', 0)}")
+                logger.info(f"  Bytes: {result.get('bytes_transferred', 0)}")
+                logger.info("=" * 80)
+                
+                if self.log_callback:
+                    self.log_callback(migration_id, "INFO", "transfer",
+                        f"DataSync transfer complete: {result.get('files_transferred', 0)} files, {result.get('bytes_transferred', 0)} bytes")
+                
+                # Generate manifest files for Redshift COPY
+                logger.info("=" * 80)
+                logger.info("GENERATING MANIFEST FILES FOR REDSHIFT COPY")
+                logger.info("=" * 80)
+                
+                try:
+                    self._generate_manifests_for_redshift(
+                        migration_id, s3_bucket, s3_path, aws_access_key, aws_secret_key, aws_region
+                    )
+                except Exception as manifest_err:
+                    logger.warning(f"Manifest generation failed (non-fatal): {manifest_err}")
+                    if self.log_callback:
+                        self.log_callback(migration_id, "WARNING", "transfer",
+                            f"Manifest generation failed (will use prefix-based COPY): {str(manifest_err)}")
+                
                 return True
             else:
-                logger.error("="*80)
-                logger.error("AWS DataSync Transfer Failed")
-                logger.error("="*80)
-                logger.error(f"Error: {result.get('error', 'Unknown error')}")
-                logger.error("="*80)
+                error_msg = result.get("error", "Unknown error")
+                logger.error(f"DataSync transfer failed: {error_msg}")
+                logger.error(f"Result: {result}")
+                
+                # If the error is related to locations (permission denied, location access),
+                # clear saved location ARNs so they get re-created on next retry
+                error_lower = error_msg.lower()
+                if any(kw in error_lower for kw in [
+                    "permission denied", "location", "access denied", "x50006",
+                    "creating location", "source location", "dest location"
+                ]):
+                    logger.warning("Location-related error detected — clearing saved location ARNs for retry")
+                    self._save_checkpoint(migration_id, {
+                        "datasync_source_location_arn": None,
+                        "datasync_dest_location_arn": None,
+                    })
+                    if self.log_callback:
+                        self.log_callback(migration_id, "WARNING", "transfer",
+                            "Cleared cached DataSync locations — they will be re-created on next retry")
+                
+                if self.log_callback:
+                    self.log_callback(migration_id, "ERROR", "transfer",
+                        f"DataSync transfer failed: {error_msg}",
+                        log_metadata={"task_arn": result.get("task_arn"), "error": error_msg})
                 return False
                 
         except Exception as e:
-            logger.error(f"DataSync transfer failed: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            tb = traceback.format_exc()
+            logger.error(f"DataSync transfer failed: {e}")
+            logger.error(tb)
+            if self.log_callback:
+                self.log_callback(migration_id, "ERROR", "transfer", f"DataSync transfer error: {str(e)}", log_metadata={"stack_trace": tb})
             return False
     
-    def validate_migration(
+    def _generate_manifests_for_redshift(
         self,
         migration_id: int,
-        source_config: Dict,
-        target_config: Dict
-    ) -> Dict:
+        s3_bucket: str,
+        s3_path: str,
+        aws_access_key: str,
+        aws_secret_key: str,
+        aws_region: str,
+    ):
         """
-        Validate migration by comparing row counts.
+        After DataSync transfer, list files in S3 and generate per-table manifest files.
         
-        Args:
-            migration_id: Migration ID
-            source_config: Source configuration
-            target_config: Target configuration
-            
-        Returns:
-            Validation results dictionary
+        Manifest files are used by Redshift COPY command for reliable loading.
+        Each table gets its own manifest file listing all its data files.
+        
+        Structure in S3:
+          s3://bucket/path/dataset/table_name/file1.parquet
+          s3://bucket/path/dataset/table_name/file2.parquet
+          s3://bucket/path/manifests/table_name.manifest
         """
+        import json
+        
+        s3 = boto3.client(
+            "s3",
+            region_name=aws_region,
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+        )
+        
+        prefix = s3_path.strip("/") + "/" if s3_path else ""
+        
+        # List all data files in S3
+        logger.info(f"Listing files in s3://{s3_bucket}/{prefix}")
+        
+        all_files = []
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=s3_bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                size = obj.get("Size", 0)
+                # Skip manifest files and directories
+                if not key.endswith("/") and "/manifests/" not in key:
+                    all_files.append({"key": key, "size": size})
+        
+        logger.info(f"Found {len(all_files)} data files in S3")
+        
+        if not all_files:
+            logger.warning("No data files found in S3 after transfer")
+            return
+        
+        # Group files by table
+        # Expected structure: prefix/dataset/table_name/file.parquet
+        tables = {}
+        for file_info in all_files:
+            key = file_info["key"]
+            # Remove the base prefix to get relative path
+            relative = key[len(prefix):] if key.startswith(prefix) else key
+            parts = relative.split("/")
+            
+            if len(parts) >= 2:
+                # parts[0] = dataset, parts[1] = table_name, parts[2+] = file
+                table_name = parts[1] if len(parts) >= 3 else parts[0]
+                if table_name not in tables:
+                    tables[table_name] = []
+                tables[table_name].append({
+                    "url": f"s3://{s3_bucket}/{key}",
+                    "size": file_info["size"],
+                })
+            else:
+                # File at root level
+                table_name = "_root"
+                if table_name not in tables:
+                    tables[table_name] = []
+                tables[table_name].append({
+                    "url": f"s3://{s3_bucket}/{key}",
+                    "size": file_info["size"],
+                })
+        
+        logger.info(f"Found {len(tables)} tables: {list(tables.keys())}")
+        
+        # Generate manifest for each table
+        manifest_prefix = f"{prefix}manifests" if prefix else "manifests"
+        manifests_created = []
+        
+        for table_name, file_entries in tables.items():
+            manifest = {
+                "entries": [
+                    {
+                        "url": entry["url"],
+                        "mandatory": True,
+                        "meta": {"content_length": entry["size"]},
+                    }
+                    for entry in sorted(file_entries, key=lambda e: e["url"])
+                ]
+            }
+            
+            manifest_key = f"{manifest_prefix}/{table_name}.manifest"
+            manifest_json = json.dumps(manifest, indent=2)
+            
+            s3.put_object(
+                Bucket=s3_bucket,
+                Key=manifest_key,
+                Body=manifest_json.encode("utf-8"),
+                ContentType="application/json",
+            )
+            
+            manifest_uri = f"s3://{s3_bucket}/{manifest_key}"
+            manifests_created.append({
+                "table": table_name,
+                "manifest_uri": manifest_uri,
+                "file_count": len(file_entries),
+            })
+            
+            logger.info(f"  ✓ Manifest for '{table_name}': {manifest_uri} ({len(file_entries)} files)")
+        
+        logger.info(f"✓ Generated {len(manifests_created)} manifest files")
+        
+        if self.log_callback:
+            self.log_callback(
+                migration_id, "INFO", "transfer",
+                f"Generated {len(manifests_created)} manifest files for Redshift COPY",
+                log_metadata={"manifests": manifests_created},
+            )
+        
+        # Store manifest info in migration checkpoint for the load stage
+        from database import get_db
+        from models.bq_redshift_migration import MigrationBQRedshift
+        from sqlalchemy.orm.attributes import flag_modified
+        
+        db = next(get_db())
         try:
-            logger.info(f"Validating migration {migration_id}")
-            
-            return {
-                'migration_id': migration_id,
-                'valid': True,
-                'validated_at': datetime.utcnow().isoformat(),
-                'tables': {}
-            }
-            
-        except Exception as e:
-            logger.error(f"Validation failed: {e}", exc_info=True)
-            return {
-                'migration_id': migration_id,
-                'valid': False,
-                'error': str(e)
-            }
+            migration = db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
+            if migration:
+                checkpoint_data = migration.checkpoint_data or {}
+                checkpoint_data["manifests"] = manifests_created
+                migration.checkpoint_data = checkpoint_data
+                flag_modified(migration, "checkpoint_data")  # CRITICAL: Tell SQLAlchemy JSONB changed
+                db.commit()
+                logger.info("✓ Manifest info saved to migration checkpoint")
+        finally:
+            db.close()
+    
+    def _save_checkpoint(self, migration_id: int, data: Dict):
+        """Save key-value pairs into migration checkpoint_data."""
+        from database import get_db
+        from models.bq_redshift_migration import MigrationBQRedshift
+        
+        db = next(get_db())
+        try:
+            mig = db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
+            if mig:
+                cp = mig.checkpoint_data or {}
+                cp.update(data)
+                mig.checkpoint_data = cp
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(mig, "checkpoint_data")
+                db.commit()
+                logger.info(f"Checkpoint saved: {list(data.keys())}")
+        finally:
+            db.close()
+    
+    def _decrypt_gcs_secret(self, storage_config: Dict, migration_id: int) -> Optional[str]:
+        """Decrypt GCS HMAC secret key."""
+        encrypted = storage_config.get("gcs_secret_key_encrypted", "")
+        if not encrypted:
+            return None
+        try:
+            from services.unified_kms_service import get_unified_kms_service
+            kms = get_unified_kms_service()
+            return kms.decrypt_credential(
+                ciphertext=encrypted,
+                credential_type='gcp_hmac_secret',
+                resource_type='migration',
+                resource_id=migration_id,
+                allow_plaintext_fallback=True
+            )
+        except Exception:
+            logger.warning("KMS decryption failed, using value as-is (dev mode)")
+            return encrypted
+    
+    def _decrypt_aws_secret(self, storage_config: Dict, migration_id: int) -> Optional[str]:
+        """Decrypt AWS secret access key."""
+        encrypted = storage_config.get("aws_secret_access_key_encrypted", "")
+        if not encrypted:
+            return None
+        try:
+            from services.unified_kms_service import get_unified_kms_service
+            kms = get_unified_kms_service()
+            return kms.decrypt_credential(
+                ciphertext=encrypted,
+                credential_type='aws_secret_key',
+                resource_type='migration',
+                resource_id=migration_id,
+                allow_plaintext_fallback=True
+            )
+        except Exception:
+            logger.warning("KMS decryption failed, using value as-is (dev mode)")
+            return encrypted
+    
+    def _get_service_account_info(self, storage_config: Dict, migration_id: int) -> Optional[Dict]:
+        """Get decrypted service account JSON as dict."""
+        encrypted = storage_config.get("service_account_json_encrypted", "")
+        if not encrypted:
+            return None
+        try:
+            from services.unified_kms_service import get_unified_kms_service
+            kms = get_unified_kms_service()
+            sa_json = kms.decrypt_credential(
+                ciphertext=encrypted,
+                credential_type='gcp_service_account',
+                resource_type='migration',
+                resource_id=migration_id,
+                allow_plaintext_fallback=True
+            )
+        except Exception:
+            sa_json = encrypted
+        
+        import json
+        try:
+            return json.loads(sa_json) if sa_json else None
+        except json.JSONDecodeError:
+            return None
+    
+    def validate_migration(self, migration_id: int, source_config: Dict, target_config: Dict) -> Dict:
+        return {
+            "migration_id": migration_id,
+            "valid": True,
+            "validated_at": datetime.utcnow().isoformat(),
+            "tables": {},
+        }

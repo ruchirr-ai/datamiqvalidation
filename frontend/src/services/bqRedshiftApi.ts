@@ -51,6 +51,11 @@ export interface Migration {
   // Flat fields for list view compatibility
   source_connection_name?: string;
   target_connection_name?: string;
+  // Path B: DataSync fields
+  datasync_existing_vm_ip?: string;
+  datasync_s3_role_arn?: string;
+  gcs_access_key?: string;
+  aws_region?: string;
   created_at: string;
   updated_at: string;
   start_time: string | null;
@@ -188,23 +193,6 @@ export const bqRedshiftApi = {
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || 'Failed to create migration');
-    }
-    
-    return response.json();
-  },
-
-  /**
-   * Get migration by ID
-   */
-  async getMigration(id: number): Promise<Migration> {
-    const response = await fetch(`${API_BASE}/${id}`, {
-      method: 'GET',
-      headers: getAuthHeaders()
-    });
-    
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to get migration');
     }
     
     return response.json();

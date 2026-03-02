@@ -50,6 +50,83 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Database connection failed: {str(e)}")
     
+    # Recover stuck "running" migrations from previous crashes
+    try:
+        from models.bq_redshift_migration import MigrationBQRedshift
+        from datetime import datetime
+        
+        with db_instance.get_session() as db:
+            stuck_migrations = db.query(MigrationBQRedshift).filter(
+                MigrationBQRedshift.status == 'running'
+            ).all()
+            
+            if stuck_migrations:
+                logger.warning(f"Found {len(stuck_migrations)} stuck 'running' migration(s) from previous session — resetting to 'failed'")
+                for mig in stuck_migrations:
+                    logger.warning(f"  Resetting migration {mig.id} ('{mig.migration_name}') from 'running' to 'failed'")
+                    mig.status = 'failed'
+                    mig.end_time = datetime.utcnow()
+                    mig.updated_at = datetime.utcnow()
+                db.commit()
+                logger.info("✓ Stuck migrations reset — they can now be resumed from the UI")
+            else:
+                logger.info("No stuck migrations found")
+    except Exception as e:
+        logger.error(f"Failed to recover stuck migrations: {str(e)}")
+    
+    # Start background scheduler for scheduled migrations
+    import asyncio
+    import threading
+    
+    async def check_scheduled_migrations():
+        """Background task that checks for due scheduled migrations every 30 seconds."""
+        while True:
+            try:
+                await asyncio.sleep(30)
+                from models.bq_redshift_migration import MigrationBQRedshift
+                from services.bq_redshift_migration.orchestrator import MigrationOrchestrator
+                from datetime import datetime
+                
+                with db_instance.get_session() as db:
+                    now = datetime.now()  # Use local time since frontend sends local datetime
+                    due_migrations = db.query(MigrationBQRedshift).filter(
+                        MigrationBQRedshift.status == 'scheduled',
+                        MigrationBQRedshift.next_run_time.isnot(None),
+                        MigrationBQRedshift.next_run_time <= now
+                    ).all()
+                    
+                    for mig in due_migrations:
+                        logger.info(f"Scheduled migration {mig.id} ('{mig.migration_name}') is due (scheduled: {mig.next_run_time}) — starting now")
+                        
+                        def run_scheduled_migration(mid: int):
+                            bg_db = db_instance.SessionLocal()
+                            try:
+                                orchestrator = MigrationOrchestrator(bg_db)
+                                orchestrator.start_migration(mid)
+                            except Exception as ex:
+                                logger.error(f"Scheduled migration {mid} failed: {ex}")
+                                try:
+                                    failed_mig = bg_db.query(MigrationBQRedshift).filter_by(id=mid).first()
+                                    if failed_mig and failed_mig.status == 'running':
+                                        failed_mig.status = 'failed'
+                                        failed_mig.end_time = datetime.utcnow()
+                                        failed_mig.updated_at = datetime.utcnow()
+                                        bg_db.commit()
+                                except Exception:
+                                    pass
+                            finally:
+                                bg_db.close()
+                        
+                        thread = threading.Thread(target=run_scheduled_migration, args=(mig.id,), daemon=True)
+                        thread.start()
+                        
+            except Exception as e:
+                logger.error(f"Scheduler error: {e}")
+    
+    # Run the scheduler as a background asyncio task
+    asyncio.create_task(check_scheduled_migrations())
+    logger.info("✓ Background migration scheduler started (checking every 30s)")
+    
     yield
     
     # Shutdown

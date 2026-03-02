@@ -18,7 +18,7 @@ from .bigquery_exporter import BigQueryExporter
 from .pathway_a import PathwayA
 from .pathway_b import PathwayB
 from .pathway_c import PathwayC
-from services.encryption_service import get_encryption_service
+from services.unified_kms_service import get_unified_kms_service
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +47,14 @@ class MigrationOrchestrator:
             'C': PathwayC(self.checkpoint_manager, self.manifest_handler, self._log),
         }
     
-    def start_migration(self, migration_id: int) -> bool:
+    def start_migration(self, migration_id: int, _skip_status_check: bool = False) -> bool:
         """
         Start a migration.
         
         Args:
             migration_id: Migration ID
+            _skip_status_check: If True, skip the 'already running' check.
+                Used by the restart endpoint which pre-sets status to 'running'.
             
         Returns:
             True if started successfully, False otherwise
@@ -66,7 +68,7 @@ class MigrationOrchestrator:
                 logger.error(f"Migration {migration_id} not found")
                 return False
             
-            if migration.status == 'running':
+            if migration.status == 'running' and not _skip_status_check:
                 logger.warning(f"Migration {migration_id} is already running")
                 return False
             
@@ -157,6 +159,11 @@ class MigrationOrchestrator:
         """
         Resume a paused or failed migration.
         
+        For Path B (and pathways using checkpoint_data), resume is determined
+        by checkpoint_data keys (export_completed_at, transfer_completed_at, etc.)
+        rather than MigrationShard records. This method delegates to _execute_migration
+        which already handles checkpoint-based resume for all pathways.
+        
         Args:
             migration_id: Migration ID
             
@@ -176,36 +183,46 @@ class MigrationOrchestrator:
                 logger.warning(f"Migration {migration_id} cannot be resumed (status: {migration.status})")
                 return False
             
-            # Check if migration can be resumed
-            if not self.checkpoint_manager.can_resume(migration_id):
-                logger.error(f"Migration {migration_id} cannot be resumed")
-                return False
+            # Determine resume stage from checkpoint_data (works for all pathways)
+            checkpoint_data = migration.checkpoint_data or {}
+            export_done = checkpoint_data.get('export_completed_at') is not None
+            transfer_done = checkpoint_data.get('transfer_completed_at') is not None
+            load_done = checkpoint_data.get('load_completed_at') is not None
             
-            # Get resume point
-            stage, pending_shards = self.checkpoint_manager.get_resume_point(migration_id)
+            if load_done:
+                resume_stage = 'completed'
+            elif transfer_done:
+                resume_stage = 'load'
+            elif export_done:
+                resume_stage = 'transfer'
+            else:
+                resume_stage = 'export'
             
             self._log(
                 migration_id,
                 'INFO',
-                stage,
-                f"Resuming migration from {stage} stage ({len(pending_shards)} shards pending)"
+                resume_stage,
+                f"Resuming migration from {resume_stage} stage (Pathway {migration.pathway})"
             )
             
             # Update status and resume
             migration.status = 'running'
-            migration.resume_point = stage
+            migration.resume_point = resume_stage
             migration.updated_at = datetime.utcnow()
+            if not migration.start_time:
+                migration.start_time = datetime.utcnow()
             self.db.commit()
             
-            logger.info(f"Resuming migration {migration_id} from {stage} stage")
+            logger.info(f"Resuming migration {migration_id} from {resume_stage} stage (Pathway {migration.pathway})")
             
-            # Execute migration
+            # Execute migration — _execute_migration already handles checkpoint-based resume
             success = self._execute_migration(migration)
             
             # Update final status
             if success:
                 migration.status = 'completed'
                 migration.end_time = datetime.utcnow()
+                migration.last_run_at = datetime.utcnow()
                 if migration.start_time:
                     migration.duration_seconds = int(
                         (migration.end_time - migration.start_time).total_seconds()
@@ -213,6 +230,8 @@ class MigrationOrchestrator:
                 self._log(migration_id, 'INFO', 'load', 'Migration completed successfully')
             else:
                 migration.status = 'failed'
+                migration.end_time = datetime.utcnow()
+                migration.last_run_at = datetime.utcnow()
                 self._log(migration_id, 'ERROR', migration.current_stage or 'unknown', 'Migration failed')
             
             migration.updated_at = datetime.utcnow()
@@ -222,6 +241,15 @@ class MigrationOrchestrator:
             
         except Exception as e:
             logger.error(f"Failed to resume migration {migration_id}: {e}", exc_info=True)
+            
+            # Mark as failed so it can be retried
+            migration = self.db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
+            if migration and migration.status == 'running':
+                migration.status = 'failed'
+                migration.end_time = datetime.utcnow()
+                migration.updated_at = datetime.utcnow()
+                self.db.commit()
+            
             return False
     
     def cancel_migration(self, migration_id: int) -> bool:
@@ -512,32 +540,60 @@ class MigrationOrchestrator:
                         'transfer',
                         "Decrypting AWS credentials for S3 access"
                     )
-                    encryption_service = get_encryption_service()
-                    aws_secret_key = encryption_service.decrypt(migration.aws_secret_access_key_encrypted)
+                    kms = get_unified_kms_service()
+                    aws_secret_key = kms.decrypt_credential(
+                        ciphertext=migration.aws_secret_access_key_encrypted,
+                        credential_type='aws_secret_key',
+                        resource_type='migration',
+                        resource_id=migration.id,
+                        allow_plaintext_fallback=True
+                    )
                     logger.info("✓ AWS credentials decrypted successfully")
                 except Exception as e:
-                    logger.error(f"Failed to decrypt AWS secret key: {e}")
+                    logger.warning(f"KMS decryption failed, treating as unencrypted (DEV ONLY): {e}")
+                    # Fallback: treat the value as already decrypted (for local dev without KMS)
+                    aws_secret_key = migration.aws_secret_access_key_encrypted
+                    logger.info("✓ Using AWS credentials (unencrypted fallback)")
                     self._log(
                         migration.id,
-                        'ERROR',
+                        'WARNING',
                         'transfer',
-                        f"Failed to decrypt AWS credentials: {str(e)}"
+                        "Using unencrypted AWS credentials (development mode)"
                     )
-                    # Continue with empty key - will fail later with clear error
             
             storage_config = {
                 'gcs_bucket': migration.gcs_bucket,
                 'gcs_path': migration.gcs_path,
+                'gcs_region': migration.gcs_region,
                 's3_bucket': migration.s3_bucket,
                 's3_path': migration.s3_path,
                 'project_id': migration.source_project_id,
-                'source_connection_id': migration.source_connection_id,  # Added for GCS credentials
+                'source_connection_id': migration.source_connection_id,
                 'aws_access_key_id': migration.aws_access_key_id or '',
-                'aws_secret_access_key_encrypted': migration.aws_secret_access_key_encrypted,  # Pass encrypted for pathway to decrypt
+                'aws_secret_access_key_encrypted': migration.aws_secret_access_key_encrypted,
                 'overwrite_existing': migration.overwrite_existing_files == 'true',
                 'delete_source': migration.delete_source_after_transfer == 'true',
                 'export_format': migration.export_format or 'AVRO',
-                'compression': migration.compression or 'NONE'
+                'compression': migration.compression or 'NONE',
+                # Path B: AWS DataSync Agent on GCP VM
+                'datasync_agent_mode': getattr(migration, 'datasync_agent_mode', 'existing_vm') or 'existing_vm',
+                'datasync_gcp_zone': getattr(migration, 'datasync_gcp_zone', '') or '',
+                'datasync_gcp_machine_type': getattr(migration, 'datasync_gcp_machine_type', 'n1-standard-4') or 'n1-standard-4',
+                'datasync_gcp_network': getattr(migration, 'datasync_gcp_network', '') or '',
+                'datasync_gcp_subnet': getattr(migration, 'datasync_gcp_subnet', '') or '',
+                'datasync_existing_vm_ip': getattr(migration, 'datasync_existing_vm_ip', '') or '',
+                'datasync_s3_role_arn': getattr(migration, 'datasync_s3_role_arn', '') or '',
+                'aws_region': getattr(migration, 'aws_region', 'us-east-1') or 'us-east-1',
+                'gcs_access_key': migration.gcs_access_key or '',
+                'gcs_secret_key_encrypted': migration.gcs_secret_key_encrypted or '',
+                # Service account JSON (encrypted)
+                'service_account_json_encrypted': migration.service_account_json_encrypted or '',
+                # Load type configuration
+                'load_type': migration.load_type or 'full',
+                'primary_key_column': migration.primary_key_column or '',
+                'timestamp_column': migration.timestamp_column or '',
+                'truncate_before_load': getattr(migration, 'truncate_before_load', 'false') == 'true',
+                'table_load_configs': migration.table_load_configs or {},
             }
             
             # Execute pathway
@@ -632,12 +688,37 @@ class MigrationOrchestrator:
             # Get credentials from connection params
             connection_params = source_connection.connection_params or {}
             
-            service_account_key = (
-                connection_params.get('service_account_key') or 
-                connection_params.get('serviceAccountKey') or
-                connection_params.get('credentials_json') or
-                connection_params.get('credentialsJson')
-            )
+            # First try: use service account JSON stored directly on the migration (from Stage 1 config)
+            service_account_key = None
+            if migration.service_account_json_encrypted:
+                try:
+                    kms = get_unified_kms_service()
+                    decrypted_sa_json = kms.decrypt_credential(
+                        ciphertext=migration.service_account_json_encrypted,
+                        credential_type='gcp_service_account',
+                        resource_type='migration',
+                        resource_id=migration.id,
+                        allow_plaintext_fallback=True
+                    )
+                    if decrypted_sa_json:
+                        service_account_key = decrypted_sa_json
+                        logger.info("✓ Using service account JSON from migration configuration (Stage 1)")
+                        self._log(migration.id, 'INFO', 'export', 'Using service account credentials from migration Stage 1 configuration')
+                except Exception as e:
+                    logger.warning(f"KMS decryption failed, treating as unencrypted (DEV ONLY): {e}")
+                    # Fallback: treat the value as already decrypted (for local dev without KMS)
+                    service_account_key = migration.service_account_json_encrypted
+                    logger.info("✓ Using service account JSON from migration configuration (unencrypted fallback)")
+                    self._log(migration.id, 'INFO', 'export', 'Using service account credentials from migration (unencrypted)')
+            
+            # Second try: fall back to connection params
+            if not service_account_key:
+                service_account_key = (
+                    connection_params.get('service_account_key') or 
+                    connection_params.get('serviceAccountKey') or
+                    connection_params.get('credentials_json') or
+                    connection_params.get('credentialsJson')
+                )
             
             if not service_account_key:
                 error_msg = "Service account key not found in connection parameters. Please ensure the BigQuery connection has valid credentials."
@@ -807,13 +888,18 @@ class MigrationOrchestrator:
             )
             
             # Export tables
+            table_load_configs = migration.table_load_configs or {}
             export_results = exporter.export_tables(
                 dataset=dataset,
                 tables=tables_to_export,
                 gcs_bucket=gcs_bucket,
                 gcs_path=gcs_path,
                 export_format=export_format,
-                compression=compression
+                compression=compression,
+                load_type=migration.load_type or 'full',
+                timestamp_column=migration.timestamp_column or None,
+                last_extracted_value=migration.last_extracted_value or None,
+                table_load_configs=table_load_configs
             )
             
             # Check results and log detailed information
@@ -900,6 +986,11 @@ class MigrationOrchestrator:
             checkpoint_data['export_results'] = export_results
             checkpoint_data['export_completed_at'] = datetime.utcnow().isoformat()
             migration.checkpoint_data = checkpoint_data
+            
+            # Update last_extracted_value for incremental loads
+            if migration.load_type == 'incremental' and migration.timestamp_column:
+                migration.last_extracted_value = datetime.utcnow().isoformat()
+                logger.info(f"Updated last_extracted_value to {migration.last_extracted_value}")
             
             # Update migration progress
             total_tables = len(tables_to_export)

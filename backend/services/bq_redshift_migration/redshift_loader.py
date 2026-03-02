@@ -121,6 +121,7 @@ class RedshiftLoader:
                 database=self.redshift_database,
                 user=self.redshift_user,
                 password=self.redshift_password,
+                sslmode='require',
                 connect_timeout=30
             )
             
@@ -434,17 +435,36 @@ class RedshiftLoader:
             logger.info(f"Listing files in s3://{bucket}/{prefix}")
             
             files = []
+            skipped = []
             paginator = self.s3_client.get_paginator('list_objects_v2')
+            
+            # Data file extensions we expect from BigQuery exports
+            data_extensions = ('.csv', '.parquet', '.json', '.avro', '.gz', '.snappy', '.zst')
             
             for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
                 if 'Contents' in page:
                     for obj in page['Contents']:
+                        key = obj['Key']
                         # Skip directories
-                        if not obj['Key'].endswith('/'):
-                            file_uri = f"s3://{bucket}/{obj['Key']}"
+                        if key.endswith('/'):
+                            continue
+                        
+                        # Skip non-data files (metadata, manifests, etc.)
+                        key_lower = key.lower()
+                        if any(key_lower.endswith(ext) for ext in data_extensions):
+                            file_uri = f"s3://{bucket}/{key}"
                             files.append(file_uri)
+                        else:
+                            skipped.append(key)
             
-            logger.info(f"✓ Found {len(files)} files")
+            logger.info(f"✓ Found {len(files)} data files")
+            for f in files[:10]:  # Log first 10 files
+                logger.info(f"  {f}")
+            if len(files) > 10:
+                logger.info(f"  ... and {len(files) - 10} more")
+            if skipped:
+                logger.info(f"  Skipped {len(skipped)} non-data files: {skipped[:5]}")
+            
             return files
             
         except Exception as e:
@@ -520,6 +540,7 @@ class RedshiftLoader:
     ) -> Tuple[bool, Dict]:
         """
         Execute Redshift COPY command with manifest or prefix.
+        Waits for COPY to complete and returns actual load statistics.
         
         Args:
             schema: Schema name
@@ -532,6 +553,8 @@ class RedshiftLoader:
         Returns:
             Tuple of (success, stats)
         """
+        import time
+        
         try:
             logger.info("="*80)
             logger.info(f"EXECUTING COPY COMMAND: {schema}.{table}")
@@ -540,49 +563,168 @@ class RedshiftLoader:
             logger.info(f"IAM Role: {self.iam_role_arn}")
             
             # For PARQUET, use prefix instead of manifest (simpler and more reliable)
-            if file_format.upper() == 'PARQUET' and s3_prefix:
-                logger.info(f"S3 Prefix: {s3_prefix}")
-                
-                # Build COPY command with prefix
-                copy_sql = f"""
-            COPY {schema}.{table}
-            FROM '{s3_prefix}'
-            IAM_ROLE '{self.iam_role_arn}'
-            FORMAT AS PARQUET;"""
-            else:
+            # BUT if a manifest_uri is provided, always use it (manifest is preferred)
+            is_csv = file_format.upper() == 'CSV'
+            is_parquet = file_format.upper() == 'PARQUET'
+            
+            if manifest_uri:
                 logger.info(f"Manifest: {manifest_uri}")
                 
                 # Build COPY command with manifest
-                copy_sql = f"""
+                if is_csv:
+                    # CSV format: use CSV option with IGNOREHEADER for BigQuery exports
+                    # BigQuery CSV exports include a header row by default
+                    # TIMEFORMAT/DATEFORMAT 'auto' handles BigQuery's timestamp formats
+                    # EMPTYASNULL treats empty fields as NULL (BigQuery exports NULLs as empty)
+                    # ACCEPTINVCHARS replaces invalid UTF-8 chars instead of failing
+                    # MAXERROR allows some bad rows without failing the entire load
+                    copy_sql = f"""
+            COPY {schema}.{table}
+            FROM '{manifest_uri}'
+            IAM_ROLE '{self.iam_role_arn}'
+            CSV
+            IGNOREHEADER 1
+            TIMEFORMAT 'auto'
+            DATEFORMAT 'auto'
+            EMPTYASNULL
+            BLANKSASNULL
+            ACCEPTINVCHARS
+            MAXERROR 1000
+            MANIFEST
+            STATUPDATE ON
+            COMPUPDATE ON"""
+                else:
+                    copy_sql = f"""
             COPY {schema}.{table}
             FROM '{manifest_uri}'
             IAM_ROLE '{self.iam_role_arn}'
             FORMAT AS {file_format}
             MANIFEST
             STATUPDATE ON"""
-                
-                # COMPUPDATE is not supported for PARQUET
-                if file_format.upper() != 'PARQUET':
-                    copy_sql += "\n            COMPUPDATE ON"
+                    
+                    # COMPUPDATE is not supported for PARQUET
+                    if not is_parquet:
+                        copy_sql += "\n            COMPUPDATE ON"
                 
                 if compression and compression.upper() != 'NONE':
                     copy_sql += f"\n            {compression}"
                 
                 copy_sql += ";"
+            elif is_parquet and s3_prefix:
+                logger.info(f"S3 Prefix: {s3_prefix}")
+                
+                # Build COPY command with prefix (fallback when no manifest)
+                copy_sql = f"""
+            COPY {schema}.{table}
+            FROM '{s3_prefix}'
+            IAM_ROLE '{self.iam_role_arn}'
+            FORMAT AS PARQUET;"""
+            elif is_csv and s3_prefix:
+                logger.info(f"S3 Prefix: {s3_prefix}")
+                
+                # CSV with prefix (no manifest)
+                copy_sql = f"""
+            COPY {schema}.{table}
+            FROM '{s3_prefix}'
+            IAM_ROLE '{self.iam_role_arn}'
+            CSV
+            IGNOREHEADER 1
+            TIMEFORMAT 'auto'
+            DATEFORMAT 'auto'
+            EMPTYASNULL
+            BLANKSASNULL
+            ACCEPTINVCHARS
+            MAXERROR 1000
+            STATUPDATE ON
+            COMPUPDATE ON"""
+                
+                if compression and compression.upper() != 'NONE':
+                    copy_sql += f"\n            {compression}"
+                
+                copy_sql += ";"
+            else:
+                logger.error("No manifest URI or S3 prefix provided")
+                return False, {'error': 'No manifest URI or S3 prefix provided'}
             
             logger.info(f"COPY SQL:\n{copy_sql}")
             
             # Execute COPY
             start_time = datetime.utcnow()
+            copy_id = None
             
             with self.connection.cursor() as cursor:
                 cursor.execute(copy_sql)
                 
+                # Try to get the COPY query ID for tracking
+                try:
+                    cursor.execute("SELECT pg_last_copy_id()")
+                    copy_id_result = cursor.fetchone()
+                    copy_id = copy_id_result[0] if copy_id_result else None
+                    if copy_id:
+                        logger.info(f"COPY Query ID: {copy_id}")
+                except Exception as e:
+                    logger.warning(f"Could not get COPY ID: {e}")
+            
+            # Wait for COPY to complete by polling system tables
+            logger.info("Waiting for COPY operation to complete...")
+            max_wait_seconds = 3600  # 1 hour timeout
+            poll_interval = 5  # Check every 5 seconds
+            elapsed = 0
+            copy_completed = False
+            
+            while elapsed < max_wait_seconds:
+                time.sleep(poll_interval)
+                elapsed += poll_interval
+                
+                # Check if COPY completed successfully
+                with self.connection.cursor() as cursor:
+                    if copy_id:
+                        # Check by COPY ID (most accurate)
+                        cursor.execute("""
+                            SELECT COUNT(*) 
+                            FROM stl_load_commits 
+                            WHERE query = %s
+                        """, (copy_id,))
+                    else:
+                        # Fallback: Check by time and table name
+                        cursor.execute("""
+                            SELECT COUNT(*) 
+                            FROM stl_load_commits 
+                            WHERE schema_name = %s 
+                              AND table_name = %s
+                              AND load_time >= %s
+                        """, (schema, table, start_time))
+                    
+                    result = cursor.fetchone()
+                    if result and result[0] > 0:
+                        copy_completed = True
+                        logger.info(f"✓ COPY operation completed after {elapsed}s")
+                        break
+                
+                # Check for errors during COPY
+                error_details = self._get_load_errors(schema, table, copy_id, start_time)
+                if error_details:
+                    logger.error(f"✗ COPY operation failed with {len(error_details)} errors")
+                    logger.error("DETAILED ERROR INFORMATION:")
+                    for error in error_details[:5]:  # Show first 5 errors
+                        logger.error(f"  Line: {error.get('line_number')}")
+                        logger.error(f"  Column: {error.get('column_name')}")
+                        logger.error(f"  Error: {error.get('error_message')}")
+                        logger.error(f"  Raw Line: {error.get('raw_line', '')[:200]}")
+                    return False, {'error': 'COPY failed', 'error_details': error_details}
+                
+                if elapsed % 30 == 0:  # Log progress every 30 seconds
+                    logger.info(f"Still waiting for COPY to complete... ({elapsed}s elapsed)")
+            
+            if not copy_completed:
+                logger.error(f"✗ COPY operation timed out after {max_wait_seconds}s")
+                return False, {'error': f'COPY timeout after {max_wait_seconds}s'}
+            
             end_time = datetime.utcnow()
             duration = (end_time - start_time).total_seconds()
             
-            # Get load statistics
-            stats = self._get_load_stats(schema, table)
+            # Get final load statistics
+            stats = self._get_load_stats(schema, table, copy_id, start_time)
             
             logger.info("="*80)
             logger.info("✓ COPY COMMAND COMPLETED SUCCESSFULLY")
@@ -619,30 +761,63 @@ class RedshiftLoader:
             
             return False, {'error': str(e), 'error_details': error_details}
     
-    def _get_load_stats(self, schema: str, table: str) -> Dict:
+    def _get_load_stats(
+        self, 
+        schema: str, 
+        table: str, 
+        copy_id: Optional[int] = None,
+        start_time: Optional[datetime] = None
+    ) -> Dict:
         """
         Get load statistics from STL_LOAD_COMMITS.
         
         Args:
             schema: Schema name
             table: Table name
+            copy_id: COPY query ID (optional, for precise tracking)
+            start_time: Start time of COPY operation (optional, fallback)
             
         Returns:
             Dictionary with load statistics
         """
         try:
-            query = """
-            SELECT 
-                SUM(rows_loaded) as rows_loaded,
-                SUM(bytes_loaded) as bytes_loaded
-            FROM stl_load_commits
-            WHERE schema_name = %s
-              AND table_name = %s
-              AND load_time >= DATEADD(minute, -5, GETDATE())
-            """
+            if copy_id:
+                # Use COPY ID for precise tracking
+                query = """
+                SELECT 
+                    SUM(rows_loaded) as rows_loaded,
+                    SUM(bytes_loaded) as bytes_loaded
+                FROM stl_load_commits
+                WHERE query = %s
+                """
+                params = (copy_id,)
+            elif start_time:
+                # Fallback: Use time-based tracking
+                query = """
+                SELECT 
+                    SUM(rows_loaded) as rows_loaded,
+                    SUM(bytes_loaded) as bytes_loaded
+                FROM stl_load_commits
+                WHERE schema_name = %s
+                  AND table_name = %s
+                  AND load_time >= %s
+                """
+                params = (schema, table, start_time)
+            else:
+                # Last resort: Recent loads only
+                query = """
+                SELECT 
+                    SUM(rows_loaded) as rows_loaded,
+                    SUM(bytes_loaded) as bytes_loaded
+                FROM stl_load_commits
+                WHERE schema_name = %s
+                  AND table_name = %s
+                  AND load_time >= DATEADD(minute, -5, GETDATE())
+                """
+                params = (schema, table)
             
             with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(query, (schema, table))
+                cursor.execute(query, params)
                 result = cursor.fetchone()
                 
                 if result:
@@ -654,35 +829,79 @@ class RedshiftLoader:
             logger.warning(f"Could not get load stats: {e}")
             return {}
     
-    def _get_load_errors(self, schema: str, table: str, limit: int = 10) -> List[Dict]:
+    def _get_load_errors(
+        self, 
+        schema: str, 
+        table: str, 
+        copy_id: Optional[int] = None,
+        start_time: Optional[datetime] = None,
+        limit: int = 10
+    ) -> List[Dict]:
         """
         Get load errors from STL_LOAD_ERRORS.
         
         Args:
             schema: Schema name
             table: Table name
+            copy_id: COPY query ID (optional, for precise tracking)
+            start_time: Start time of COPY operation (optional, fallback)
             limit: Maximum number of errors to return
             
         Returns:
             List of error dictionaries
         """
         try:
-            query = """
-            SELECT 
-                line_number,
-                colname as column_name,
-                err_reason as error_message,
-                raw_line,
-                err_code
-            FROM stl_load_errors
-            WHERE schema_name = %s
-              AND table_name = %s
-            ORDER BY starttime DESC
-            LIMIT %s
-            """
+            if copy_id:
+                # Use COPY ID for precise tracking
+                query = """
+                SELECT 
+                    line_number,
+                    colname as column_name,
+                    err_reason as error_message,
+                    raw_line,
+                    err_code
+                FROM stl_load_errors
+                WHERE query = %s
+                ORDER BY starttime DESC
+                LIMIT %s
+                """
+                params = (copy_id, limit)
+            elif start_time:
+                # Fallback: Use time-based tracking
+                query = """
+                SELECT 
+                    line_number,
+                    colname as column_name,
+                    err_reason as error_message,
+                    raw_line,
+                    err_code
+                FROM stl_load_errors
+                WHERE schema_name = %s
+                  AND table_name = %s
+                  AND starttime >= %s
+                ORDER BY starttime DESC
+                LIMIT %s
+                """
+                params = (schema, table, start_time, limit)
+            else:
+                # Last resort: Recent errors only
+                query = """
+                SELECT 
+                    line_number,
+                    colname as column_name,
+                    err_reason as error_message,
+                    raw_line,
+                    err_code
+                FROM stl_load_errors
+                WHERE schema_name = %s
+                  AND table_name = %s
+                ORDER BY starttime DESC
+                LIMIT %s
+                """
+                params = (schema, table, limit)
             
             with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                cursor.execute(query, (schema, table, limit))
+                cursor.execute(query, params)
                 errors = cursor.fetchall()
                 
                 return [dict(error) for error in errors]
@@ -701,7 +920,10 @@ class RedshiftLoader:
         file_format: str = 'PARQUET',
         compression: Optional[str] = None,
         distribution_key: Optional[str] = None,
-        sort_keys: Optional[List[str]] = None
+        sort_keys: Optional[List[str]] = None,
+        load_type: str = 'full',
+        primary_key_column: Optional[str] = None,
+        truncate_before_load: bool = False
     ) -> Dict:
         """
         Complete table load process: DDL generation, manifest creation, and COPY execution.
@@ -716,6 +938,9 @@ class RedshiftLoader:
             compression: Compression type
             distribution_key: Distribution key column
             sort_keys: Sort key columns
+            load_type: 'full' or 'incremental'
+            primary_key_column: Primary key column for upsert (incremental only)
+            truncate_before_load: If True, truncate existing table before loading
             
         Returns:
             Dictionary with load results
@@ -732,11 +957,45 @@ class RedshiftLoader:
                 'start_time': datetime.utcnow().isoformat()
             }
             
-            # Step 1: Generate and execute DDL
+            # Step 1: Check if table already exists
+            table_exists = False
+            try:
+                with self.connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT 1 FROM information_schema.tables 
+                        WHERE table_schema = %s AND table_name = %s
+                    """, (schema, table))
+                    table_exists = cursor.fetchone() is not None
+            except Exception as e:
+                logger.warning(f"Could not check table existence: {e}")
+            
+            if table_exists:
+                if truncate_before_load:
+                    logger.info(f"Truncating table {schema}.{table} before load (truncate_before_load=True)")
+                    try:
+                        with self.connection.cursor() as cursor:
+                            cursor.execute(f"TRUNCATE TABLE {schema}.{table}")
+                        self.connection.commit()
+                        logger.info(f"✓ Table {schema}.{table} truncated successfully")
+                        result['table_action'] = 'truncate_and_load'
+                    except Exception as e:
+                        logger.error(f"✗ Failed to truncate table {schema}.{table}: {e}")
+                        result['error'] = f'Failed to truncate table: {e}'
+                        return result
+                else:
+                    logger.info(f"✓ Table {schema}.{table} already exists — data will be appended")
+                    result['table_action'] = 'append'
+            
+            # Always generate DDL (needed for staging table in incremental mode, and for table creation)
             ddl = self.generate_ddl(schema, table, columns, distribution_key, sort_keys)
-            if not self.create_table(schema, table, ddl):
-                result['error'] = 'Failed to create table'
-                return result
+            
+            if not table_exists:
+                logger.info(f"Table {schema}.{table} does not exist — will create and load")
+                result['table_action'] = 'create'
+                
+                if not self.create_table(schema, table, ddl):
+                    result['error'] = 'Failed to create table'
+                    return result
             
             # Step 2: List S3 files
             files = self.list_s3_files(s3_bucket, s3_prefix)
@@ -747,17 +1006,123 @@ class RedshiftLoader:
             
             result['files_found'] = len(files)
             
+            # Step 2.5: Check for pre-generated manifest file
+            manifest_key = f"manifests/{table}/manifest.json"
+            # Also check the path-based manifest from PathwayB
+            # PathwayB generates manifests at: {s3_path}/manifests/{table_name}.manifest
+            # s3_prefix here is: {s3_path}/{dataset}/{table_name}
+            s3_prefix_clean = s3_prefix.strip('/')
+            # Go up TWO levels (past table_name and dataset) to reach the base s3_path
+            parts = s3_prefix_clean.split('/')
+            base_prefix = '/'.join(parts[:-2]) if len(parts) >= 3 else ('/'.join(parts[:-1]) if len(parts) >= 2 else '')
+            pathb_manifest_key = f"{base_prefix}/manifests/{table}.manifest" if base_prefix else f"manifests/{table}.manifest"
+            
+            pre_generated_manifest_uri = None
+            for mkey in [pathb_manifest_key, manifest_key]:
+                try:
+                    self.s3_client.head_object(Bucket=s3_bucket, Key=mkey)
+                    pre_generated_manifest_uri = f"s3://{s3_bucket}/{mkey}"
+                    logger.info(f"✓ Found pre-generated manifest: {pre_generated_manifest_uri}")
+                    break
+                except Exception:
+                    logger.info(f"  Manifest not found at: s3://{s3_bucket}/{mkey}")
+                    pass
+            
             # Step 3: Execute COPY command
             # For PARQUET, use prefix directly (simpler and more reliable)
             # For other formats, generate manifest
-            if file_format.upper() == 'PARQUET':
-                # Ensure no double slashes in S3 URI
-                s3_prefix_clean = s3_prefix.strip('/')
-                s3_uri = f"s3://{s3_bucket}/{s3_prefix_clean}/"
-                logger.info(f"Using S3 prefix for PARQUET load: {s3_uri}")
-                success, stats = self.execute_copy_command(
-                    schema, table, None, file_format, compression, s3_prefix=s3_uri
+            # If a pre-generated manifest exists (from PathwayB), use it
+            if load_type == 'incremental' and primary_key_column:
+                # Incremental: COPY into staging table, then MERGE into target
+                logger.info(f"Incremental load using primary key: {primary_key_column}")
+                staging_table = f"_staging_{table}"
+                
+                # Create staging table with same schema
+                staging_ddl = ddl.replace(
+                    f"CREATE TABLE IF NOT EXISTS {schema}.{table}",
+                    f"CREATE TABLE IF NOT EXISTS {schema}.{staging_table}"
                 )
+                if not self.create_table(schema, staging_table, staging_ddl):
+                    result['error'] = 'Failed to create staging table'
+                    return result
+                
+                # Truncate staging table
+                with self.connection.cursor() as cursor:
+                    cursor.execute(f"TRUNCATE TABLE {schema}.{staging_table}")
+                logger.info(f"✓ Staging table {schema}.{staging_table} ready")
+                
+                # COPY into staging
+                if file_format.upper() == 'PARQUET':
+                    s3_prefix_clean = s3_prefix.strip('/')
+                    s3_uri = f"s3://{s3_bucket}/{s3_prefix_clean}/"
+                    success, stats = self.execute_copy_command(
+                        schema, staging_table, None, file_format, compression, s3_prefix=s3_uri
+                    )
+                else:
+                    manifest_key = f"manifests/{schema}/{table}/manifest_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
+                    manifest_uri = self.generate_manifest(files, s3_bucket, manifest_key)
+                    result['manifest_uri'] = manifest_uri
+                    success, stats = self.execute_copy_command(
+                        schema, staging_table, manifest_uri, file_format, compression
+                    )
+                
+                if not success:
+                    result['success'] = False
+                    # Include detailed error info from stl_load_errors
+                    error_msg = f"Load into table '{staging_table}' failed."
+                    error_details = stats.get('error_details', [])
+                    if error_details:
+                        first_err = error_details[0]
+                        error_msg += f" Column: {first_err.get('column_name', 'N/A')}, Error: {first_err.get('error_message', 'N/A')}"
+                    elif stats.get('error'):
+                        error_msg += f" {stats['error']}"
+                    error_msg += "  Check 'stl_load_errors' system table for details."
+                    result['error'] = error_msg
+                    result.update(stats)
+                    return result
+                
+                # MERGE: DELETE matching rows from target, then INSERT from staging
+                logger.info(f"Merging data using key: {primary_key_column}")
+                with self.connection.cursor() as cursor:
+                    # Delete existing rows that match staging
+                    delete_sql = f"""
+                        DELETE FROM {schema}.{table}
+                        USING {schema}.{staging_table}
+                        WHERE {schema}.{table}.{primary_key_column} = {schema}.{staging_table}.{primary_key_column}
+                    """
+                    cursor.execute(delete_sql)
+                    
+                    # Insert all rows from staging
+                    insert_sql = f"""
+                        INSERT INTO {schema}.{table}
+                        SELECT * FROM {schema}.{staging_table}
+                    """
+                    cursor.execute(insert_sql)
+                    
+                    # Drop staging table
+                    cursor.execute(f"DROP TABLE IF EXISTS {schema}.{staging_table}")
+                
+                logger.info(f"✓ Incremental merge completed for {schema}.{table}")
+                result['success'] = True
+                result['load_type'] = 'incremental'
+                result['end_time'] = datetime.utcnow().isoformat()
+                result.update(stats)
+            elif file_format.upper() == 'PARQUET':
+                # Use pre-generated manifest if available, otherwise use prefix
+                if pre_generated_manifest_uri:
+                    logger.info(f"Using pre-generated manifest for PARQUET load: {pre_generated_manifest_uri}")
+                    result['manifest_uri'] = pre_generated_manifest_uri
+                    success, stats = self.execute_copy_command(
+                        schema, table, pre_generated_manifest_uri, file_format, compression
+                    )
+                else:
+                    # Ensure no double slashes in S3 URI
+                    s3_prefix_clean = s3_prefix.strip('/')
+                    s3_uri = f"s3://{s3_bucket}/{s3_prefix_clean}/"
+                    logger.info(f"Using S3 prefix for PARQUET load: {s3_uri}")
+                    success, stats = self.execute_copy_command(
+                        schema, table, None, file_format, compression, s3_prefix=s3_uri
+                    )
             else:
                 # Generate manifest for non-PARQUET formats
                 manifest_key = f"manifests/{schema}/{table}/manifest_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"

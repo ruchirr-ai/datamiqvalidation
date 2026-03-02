@@ -58,6 +58,36 @@ class MigrationBQRedshift(Base):
     overwrite_existing_files = Column(String(10), default='false')
     delete_source_after_transfer = Column(String(10), default='false')
     
+    # Path B: AWS DataSync Configuration (Agent runs on GCP VM for private GCS access)
+    datasync_agent_mode = Column(String(20), default='create_vm')  # 'create_vm' or 'existing_vm'
+    datasync_gcp_zone = Column(String(100))                        # GCP zone for VM (e.g. us-central1-a)
+    datasync_gcp_machine_type = Column(String(50), default='n1-standard-4')  # GCP machine type
+    datasync_gcp_network = Column(String(255))                     # GCP VPC network name
+    datasync_gcp_subnet = Column(String(255))                      # GCP subnet name
+    datasync_existing_vm_ip = Column(String(100))                  # IP of existing VM (if mode=existing_vm)
+    datasync_s3_role_arn = Column(String(500))                      # IAM role ARN for DataSync S3 access
+    datasync_agent_arn = Column(String(500))                       # Activated DataSync agent ARN
+    datasync_vm_instance_name = Column(String(255))                # Created GCP VM instance name
+    gcs_access_key = Column(String(255))                           # GCS HMAC access key for DataSync
+    gcs_secret_key_encrypted = Column(Text)                        # GCS HMAC secret key (encrypted)
+    aws_region = Column(String(50), default='us-east-1')           # AWS region for DataSync service
+    
+    # GCS Configuration
+    gcs_region = Column(String(100))                   # GCS bucket region
+    
+    # Service Account JSON (encrypted) for BigQuery export
+    service_account_json_encrypted = Column(Text)
+    
+    # Load Type Configuration
+    load_type = Column(String(20), default='full')         # full or incremental (global default)
+    primary_key_column = Column(String(255))                # PK column for incremental (legacy single-table)
+    timestamp_column = Column(String(255))                  # Timestamp column for incremental (legacy single-table)
+    last_extracted_value = Column(Text)                     # Bookmark for incremental resume
+    run_immediately = Column(String(10), default='false')   # Whether to run right after creation
+    truncate_before_load = Column(String(10), default='false')  # Whether to truncate tables before loading
+    # Per-table load config: { "table_name": { "load_type": "incremental", "primary_key_column": "id", "timestamp_column": "updated_at" }, ... }
+    table_load_configs = Column(JSONB)
+    
     # State Management
     status = Column(String(50), nullable=False, default='pending')
     # Status values: pending, running, paused, completed, failed, cancelled
@@ -116,11 +146,35 @@ class MigrationBQRedshift(Base):
             'storage': {
                 'gcs_bucket': self.gcs_bucket,
                 'gcs_path': self.gcs_path,
+                'gcs_region': self.gcs_region,
                 's3_bucket': self.s3_bucket,
                 's3_path': self.s3_path,
                 'export_format': self.export_format,
                 'compression': self.compression
             },
+            'iam_role_arn': self.iam_role_arn,
+            # Path B: DataSync fields
+            'datasync_agent_mode': self.datasync_agent_mode,
+            'datasync_gcp_zone': self.datasync_gcp_zone,
+            'datasync_gcp_machine_type': self.datasync_gcp_machine_type,
+            'datasync_gcp_network': self.datasync_gcp_network,
+            'datasync_gcp_subnet': self.datasync_gcp_subnet,
+            'datasync_existing_vm_ip': self.datasync_existing_vm_ip,
+            'datasync_s3_role_arn': self.datasync_s3_role_arn,
+            'datasync_agent_arn': self.datasync_agent_arn,
+            'gcs_access_key': self.gcs_access_key,
+            'aws_region': self.aws_region,
+            # Sensitive fields: return a flag indicating they exist, not the actual value
+            'has_service_account_json': bool(self.service_account_json_encrypted),
+            'has_gcs_secret_key': bool(self.gcs_secret_key_encrypted),
+            'has_aws_secret_access_key': bool(self.aws_secret_access_key_encrypted),
+            'aws_access_key_id': self.aws_access_key_id,
+            # Load type
+            'load_type': self.load_type,
+            'primary_key_column': self.primary_key_column,
+            'timestamp_column': self.timestamp_column,
+            'truncate_before_load': self.truncate_before_load,
+            'table_load_configs': self.table_load_configs,
             'state': {
                 'status': self.status,
                 'current_stage': self.current_stage,

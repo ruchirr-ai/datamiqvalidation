@@ -1,0 +1,10 @@
+{
+  "database": "redshift",
+  "connection_params": {
+    "server_name": "redshift-demo.c3aimiew2vuv.us-east-1.redshift.amazonaws.com",
+    "port": 5439,
+    "username": "awsuser",
+    "password": "g%+8L5L4bB7V",
+    "database_name": "dev"
+  }
+}

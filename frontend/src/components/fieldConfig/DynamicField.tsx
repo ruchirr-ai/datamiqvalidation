@@ -86,6 +86,28 @@ export const DynamicField: React.FC<DynamicFieldProps> = ({
         </div>
       );
 
+    case 'textarea':
+      return (
+        <div className="textarea-field">
+          <label className="form-label">
+            {config.label}
+            {config.required && <span className="required"> *</span>}
+          </label>
+          <textarea
+            value={value || ''}
+            onChange={(e) => handleChange(e.target.value)}
+            placeholder={config.placeholder}
+            className={`textarea-input ${error ? 'textarea-input--error' : ''}`}
+            rows={6}
+            required={config.required}
+          />
+          {config.helpText && (
+            <span className="help-text">{config.helpText}</span>
+          )}
+          {error && <span className="error-text">{error}</span>}
+        </div>
+      );
+
     case 'select':
       // For select fields, we would need to define options in the field config
       // For now, returning a basic select

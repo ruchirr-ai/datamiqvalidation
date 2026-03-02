@@ -39,10 +39,41 @@ except ImportError:
 
 from database import get_db
 from models.connection import Connection, Base
+from services.unified_kms_service import get_unified_kms_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/connections", tags=["connections"])
+
+
+# Helper function to get decrypted connection params
+def get_decrypted_connection_params(connection: Connection) -> Dict[str, Any]:
+    """
+    Get decrypted connection parameters.
+    
+    Tries encrypted params first, falls back to unencrypted for backward compatibility.
+    """
+    # Try encrypted params first (new method)
+    if connection.connection_params_encrypted:
+        try:
+            kms = get_unified_kms_service()
+            params_json = kms.decrypt_credential(
+                ciphertext=connection.connection_params_encrypted,
+                credential_type='connection_password',
+                resource_type='connection',
+                resource_id=connection.id,
+                allow_plaintext_fallback=True
+            )
+            return json.loads(params_json)
+        except Exception as e:
+            logger.error(f"Failed to decrypt connection params for connection {connection.id}: {e}")
+            # Fall through to unencrypted params
+    
+    # Fall back to unencrypted params (backward compatibility)
+    if connection.connection_params:
+        return connection.connection_params
+    
+    return {}
 
 
 # Request Models
@@ -256,8 +287,8 @@ def test_mongodb_connection(params: Dict[str, Any]) -> ConnectionResponse:
         )
 
 
-def test_postgresql_connection(params: Dict[str, Any]) -> ConnectionResponse:
-    """Test PostgreSQL connection"""
+def test_postgresql_connection(params: Dict[str, Any], is_redshift: bool = False) -> ConnectionResponse:
+    """Test PostgreSQL or Redshift connection"""
     if not POSTGRESQL_AVAILABLE:
         return ConnectionResponse(
             success=False,
@@ -267,12 +298,12 @@ def test_postgresql_connection(params: Dict[str, Any]) -> ConnectionResponse:
     try:
         # Extract parameters - handle multiple field name variations
         host = params.get('host') or params.get('server_name')
-        port = params.get('port', 5432)
+        port = params.get('port', 5439 if is_redshift else 5432)
         database = params.get('database') or params.get('database_name')
         username = params.get('username') or params.get('user')
         password = params.get('password', '')
         
-        logger.info(f"Testing PostgreSQL/Redshift connection to {host}:{port}/{database}")
+        logger.info(f"Testing {'Redshift' if is_redshift else 'PostgreSQL'} connection to {host}:{port}/{database}")
         
         # Validate required parameters
         if not host:
@@ -293,16 +324,23 @@ def test_postgresql_connection(params: Dict[str, Any]) -> ConnectionResponse:
                 message="Username is required"
             )
         
+        # Build connection kwargs
+        connect_kwargs = {
+            "host": host,
+            "port": int(port),
+            "database": database,
+            "user": username,
+            "password": password,
+            "connect_timeout": 10,
+        }
+        
+        # Redshift requires SSL connections
+        if is_redshift:
+            connect_kwargs["sslmode"] = "require"
+        
         # Create connection
-        logger.info(f"Attempting connection to {host}:{port} as user {username}")
-        conn = psycopg2.connect(
-            host=host,
-            port=int(port),
-            database=database,
-            user=username,
-            password=password,
-            connect_timeout=10
-        )
+        logger.info(f"Attempting connection to {host}:{port} as user {username} (ssl={'require' if is_redshift else 'prefer'})")
+        conn = psycopg2.connect(**connect_kwargs)
         
         # Test query
         cursor = conn.cursor()
@@ -459,8 +497,8 @@ async def test_connection(request: TestConnectionRequest):
         return test_mysql_connection(request.connection_params)
     
     elif database_type == 'redshift':
-        # Redshift uses PostgreSQL protocol
-        return test_postgresql_connection(request.connection_params)
+        # Redshift uses PostgreSQL protocol but requires SSL
+        return test_postgresql_connection(request.connection_params, is_redshift=True)
     
     elif database_type == 'oracle':
         return ConnectionResponse(
@@ -485,15 +523,91 @@ async def test_connection(request: TestConnectionRequest):
 async def health_check():
     """Health check endpoint"""
     return {
-        "status": "healthy",
-        "service": "connections",
-        "available_databases": {
-            "bigquery": BIGQUERY_AVAILABLE,
-            "mongodb": MONGODB_AVAILABLE,
-            "postgresql": POSTGRESQL_AVAILABLE,
-            "mysql": MYSQL_AVAILABLE
-        }
+        "status": "healthy"
     }
+
+
+@router.post("/{connection_id}/test", response_model=ConnectionResponse)
+async def test_connection_by_id(connection_id: int, db: Session = Depends(get_db)):
+    """
+    Test an existing database connection by ID
+    
+    This endpoint retrieves the connection from the database, decrypts the parameters,
+    and tests the connection.
+    """
+    try:
+        logger.info(f"Testing connection by ID: {connection_id}")
+        
+        # Get connection from database
+        connection = db.query(Connection).filter(
+            Connection.id == connection_id,
+            Connection.is_active == True
+        ).first()
+        
+        if not connection:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Connection not found: {connection_id}"
+            )
+        
+        # Get decrypted connection parameters
+        connection_params = get_decrypted_connection_params(connection)
+        
+        if not connection_params:
+            raise HTTPException(
+                status_code=400,
+                detail="Connection parameters not found or could not be decrypted"
+            )
+        
+        logger.info(f"Testing {connection.database} connection (ID: {connection_id})")
+        
+        database_type = connection.database.lower()
+        
+        # Route to appropriate test function
+        if database_type == 'bigquery':
+            result = test_bigquery_connection(connection_params)
+        elif database_type in ['mongodb', 'documentdb']:
+            result = test_mongodb_connection(connection_params)
+        elif database_type == 'postgresql':
+            result = test_postgresql_connection(connection_params)
+        elif database_type == 'mysql':
+            result = test_mysql_connection(connection_params)
+        elif database_type == 'redshift':
+            result = test_postgresql_connection(connection_params, is_redshift=True)
+        elif database_type == 'oracle':
+            result = ConnectionResponse(
+                success=False,
+                message="Oracle connection testing not yet implemented"
+            )
+        elif database_type == 'sqlserver':
+            result = ConnectionResponse(
+                success=False,
+                message="SQL Server connection testing not yet implemented"
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported database type: {database_type}"
+            )
+        
+        # Update connection status in database
+        connection.status = 'connected' if result.success else 'disconnected'
+        connection.last_tested_at = datetime.utcnow()
+        connection.updated_at = datetime.utcnow()
+        db.commit()
+        
+        logger.info(f"Connection test result for ID {connection_id}: {result.success}")
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to test connection {connection_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to test connection: {str(e)}"
+        )
 
 
 @router.post("/", response_model=Dict[str, Any])
@@ -520,7 +634,7 @@ async def create_connection(request: CreateConnectionRequest, db: Session = Depe
             name=request.name,
             type=request.type,
             database=request.database,
-            connection_params=request.connection_params,  # TODO: Encrypt in production
+            connection_params=request.connection_params,  # Store unencrypted for now (backward compatibility)
             created_by=request.created_by,
             status=request.status,
             last_tested_at=last_tested_at,
@@ -529,6 +643,25 @@ async def create_connection(request: CreateConnectionRequest, db: Session = Depe
         )
         
         db.add(connection)
+        db.flush()  # Get the connection ID
+        
+        # Encrypt connection parameters with KMS
+        try:
+            logger.info(f"Encrypting connection parameters for connection {connection.id}")
+            kms = get_unified_kms_service()
+            params_json = json.dumps(request.connection_params)
+            connection.connection_params_encrypted = kms.encrypt_credential(
+                plaintext=params_json,
+                credential_type='connection_password',
+                resource_type='connection',
+                resource_id=connection.id
+            )
+            logger.info(f"✓ Connection parameters encrypted successfully")
+        except Exception as e:
+            logger.error(f"Failed to encrypt connection parameters: {e}")
+            # Continue without encryption for backward compatibility
+            logger.warning("Connection created without encrypted parameters")
+        
         db.commit()
         db.refresh(connection)
         
@@ -719,11 +852,28 @@ async def update_connection(
         connection.name = request.name
         connection.type = request.type
         connection.database = request.database
-        connection.connection_params = request.connection_params  # TODO: Encrypt in production
+        connection.connection_params = request.connection_params  # Store unencrypted for backward compatibility
         connection.status = request.status
         if last_tested_at:
             connection.last_tested_at = last_tested_at
         connection.updated_at = datetime.utcnow()
+        
+        # Encrypt connection parameters with KMS
+        try:
+            logger.info(f"Encrypting connection parameters for connection {connection_id}")
+            kms = get_unified_kms_service()
+            params_json = json.dumps(request.connection_params)
+            connection.connection_params_encrypted = kms.encrypt_credential(
+                plaintext=params_json,
+                credential_type='connection_password',
+                resource_type='connection',
+                resource_id=connection_id
+            )
+            logger.info(f"✓ Connection parameters encrypted successfully")
+        except Exception as e:
+            logger.error(f"Failed to encrypt connection parameters: {e}")
+            # Continue without encryption for backward compatibility
+            logger.warning("Connection updated without encrypted parameters")
         
         db.commit()
         db.refresh(connection)

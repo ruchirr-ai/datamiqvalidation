@@ -10,7 +10,7 @@ interface Migration {
   source: string;
   destination: string;
   createdBy: string;
-  status: 'completed' | 'running' | 'failed' | 'pending' | 'paused' | 'cancelled';
+  status: 'completed' | 'running' | 'failed' | 'pending' | 'paused' | 'cancelled' | 'ready';
   lastRunAt: string;
 }
 
@@ -23,6 +23,7 @@ export const MigrationsPage: React.FC = () => {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top?: number; bottom?: number; right: number }>({ right: 0 });
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [restartConfirmMigration, setRestartConfirmMigration] = useState<Migration | null>(null);
   const [editingMigration, setEditingMigration] = useState<Migration | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showLogsModal, setShowLogsModal] = useState(false);
@@ -32,6 +33,15 @@ export const MigrationsPage: React.FC = () => {
   const [selectedMigrationForRun, setSelectedMigrationForRun] = useState<Migration | null>(null);
   const [migrations, setMigrations] = useState<Migration[]>([]);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  // Auto-dismiss toast after 4 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   // Fetch migrations on mount
   useEffect(() => {
@@ -61,14 +71,14 @@ export const MigrationsPage: React.FC = () => {
     } catch (err: any) {
       console.error('Failed to fetch migrations:', err);
       setMigrations([]);
-      alert(`Failed to load migrations: ${err.message}\n\nPlease check the console for details.`);
+      setToast({ message: `Failed to load migrations: ${err.message}`, type: 'error' });
     } finally {
       setLoading(false);
     }
   };
 
-  const mapStatus = (apiStatus: string): 'completed' | 'running' | 'failed' | 'pending' | 'paused' | 'cancelled' => {
-    const statusMap: Record<string, 'completed' | 'running' | 'failed' | 'pending' | 'paused' | 'cancelled'> = {
+  const mapStatus = (apiStatus: string): 'completed' | 'running' | 'failed' | 'pending' | 'paused' | 'cancelled' | 'ready' => {
+    const statusMap: Record<string, 'completed' | 'running' | 'failed' | 'pending' | 'paused' | 'cancelled' | 'ready'> = {
       'completed': 'completed',
       'success': 'completed',
       'running': 'running',
@@ -77,6 +87,7 @@ export const MigrationsPage: React.FC = () => {
       'error': 'failed',
       'pending': 'pending',
       'created': 'pending',
+      'ready': 'ready',
       'paused': 'paused',
       'cancelled': 'cancelled'
     };
@@ -96,6 +107,10 @@ export const MigrationsPage: React.FC = () => {
         return <Badge variant="info">Running</Badge>;
       case 'pending':
         return <Badge variant="warning">Pending</Badge>;
+      case 'ready':
+        return <Badge variant="success">Ready</Badge>;
+      case 'scheduled':
+        return <Badge variant="info">Scheduled</Badge>;
       case 'paused':
         return <Badge variant="warning">Paused</Badge>;
       case 'cancelled':
@@ -124,18 +139,18 @@ export const MigrationsPage: React.FC = () => {
       // Call API to start migration
       await bqRedshiftApi.startMigration(parseInt(migration.id));
       
-      alert(`Migration "${migration.name}" started successfully!\n\nThe migration is now running. You can monitor its progress in the migrations list.`);
+      setToast({ message: `Migration "${migration.name}" started`, type: 'success' });
       
       // Refresh migrations list
       await fetchMigrations();
       
     } catch (error: any) {
       console.error('Failed to run migration:', error);
-      alert(`Failed to start migration: ${error.message}`);
+      setToast({ message: `Failed to start migration: ${error.message}`, type: 'error' });
       
       // Revert status
       setMigrations(prev => prev.map(m => 
-        m.id === migration.id ? { ...m, status: 'pending' as const } : m
+        m.id === migration.id ? { ...m, status: migration.status } : m
       ));
     }
   };
@@ -144,28 +159,40 @@ export const MigrationsPage: React.FC = () => {
     setOpenMenuId(null);
     setShowRunOptions(false);
     
-    const confirmed = window.confirm(
-      `Restart migration "${migration.name}" from the beginning?\n\n` +
-      `This will reset the migration to pending status and clear all progress. ` +
-      `Any existing data from previous runs will be preserved but the migration will start fresh.`
-    );
+    // Show confirmation dialog instead of window.confirm
+    setRestartConfirmMigration(migration);
+  };
+
+  const confirmRestartMigration = async () => {
+    const migration = restartConfirmMigration;
+    if (!migration) return;
     
-    if (!confirmed) return;
+    setRestartConfirmMigration(null);
     
     try {
       console.log('Restarting migration:', migration.id);
       
+      // Optimistically update status to running
+      setMigrations(prev => prev.map(m => 
+        m.id === migration.id ? { ...m, status: 'running' as const } : m
+      ));
+      
       // Call API to restart migration
       await bqRedshiftApi.restartMigration(parseInt(migration.id));
       
-      alert(`Migration "${migration.name}" has been reset to pending status!\n\nYou can now run it again from the beginning.`);
+      setToast({ message: `Migration "${migration.name}" restarted and running`, type: 'success' });
       
       // Refresh migrations list
       await fetchMigrations();
       
     } catch (error: any) {
       console.error('Failed to restart migration:', error);
-      alert(`Failed to restart migration: ${error.message}`);
+      setToast({ message: `Failed to restart migration: ${error.message}`, type: 'error' });
+      
+      // Revert status
+      setMigrations(prev => prev.map(m => 
+        m.id === migration.id ? { ...m, status: migration.status } : m
+      ));
     }
   };
 
@@ -183,14 +210,14 @@ export const MigrationsPage: React.FC = () => {
       // Call API to resume migration
       await bqRedshiftApi.resumeMigration(parseInt(migration.id));
       
-      alert(`Migration "${migration.name}" resumed successfully!\n\nThe migration is now running. You can monitor its progress in the migrations list.`);
+      setToast({ message: `Migration "${migration.name}" resumed`, type: 'success' });
       
       // Refresh migrations list
       await fetchMigrations();
       
     } catch (error: any) {
       console.error('Failed to resume migration:', error);
-      alert(`Failed to resume migration: ${error.message}`);
+      setToast({ message: `Failed to resume migration: ${error.message}`, type: 'error' });
       
       // Revert status
       setMigrations(prev => prev.map(m => 
@@ -199,15 +226,18 @@ export const MigrationsPage: React.FC = () => {
     }
   };
 
+  const [cancelConfirmMigration, setCancelConfirmMigration] = useState<Migration | null>(null);
+
   const handleCancelMigration = async (migration: Migration) => {
     setOpenMenuId(null);
+    setCancelConfirmMigration(migration);
+  };
+
+  const confirmCancelMigration = async () => {
+    const migration = cancelConfirmMigration;
+    if (!migration) return;
     
-    const confirmed = window.confirm(
-      `Cancel migration "${migration.name}"?\n\n` +
-      `This will stop the migration process. You can resume it later if needed.`
-    );
-    
-    if (!confirmed) return;
+    setCancelConfirmMigration(null);
     
     try {
       console.log('Cancelling migration:', migration.id);
@@ -220,14 +250,14 @@ export const MigrationsPage: React.FC = () => {
       // Call API to cancel migration
       await bqRedshiftApi.cancelMigration(parseInt(migration.id));
       
-      alert(`Migration "${migration.name}" cancelled successfully!`);
+      setToast({ message: `Migration "${migration.name}" cancelled`, type: 'info' });
       
       // Refresh migrations list
       await fetchMigrations();
       
     } catch (error: any) {
       console.error('Failed to cancel migration:', error);
-      alert(`Failed to cancel migration: ${error.message}`);
+      setToast({ message: `Failed to cancel migration: ${error.message}`, type: 'error' });
       
       // Revert status
       setMigrations(prev => prev.map(m => 
@@ -254,10 +284,10 @@ export const MigrationsPage: React.FC = () => {
       
       setDeleteConfirmId(null);
       
-      alert(`Migration deleted successfully!`);
+      setToast({ message: 'Migration deleted', type: 'success' });
     } catch (error: any) {
       console.error('Failed to delete migration:', error);
-      alert(`Failed to delete migration: ${error.message}`);
+      setToast({ message: `Failed to delete migration: ${error.message}`, type: 'error' });
     }
   };
 
@@ -299,7 +329,7 @@ export const MigrationsPage: React.FC = () => {
         m.id === editingMigration.id ? editingMigration : m
       ));
       
-      alert(`Migration updated: ${editingMigration.name}\n\nChanges saved successfully!`);
+      setToast({ message: `Migration "${editingMigration.name}" updated`, type: 'success' });
       setShowEditModal(false);
       setEditingMigration(null);
     }
@@ -308,7 +338,16 @@ export const MigrationsPage: React.FC = () => {
   const formatDateTime = (dateString: string | null) => {
     if (!dateString) return 'Never';
     try {
-      const date = new Date(dateString);
+      // Backend returns UTC timestamps without 'Z' suffix — append it if missing
+      let normalized = dateString;
+      if (!normalized.endsWith('Z') && !normalized.includes('+') && !normalized.includes('T')) {
+        normalized = normalized + 'Z';
+      } else if (normalized.includes('T') && !normalized.endsWith('Z') && !normalized.includes('+')) {
+        normalized = normalized + 'Z';
+      }
+      const date = new Date(normalized);
+      if (isNaN(date.getTime())) return dateString;
+      
       const now = new Date();
       const diffMs = now.getTime() - date.getTime();
       const diffMins = Math.floor(diffMs / 60000);
@@ -501,7 +540,7 @@ export const MigrationsPage: React.FC = () => {
                           right: `${menuPosition.right}px`
                         }}
                       >
-                        {migration.status === 'pending' && (
+                        {(migration.status === 'pending' || migration.status === 'ready') && (
                           <button
                             className="dropdown-menu-item"
                             onClick={() => handleRunMigration(migration)}
@@ -708,6 +747,49 @@ export const MigrationsPage: React.FC = () => {
         </div>
       )}
 
+      {/* Restart Confirmation Dialog */}
+      {restartConfirmMigration && (
+        <div className="confirm-dialog-overlay" onClick={() => setRestartConfirmMigration(null)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Restart Migration</h3>
+            <p>Restart "{restartConfirmMigration.name}" from the beginning? This will clear all progress and start fresh. Existing data from previous runs will be preserved.</p>
+            <div className="confirm-actions">
+              <Button variant="outline" onClick={() => setRestartConfirmMigration(null)}>
+                Cancel
+              </Button>
+              <Button 
+                variant="primary" 
+                onClick={confirmRestartMigration}
+              >
+                Restart Migration
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Migration Confirmation Dialog */}
+      {cancelConfirmMigration && (
+        <div className="confirm-dialog-overlay" onClick={() => setCancelConfirmMigration(null)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Cancel Migration</h3>
+            <p>Cancel "{cancelConfirmMigration.name}"? This will stop the migration process. You can resume it later if needed.</p>
+            <div className="confirm-actions">
+              <Button variant="outline" onClick={() => setCancelConfirmMigration(null)}>
+                Keep Running
+              </Button>
+              <Button 
+                variant="primary" 
+                onClick={confirmCancelMigration}
+                style={{ background: 'var(--color-error)', borderColor: 'var(--color-error)' }}
+              >
+                Cancel Migration
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Logs Modal */}
       {showLogsModal && (
         <div className="modal-overlay" onClick={() => setShowLogsModal(false)}>
@@ -857,6 +939,49 @@ export const MigrationsPage: React.FC = () => {
               </Button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            padding: '12px 20px',
+            borderRadius: '8px',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: 500,
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            animation: 'slideIn 0.3s ease',
+            background: toast.type === 'success' ? '#16a34a' : toast.type === 'error' ? '#dc2626' : '#2563eb',
+          }}
+          onClick={() => setToast(null)}
+        >
+          {toast.type === 'success' && (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 8l3 3 5-6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+          {toast.type === 'error' && (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="8" cy="8" r="6" />
+              <path d="M6 6l4 4M10 6l-4 4" strokeLinecap="round" />
+            </svg>
+          )}
+          {toast.type === 'info' && (
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="8" cy="8" r="6" />
+              <path d="M8 5v0M8 7v4" strokeLinecap="round" />
+            </svg>
+          )}
+          {toast.message}
         </div>
       )}
     </div>

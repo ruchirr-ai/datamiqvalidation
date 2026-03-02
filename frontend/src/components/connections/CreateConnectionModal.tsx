@@ -388,11 +388,19 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
             <>
               {fieldConfigs.map((config) => {
                 const isPasswordField = config.type === 'password';
+                const isTextareaField = config.type === 'textarea';
+                const isCheckboxField = config.type === 'checkbox';
+                
+                // Determine the row class based on field type
+                let rowClass = 'form-row';
+                if (!isCheckboxField && !isTextareaField) {
+                  rowClass += ' form-row--two-cols';
+                }
                 
                 return (
                   <div 
                     key={config.id} 
-                    className={config.type === 'checkbox' ? 'form-row' : 'form-row form-row--two-cols'}
+                    className={rowClass}
                   >
                     {isPasswordField ? (
                       <div className="password-field">

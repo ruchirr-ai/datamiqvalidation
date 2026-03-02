@@ -131,6 +131,7 @@ export const BQRedshiftMigrationsPage: React.FC = () => {
     const variants: Record<string, 'success' | 'warning' | 'error' | 'info'> = {
       completed: 'success',
       running: 'info',
+      scheduled: 'info',
       paused: 'warning',
       failed: 'error',
       pending: 'warning',
@@ -294,7 +295,7 @@ export const BQRedshiftMigrationsPage: React.FC = () => {
                         size="sm"
                         onClick={(e) => {
                           e.stopPropagation();
-                          alert(`Details page coming soon for migration ${migration.id}`);
+                          console.log(`Details page coming soon for migration ${migration.id}`);
                         }}
                       >
                         View

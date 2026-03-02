@@ -38,12 +38,19 @@ export interface MigrationFormData {
   overwriteFiles?: boolean;
   deleteAfterTransfer?: boolean;
   
-  // Stage 2: GCS to S3 - Path B (AWS DataSync)
-  datasyncSubnetId?: string;
-  datasyncSecurityGroupId?: string;
-  datasyncInstanceType?: string;
+  // Stage 2: GCS to S3 - Path B (AWS DataSync on GCP VM)
+  datasyncAgentMode?: 'existing_vm';
+  datasyncSetupConfirmed?: boolean;  // Checkbox to confirm manual VM setup
+  datasyncGcpZone?: string;
+  datasyncGcpMachineType?: string;
+  datasyncGcpNetwork?: string;
+  datasyncGcpSubnet?: string;
+  datasyncExistingVmIp?: string;
+  datasyncS3RoleArn?: string;
   gcsAccessKey?: string;
   gcsSecretKey?: string;
+  gcsPrefix?: string;
+  awsRegion?: string;
   
   // Stage 2: GCS to S3 - Path C (AWS DataSync)
   gcpHmacAccessKeyId?: string;
@@ -68,15 +75,18 @@ export interface MigrationFormData {
   iamRoleArn?: string;
   truncateBeforeLoad?: boolean;
   
+  // Load Type Configuration
+  loadType: 'full' | 'incremental';
+  primaryKeyColumn?: string;
+  timestampColumn?: string;
+  // Per-table load config: { "table_name": { load_type, primary_key_column, timestamp_column } }
+  tableLoadConfigs: Record<string, { load_type: string; primary_key_column: string; timestamp_column: string }>;
+  
   // Step 5: Scheduling & Monitoring
-  scheduleType: 'one-time' | 'recurring';
+  scheduleType: 'run-now' | 'one-time' | 'recurring' | 'save-only';
   cronExpression: string;
-  emailNotifications: boolean;
-  slackWebhook: string;
-  logLevel: string;
-  enableCheckpointing: boolean;
-  retryFailedShards: boolean;
-  maxRetries: number;
+  runImmediately: boolean;
+  scheduledDateTime?: string;
 }
 
 const INITIAL_FORM_DATA: MigrationFormData = {
@@ -110,14 +120,15 @@ const INITIAL_FORM_DATA: MigrationFormData = {
   iamRoleArn: '',
   truncateBeforeLoad: false,
   
-  scheduleType: 'one-time',
+  // Load Type
+  loadType: 'full',
+  primaryKeyColumn: '',
+  timestampColumn: '',
+  tableLoadConfigs: {},
+  
+  scheduleType: 'run-now',
   cronExpression: '0 2 * * *',
-  emailNotifications: false,
-  slackWebhook: '',
-  logLevel: 'INFO',
-  enableCheckpointing: true,
-  retryFailedShards: true,
-  maxRetries: 3,
+  runImmediately: true,
 };
 
 export const CreateMigrationWizard: React.FC = () => {
@@ -131,6 +142,7 @@ export const CreateMigrationWizard: React.FC = () => {
   const [editMigrationId, setEditMigrationId] = useState<number | null>(null);
   const [isLoadingMigration, setIsLoadingMigration] = useState(false);
   const [isOriginalEditMode, setIsOriginalEditMode] = useState(false); // Track if user came from edit URL
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const totalSteps = 5;
 
@@ -212,35 +224,46 @@ export const CreateMigrationWizard: React.FC = () => {
         
         // Stage 1: BigQuery to GCS
         gcsBucket: gcsBucket,
-        gcsRegion: 'us-central1', // Not stored in DB, use default
+        gcsRegion: (migration as any).storage?.gcs_region || (migration as any).gcs_region || 'us-central1',
         exportFormat: exportFormat,
         compression: compression,
-        serviceAccountJson: '', // Don't load sensitive data
+        // Encrypted: use placeholder if exists, empty if not
+        serviceAccountJson: (migration as any).has_service_account_json ? '••••••••' : '',
         
         // Stage 2: S3 Configuration
         s3Bucket: s3Bucket,
         s3Path: s3Path,
-        s3Region: 'us-east-1', // Not stored in DB, use default
+        s3Region: (migration as any).aws_region || 'us-east-1',
         
-        // AWS credentials - don't load for security
-        awsAccessKeyId: '',
-        awsSecretAccessKey: '',
-        overwriteFiles: false, // Don't load for security
-        deleteAfterTransfer: false, // Don't load for security
+        // AWS credentials
+        awsAccessKeyId: (migration as any).aws_access_key_id || '',
+        awsSecretAccessKey: (migration as any).has_aws_secret_access_key ? '••••••••' : '',
+        overwriteFiles: false,
+        deleteAfterTransfer: false,
         
         // Stage 3: S3 to Redshift
-        iamRoleArn: '',
-        truncateBeforeLoad: false,
+        iamRoleArn: (migration as any).iam_role_arn || '',
+        truncateBeforeLoad: (migration as any).truncate_before_load === 'true',
+        
+        // Load type
+        loadType: ((migration as any).load_type === 'incremental' ? 'incremental' : 'full') as 'full' | 'incremental',
+        primaryKeyColumn: (migration as any).primary_key_column || '',
+        timestampColumn: (migration as any).timestamp_column || '',
+        tableLoadConfigs: (migration as any).table_load_configs || {},
         
         // Scheduling
-        scheduleType: scheduleType as 'one-time' | 'recurring',
+        scheduleType: (scheduleType === 'run-now' ? 'run-now' : scheduleType === 'recurring' ? 'recurring' : scheduleType === 'save-only' ? 'save-only' : 'one-time') as 'run-now' | 'one-time' | 'recurring' | 'save-only',
         cronExpression: cronExpression,
-        emailNotifications: false,
-        slackWebhook: '',
-        logLevel: 'INFO',
-        enableCheckpointing: true,
-        retryFailedShards: true,
-        maxRetries: 3,
+        runImmediately: scheduleType === 'run-now',
+        scheduledDateTime: migration.schedule?.next_run_time || undefined,
+        
+        // Path B: DataSync fields
+        datasyncExistingVmIp: (migration as any).datasync_existing_vm_ip || '',
+        datasyncS3RoleArn: (migration as any).datasync_s3_role_arn || '',
+        datasyncSetupConfirmed: !!((migration as any).datasync_existing_vm_ip),
+        gcsAccessKey: (migration as any).gcs_access_key || '',
+        gcsSecretKey: (migration as any).has_gcs_secret_key ? '••••••••' : '',
+        awsRegion: (migration as any).aws_region || 'us-east-1',
       });
       
       console.log('Migration data loaded successfully');
@@ -283,20 +306,19 @@ export const CreateMigrationWizard: React.FC = () => {
     setError(null);
 
     try {
-      await performSave();
+      await performSave(true);
       
       // Navigate back to migrations page
       navigate('/migrations');
     } catch (err: any) {
       console.error(`Failed to ${isEditMode ? 'update' : 'create'} migration:`, err);
       setError(err.message || `Failed to ${isEditMode ? 'update' : 'create'} migration`);
-      alert(`Failed to ${isEditMode ? 'update' : 'create'} migration: ${err.message}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const performSave = async (): Promise<void> => {
+  const performSave = async (isFinalSubmit: boolean = false): Promise<void> => {
     console.log('Saving migration with data:', formData);
     
     // Minimal validation - only check truly required fields
@@ -339,8 +361,11 @@ export const CreateMigrationWizard: React.FC = () => {
       console.log('Table names (without dataset):', tableNames);
     }
     
+    // Helper: skip sending encrypted placeholder values in edit mode
+    const isPlaceholder = (val: string | undefined) => val === '••••••••';
+    
     // Prepare API request
-    const migrationData = {
+    const migrationData: Record<string, any> = {
       migration_name: formData.migrationName,
       pathway: formData.pathway,
       source_connection_id: formData.sourceConnectionId,
@@ -352,27 +377,51 @@ export const CreateMigrationWizard: React.FC = () => {
       target_database: 'target_db', // TODO: Get from connection
       target_schema: 'public',
       gcs_bucket: formData.gcsBucket || '',
-      gcs_path: '/staging',
+      gcs_path: formData.gcsPrefix || '/staging',
+      gcs_region: formData.gcsRegion || '',
       s3_bucket: formData.s3Bucket || '',
       s3_path: formData.s3Path || '/staging',
       export_format: formData.exportFormat || 'AVRO',
       compression: formData.compression || 'NONE',
       // AWS credentials for GCS → S3 transfer (Path A & C)
       aws_access_key_id: formData.awsAccessKeyId || '',
-      aws_secret_access_key: formData.awsSecretAccessKey || '',
       overwrite_existing_files: formData.overwriteFiles || false,
       delete_source_after_transfer: formData.deleteAfterTransfer || false,
-      // AWS DataSync configuration (Path B)
-      datasync_subnet_id: formData.datasyncSubnetId || '',
-      datasync_security_group_id: formData.datasyncSecurityGroupId || '',
-      datasync_instance_type: formData.datasyncInstanceType || 'm5.xlarge',
+      // AWS DataSync on GCP VM (Path B)
+      datasync_agent_mode: 'existing_vm',
+      datasync_gcp_zone: formData.datasyncGcpZone || '',
+      datasync_gcp_machine_type: formData.datasyncGcpMachineType || 'n1-standard-4',
+      datasync_gcp_network: formData.datasyncGcpNetwork || '',
+      datasync_gcp_subnet: formData.datasyncGcpSubnet || '',
+      datasync_existing_vm_ip: formData.datasyncExistingVmIp || '',
+      datasync_s3_role_arn: formData.datasyncS3RoleArn || '',
       gcs_access_key: formData.gcsAccessKey || '',
-      gcs_secret_key: formData.gcsSecretKey || '',
-      // IAM role for Redshift S3 access (Path C)
+      aws_region: formData.awsRegion || 'us-east-1',
+      // IAM role for Redshift S3 access
       iam_role_arn: formData.iamRoleArn || '',
-      schedule_type: formData.scheduleType || 'one-time',
-      cron_expression: formData.scheduleType === 'recurring' ? formData.cronExpression : undefined
+      // Truncate before load
+      truncate_before_load: formData.truncateBeforeLoad || false,
+      // Load type configuration
+      load_type: formData.loadType || 'full',
+      primary_key_column: formData.primaryKeyColumn || '',
+      timestamp_column: formData.timestampColumn || '',
+      table_load_configs: Object.keys(formData.tableLoadConfigs || {}).length > 0 ? formData.tableLoadConfigs : null,
+      run_immediately: isFinalSubmit && formData.scheduleType === 'run-now',
+      schedule_type: formData.scheduleType === 'run-now' ? 'run-now' : formData.scheduleType,
+      cron_expression: formData.scheduleType === 'recurring' ? formData.cronExpression : undefined,
+      scheduled_date_time: formData.scheduleType === 'one-time' ? formData.scheduledDateTime : undefined
     };
+    
+    // Only send encrypted fields if user provided a new value (not the placeholder)
+    if (!isPlaceholder(formData.serviceAccountJson)) {
+      migrationData.service_account_json = formData.serviceAccountJson || '';
+    }
+    if (!isPlaceholder(formData.awsSecretAccessKey)) {
+      migrationData.aws_secret_access_key = formData.awsSecretAccessKey || '';
+    }
+    if (!isPlaceholder(formData.gcsSecretKey)) {
+      migrationData.gcs_secret_key = formData.gcsSecretKey || '';
+    }
     
     console.log('Calling API with:', migrationData);
     
@@ -380,12 +429,11 @@ export const CreateMigrationWizard: React.FC = () => {
     try {
       if (isEditMode && editMigrationId) {
         console.log('Updating migration:', editMigrationId);
-        const result = await bqRedshiftApi.updateMigration(editMigrationId, migrationData);
+        const result = await bqRedshiftApi.updateMigration(editMigrationId, migrationData as any);
         console.log('Migration updated successfully:', result);
-        return result;
       } else {
         console.log('Creating new migration');
-        const result = await bqRedshiftApi.createMigration(migrationData);
+        const result = await bqRedshiftApi.createMigration(migrationData as any);
         console.log('Migration created successfully:', result);
         
         // IMPORTANT: Switch to edit mode after first creation
@@ -395,8 +443,6 @@ export const CreateMigrationWizard: React.FC = () => {
           setIsEditMode(true);
           setEditMigrationId(result.id);
         }
-        
-        return result;
       }
     } catch (error: any) {
       console.error('API Error:', error);
@@ -407,9 +453,7 @@ export const CreateMigrationWizard: React.FC = () => {
   };
 
   const handleCancel = () => {
-    if (window.confirm('Are you sure you want to cancel? All progress will be lost.')) {
-      navigate('/migrations');
-    }
+    setShowCancelConfirm(true);
   };
 
   const renderStep = () => {
@@ -524,7 +568,7 @@ export const CreateMigrationWizard: React.FC = () => {
             formData={formData}
             updateFormData={updateFormData}
             isEditMode={isEditMode}
-            onSave={performSave}
+            onSave={() => performSave(false)}
           />
         );
       case 5:
@@ -619,13 +663,31 @@ export const CreateMigrationWizard: React.FC = () => {
               disabled={isSubmitting}
             >
               {isSubmitting 
-                ? (isOriginalEditMode ? 'Updating...' : 'Creating...') 
-                : (isOriginalEditMode ? 'Update Migration' : 'Create Migration')
+                ? (isOriginalEditMode ? 'Updating...' : formData.scheduleType === 'run-now' ? 'Creating & Running...' : formData.scheduleType === 'one-time' ? 'Scheduling...' : 'Creating...') 
+                : (isOriginalEditMode ? 'Update Migration' : formData.scheduleType === 'run-now' ? 'Create & Run' : formData.scheduleType === 'one-time' ? 'Schedule Migration' : 'Create Migration')
               }
             </Button>
           )}
         </div>
       </div>
+
+      {/* Cancel Confirmation Dialog */}
+      {showCancelConfirm && (
+        <div className="confirm-dialog-overlay" onClick={() => setShowCancelConfirm(false)}>
+          <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Cancel Migration</h3>
+            <p>Are you sure you want to cancel? All progress will be lost.</p>
+            <div className="confirm-actions">
+              <button className="btn-outline" onClick={() => setShowCancelConfirm(false)} style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid #ccc', background: 'white', cursor: 'pointer' }}>
+                Go Back
+              </button>
+              <button className="btn-danger" onClick={() => navigate('/migrations')} style={{ padding: '8px 16px', borderRadius: '6px', border: 'none', background: '#e53e3e', color: 'white', cursor: 'pointer' }}>
+                Yes, Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

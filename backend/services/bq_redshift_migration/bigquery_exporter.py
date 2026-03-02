@@ -6,6 +6,7 @@ Handles exporting BigQuery tables to Google Cloud Storage with various formats a
 
 import logging
 from typing import List, Dict, Optional
+from datetime import datetime
 from google.cloud import bigquery
 from google.oauth2 import service_account
 import json
@@ -39,7 +40,10 @@ class BigQueryExporter:
         gcs_bucket: str,
         gcs_path: str,
         export_format: str = 'AVRO',
-        compression: Optional[str] = None
+        compression: Optional[str] = None,
+        load_type: str = 'full',
+        timestamp_column: Optional[str] = None,
+        last_extracted_value: Optional[str] = None
     ) -> Dict:
         """
         Export a single BigQuery table to GCS
@@ -51,6 +55,9 @@ class BigQueryExporter:
             gcs_path: Path within GCS bucket
             export_format: Export format (AVRO, PARQUET, CSV, JSON)
             compression: Compression type (GZIP, SNAPPY, DEFLATE, ZSTD, or None)
+            load_type: 'full' or 'incremental'
+            timestamp_column: Column name for incremental filtering
+            last_extracted_value: Last extracted timestamp value for incremental
         
         Returns:
             Dictionary with export results
@@ -145,9 +152,60 @@ class BigQueryExporter:
             
             # Start export job
             logger.info("Starting BigQuery extract job...")
+            
+            # For incremental loads, create a filtered temp table and export that
+            actual_table_ref = table_ref
+            temp_table_created = False
+            if load_type == 'incremental' and timestamp_column and last_extracted_value:
+                logger.info(f"Incremental mode: filtering WHERE {timestamp_column} > '{last_extracted_value}'")
+                temp_dataset = dataset
+                temp_table_name = f"_tmp_export_{table}_{int(datetime.now().timestamp())}"
+                temp_table_ref = f"{self.project_id}.{temp_dataset}.{temp_table_name}"
+                
+                from datetime import datetime as dt
+                
+                query = f"""
+                    CREATE OR REPLACE TABLE `{temp_table_ref}` AS
+                    SELECT * FROM `{table_ref}`
+                    WHERE `{timestamp_column}` > TIMESTAMP('{last_extracted_value}')
+                """
+                logger.info(f"Creating temp table with incremental filter: {temp_table_ref}")
+                query_job = self.client.query(query)
+                query_job.result()  # Wait for completion
+                
+                # Get row count of filtered data
+                temp_table_obj = self.client.get_table(temp_table_ref)
+                logger.info(f"Incremental export: {temp_table_obj.num_rows:,} rows after filtering")
+                
+                if temp_table_obj.num_rows == 0:
+                    logger.info("No new rows to export for incremental load")
+                    # Clean up temp table
+                    self.client.delete_table(temp_table_ref, not_found_ok=True)
+                    return {
+                        'success': True,
+                        'job_id': None,
+                        'table': table_ref,
+                        'destination_uris': [],
+                        'num_files': 0,
+                        'num_rows': 0,
+                        'num_bytes': 0,
+                        'format': export_format,
+                        'compression': compression or 'NONE',
+                        'schema': [{
+                            'name': f.name,
+                            'type': f.field_type,
+                            'mode': f.mode or 'NULLABLE',
+                            'description': f.description or ''
+                        } for f in table_obj.schema],
+                        'incremental': True,
+                        'no_new_data': True
+                    }
+                
+                actual_table_ref = temp_table_ref
+                temp_table_created = True
             try:
                 extract_job = self.client.extract_table(
-                    table_ref,
+                    actual_table_ref,
                     destination_uri,
                     job_config=job_config
                 )
@@ -160,6 +218,14 @@ class BigQueryExporter:
                 extract_job.result()
                 
                 logger.info(f"✓ Export completed successfully")
+                
+                # Clean up temp table if created for incremental
+                if temp_table_created:
+                    try:
+                        self.client.delete_table(actual_table_ref, not_found_ok=True)
+                        logger.info(f"✓ Cleaned up temp table: {actual_table_ref}")
+                    except Exception as cleanup_err:
+                        logger.warning(f"Failed to clean up temp table: {cleanup_err}")
                 
             except Exception as e:
                 error_msg = f"BigQuery export job failed for table '{table}': {str(e)}"
@@ -237,7 +303,11 @@ class BigQueryExporter:
         gcs_bucket: str,
         gcs_path: str,
         export_format: str = 'AVRO',
-        compression: Optional[str] = None
+        compression: Optional[str] = None,
+        load_type: str = 'full',
+        timestamp_column: Optional[str] = None,
+        last_extracted_value: Optional[str] = None,
+        table_load_configs: Optional[Dict] = None
     ) -> List[Dict]:
         """
         Export multiple BigQuery tables to GCS
@@ -249,24 +319,38 @@ class BigQueryExporter:
             gcs_path: Path within GCS bucket
             export_format: Export format (AVRO, PARQUET, CSV, JSON)
             compression: Compression type (GZIP, SNAPPY, DEFLATE, ZSTD, or None)
+            load_type: Default load type ('full' or 'incremental') — used when table has no per-table config
+            timestamp_column: Default timestamp column — used when table has no per-table config
+            last_extracted_value: Last extracted timestamp value for incremental
+            table_load_configs: Per-table config dict: { "table_name": { "load_type": "incremental", "primary_key_column": "id", "timestamp_column": "updated_at" } }
         
         Returns:
             List of dictionaries with export results for each table
         """
         results = []
         
-        logger.info(f"=== Exporting {len(tables)} tables ===")
+        logger.info(f"=== Exporting {len(tables)} tables (default mode: {load_type}) ===")
+        if table_load_configs:
+            logger.info(f"Per-table configs: {list(table_load_configs.keys())}")
         
         for idx, table in enumerate(tables, 1):
             try:
-                logger.info(f"[{idx}/{len(tables)}] Exporting table: {table}")
+                # Resolve per-table config (fall back to global defaults)
+                table_config = (table_load_configs or {}).get(table, {})
+                effective_load_type = table_config.get('load_type', load_type)
+                effective_timestamp_col = table_config.get('timestamp_column', timestamp_column)
+                
+                logger.info(f"[{idx}/{len(tables)}] Exporting table: {table} (load_type={effective_load_type})")
                 result = self.export_table(
                     dataset=dataset,
                     table=table,
                     gcs_bucket=gcs_bucket,
                     gcs_path=gcs_path,
                     export_format=export_format,
-                    compression=compression
+                    compression=compression,
+                    load_type=effective_load_type,
+                    timestamp_column=effective_timestamp_col,
+                    last_extracted_value=last_extracted_value
                 )
                 results.append(result)
                 logger.info(f"✓ [{idx}/{len(tables)}] Table {table} exported successfully")

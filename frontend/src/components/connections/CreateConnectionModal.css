@@ -259,6 +259,54 @@
   margin-left: calc(18px + var(--spacing-3));
 }
 
+/* Textarea Field */
+.textarea-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  grid-column: 1 / -1; /* Make textarea span full width in two-column layout */
+}
+
+.textarea-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: var(--font-size-sm);
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+  color: var(--color-text-primary);
+  background-color: var(--color-input-bg, #ffffff);
+  border: 1px solid var(--color-border, #d1d5db);
+  border-radius: var(--radius-md, 6px);
+  resize: vertical;
+  min-height: 120px;
+  transition: all var(--transition-fast);
+}
+
+.textarea-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.textarea-input--error {
+  border-color: var(--color-error);
+}
+
+.textarea-input--error:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+.textarea-field .help-text {
+  margin-left: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.textarea-field .error-text {
+  margin-left: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-error);
+}
+
 /* Responsive */
 @media (max-width: 767px) {
   .form-row--two-cols {

@@ -35,6 +35,14 @@ export const AssessmentsPage: React.FC = () => {
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top?: number; bottom?: number; right: number }>({ right: 0 });
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   useEffect(() => {
     fetchAssessments();
@@ -75,14 +83,14 @@ export const AssessmentsPage: React.FC = () => {
       setDeleteConfirmId(null);
     } catch (error: any) {
       console.error('Failed to delete assessment:', error);
-      alert(`Failed to delete assessment: ${error.detail || error.message}`);
+      setToast({ message: `Failed to delete assessment: ${error.detail || error.message}`, type: 'error' });
     }
   };
 
   const handleRunAssessment = async (assessmentId: number) => {
     try {
       await runAssessment(assessmentId);
-      alert('Assessment started successfully. It will run in the background.');
+      setToast({ message: 'Assessment started', type: 'success' });
       // Immediately refresh to show 'running' status
       await fetchAssessments();
       
@@ -98,7 +106,7 @@ export const AssessmentsPage: React.FC = () => {
       
     } catch (error: any) {
       console.error('Failed to run assessment:', error);
-      alert(`Failed to run assessment: ${error.detail || error.message}`);
+      setToast({ message: `Failed to run assessment: ${error.detail || error.message}`, type: 'error' });
     }
   };
 
@@ -494,6 +502,21 @@ export const AssessmentsPage: React.FC = () => {
               </Button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div
+          onClick={() => setToast(null)}
+          style={{
+            position: 'fixed', bottom: 24, right: 24, padding: '12px 20px', borderRadius: 8,
+            color: '#fff', fontSize: 14, fontWeight: 500, zIndex: 9999, cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            background: toast.type === 'success' ? '#16a34a' : '#dc2626',
+          }}
+        >
+          {toast.message}
         </div>
       )}
     </div>

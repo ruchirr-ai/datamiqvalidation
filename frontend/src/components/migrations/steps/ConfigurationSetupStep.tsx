@@ -107,6 +107,7 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
   const [expandedStage, setExpandedStage] = useState<number>(1);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const toggleStage = (stageNumber: number) => {
     setExpandedStage(expandedStage === stageNumber ? 0 : stageNumber);
@@ -126,9 +127,11 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
         if (currentStage < 3) {
           setExpandedStage(currentStage + 1);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Failed to save:', error);
-        alert('Failed to save changes. Please try again.');
+        const errorMsg = error?.message || 'Unknown error';
+        setSaveError(errorMsg);
+        setTimeout(() => setSaveError(null), 4000);
       } finally {
         setIsSaving(false);
       }
@@ -482,9 +485,10 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
     );
   };
 
-  // Stage 2: GCS to S3 Transfer - Path B (AWS DataSync)
+  // Stage 2: GCS to S3 Transfer - Path B (AWS DataSync Agent on GCP VM)
   const renderGCSToS3_PathB = () => {
     const isExpanded = expandedStage === 2;
+    const setupConfirmed = formData.datasyncSetupConfirmed || false;
     
     return (
       <div className="migration-stage-collapsible">
@@ -499,7 +503,7 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                 GCS → S3 Transfer
                 <span className="pathway-badge">Path B</span>
               </h3>
-              <p>Configure AWS DataSync for automated data transfer</p>
+              <p>Configure AWS DataSync agent on GCP VM for private data transfer</p>
             </div>
           </div>
           <button className="collapse-button" type="button">
@@ -519,114 +523,232 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
 
         {isExpanded && (
           <div className="stage-content-collapsible">
-            <div className="info-box" style={{ background: '#FFF4E6', borderColor: '#FFD140' }}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#FF9800" strokeWidth="2">
+            <div className="info-box" style={{ background: '#E8F5E9', borderColor: '#4CAF50' }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#4CAF50" strokeWidth="2">
                 <circle cx="8" cy="8" r="6" />
                 <path d="M8 6v4M8 11h.01" strokeLinecap="round" />
               </svg>
               <div>
-                <strong>AWS DataSync</strong>
+                <strong>Private Network Transfer via GCP VM</strong>
                 <p>
-                  Automated data transfer using AWS DataSync agent. Deploys an EC2 agent in your VPC
-                  to securely transfer data from GCS to S3 with automatic retry and delta sync capabilities.
+                  The AWS DataSync agent runs as a GCP Compute Engine VM inside your VPC.
+                  This gives the agent private network access to GCS — no data traverses the public internet for reads.
+                  The agent then transfers data to S3 over an encrypted channel.
                 </p>
               </div>
             </div>
 
-            <div className="form-section">
-              <h4>AWS Infrastructure Configuration</h4>
-              
-              <div className="form-row">
-                <div className="form-section">
-                  <label className="form-label required">VPC Subnet ID</label>
-                  <Input
-                    type="text"
-                    placeholder="subnet-0123456789abcdef0"
-                    value={formData.datasyncSubnetId || ''}
-                    onChange={(e) => updateFormData({ datasyncSubnetId: e.target.value })}
-                    required
-                  />
-                  <p className="form-help">Private subnet for DataSync agent deployment</p>
-                </div>
-
-                <div className="form-section">
-                  <label className="form-label required">Security Group ID</label>
-                  <Input
-                    type="text"
-                    placeholder="sg-0123456789abcdef0"
-                    value={formData.datasyncSecurityGroupId || ''}
-                    onChange={(e) => updateFormData({ datasyncSecurityGroupId: e.target.value })}
-                    required
-                  />
-                  <p className="form-help">Security group for DataSync agent (allow HTTPS outbound)</p>
+            {/* Setup Instructions */}
+            <div className="form-section" style={{ marginTop: '24px' }}>
+              <h4>Setup Instructions (One-Time)</h4>
+              <div className="info-box" style={{ background: '#F5F5F5', borderColor: '#9E9E9E', marginTop: '12px' }}>
+                <div style={{ width: '100%' }}>
+                  <strong>Before proceeding, you must manually set up the DataSync agent VM:</strong>
+                  <details style={{ marginTop: '8px' }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#424242', fontSize: '13px' }}>
+                      📋 Step-by-step instructions (click to expand)
+                    </summary>
+                    <ol style={{ marginTop: '12px', marginLeft: '20px', fontSize: '13px', lineHeight: '1.8' }}>
+                    <li style={{ marginBottom: '12px' }}>
+                      <strong>Download the DataSync Agent Image from AWS Console:</strong>
+                      <ul style={{ marginTop: '4px', marginLeft: '16px' }}>
+                        <li>Go to <a href="https://console.aws.amazon.com/datasync/home#/agents/create" target="_blank" rel="noopener noreferrer" style={{ color: '#1976d2' }}>AWS DataSync Console → Create Agent</a></li>
+                        <li>For <strong>Hypervisor</strong>, select <strong>"Kernel-based Virtual Machine (KVM)"</strong></li>
+                        <li>Click the <strong>"Download the image"</strong> link — this downloads a ~700 MB ZIP file</li>
+                        <li>Extract the ZIP to get the <code>.qcow2</code> file (e.g. <code>aws-datasync-2.x.x-x86_64.xfs.gpt.qcow2</code>)</li>
+                      </ul>
+                    </li>
+                    <li style={{ marginBottom: '12px' }}>
+                      <strong>Upload the qcow2 file to your GCS bucket:</strong>
+                      <ul style={{ marginTop: '4px', marginLeft: '16px' }}>
+                        <li><code>gsutil cp aws-datasync-*.qcow2 gs://YOUR_BUCKET/</code></li>
+                      </ul>
+                    </li>
+                    <li style={{ marginBottom: '12px' }}>
+                      <strong>Convert qcow2 to tar.gz format (required by GCP):</strong>
+                      <ul style={{ marginTop: '4px', marginLeft: '16px' }}>
+                        <li>Open <strong>Cloud Shell</strong> in GCP Console</li>
+                        <li><code>sudo apt-get update && sudo apt-get install -y qemu-utils pigz</code></li>
+                        <li><code>gsutil cp gs://YOUR_BUCKET/aws-datasync-*.qcow2 /tmp/datasync.qcow2</code></li>
+                        <li><code>qemu-img convert -f qcow2 -O raw /tmp/datasync.qcow2 /tmp/disk.raw</code></li>
+                        <li><code>cd /tmp && tar -cf - disk.raw | pigz &gt; datasync-agent.tar.gz</code></li>
+                        <li><code>gsutil cp /tmp/datasync-agent.tar.gz gs://YOUR_BUCKET/</code></li>
+                      </ul>
+                    </li>
+                    <li style={{ marginBottom: '12px' }}>
+                      <strong>Import as a GCP Custom Image:</strong>
+                      <ul style={{ marginTop: '4px', marginLeft: '16px' }}>
+                        <li><code>gcloud compute images create aws-datasync-agent \<br/>&nbsp;&nbsp;--source-uri=gs://YOUR_BUCKET/datasync-agent.tar.gz \<br/>&nbsp;&nbsp;--project=YOUR_PROJECT_ID</code></li>
+                      </ul>
+                    </li>
+                    <li style={{ marginBottom: '12px' }}>
+                      <strong>Create a GCP VM from the image:</strong>
+                      <ul style={{ marginTop: '4px', marginLeft: '16px' }}>
+                        <li><code>gcloud compute instances create datasync-agent-vm \<br/>&nbsp;&nbsp;--zone=YOUR_ZONE \<br/>&nbsp;&nbsp;--machine-type=n1-standard-2 \<br/>&nbsp;&nbsp;--image=aws-datasync-agent \<br/>&nbsp;&nbsp;--boot-disk-size=80GB \<br/>&nbsp;&nbsp;--boot-disk-type=pd-standard \<br/>&nbsp;&nbsp;--project=YOUR_PROJECT_ID</code></li>
+                      </ul>
+                    </li>
+                    <li style={{ marginBottom: '12px' }}>
+                      <strong>Get the VM's IP address:</strong>
+                      <ul style={{ marginTop: '4px', marginLeft: '16px' }}>
+                        <li><code>gcloud compute instances describe datasync-agent-vm \<br/>&nbsp;&nbsp;--zone=YOUR_ZONE \<br/>&nbsp;&nbsp;--format="get(networkInterfaces[0].networkIP)"</code></li>
+                        <li>Copy the internal IP (e.g. <code>10.128.0.5</code>) — you'll enter it below</li>
+                      </ul>
+                    </li>
+                    <li style={{ marginBottom: '12px' }}>
+                      <strong>Activate the agent in AWS Console (optional):</strong>
+                      <ul style={{ marginTop: '4px', marginLeft: '16px' }}>
+                        <li>DataMIQ handles agent activation automatically using the VM IP you provide</li>
+                      </ul>
+                    </li>
+                  </ol>
+                  <p style={{ marginTop: '12px', fontSize: '13px' }}>
+                    <strong>Important:</strong> The VM must have outbound internet access to reach AWS DataSync endpoints. If it has no public IP, configure <strong>Cloud NAT</strong> on the VPC.
+                  </p>
+                  </details>
                 </div>
               </div>
 
-              <div className="form-section">
-                <label className="form-label">EC2 Instance Type</label>
-                <Select
-                  value={formData.datasyncInstanceType || 'm5.xlarge'}
-                  onChange={(value) => updateFormData({ datasyncInstanceType: String(value) })}
-                  options={[
-                    { value: 'm5.large', label: 'm5.large (2 vCPU, 8 GB RAM)' },
-                    { value: 'm5.xlarge', label: 'm5.xlarge (4 vCPU, 16 GB RAM) - Recommended' },
-                    { value: 'm5.2xlarge', label: 'm5.2xlarge (8 vCPU, 32 GB RAM)' },
-                    { value: 'm5.4xlarge', label: 'm5.4xlarge (16 vCPU, 64 GB RAM)' },
-                  ]}
-                />
-                <p className="form-help">Instance type for DataSync agent (larger for better performance)</p>
+              {/* Setup Confirmation Checkbox */}
+              <div style={{ 
+                marginTop: '20px', 
+                padding: '16px', 
+                background: setupConfirmed ? '#E8F5E9' : '#F5F5F5',
+                border: `2px solid ${setupConfirmed ? '#4CAF50' : '#9E9E9E'}`,
+                borderRadius: '8px'
+              }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={setupConfirmed}
+                    onChange={(e) => updateFormData({ datasyncSetupConfirmed: e.target.checked })}
+                    style={{ marginTop: '2px', width: '18px', height: '18px', cursor: 'pointer' }}
+                  />
+                  <div>
+                    <strong style={{ fontSize: '14px', display: 'block', marginBottom: '4px' }}>
+                      I have completed the DataSync agent VM setup
+                    </strong>
+                    <span style={{ fontSize: '13px', color: '#666' }}>
+                      Check this box to confirm you've created the GCP VM with the DataSync agent and have the VM's IP address ready.
+                    </span>
+                  </div>
+                </label>
               </div>
             </div>
 
-            <div className="form-section" style={{ marginTop: '24px' }}>
-              <h4>GCS HMAC Credentials</h4>
-              <p className="form-help" style={{ marginBottom: '16px' }}>
-                DataSync requires HMAC keys to access GCS. Generate these in Google Cloud Console → Storage → Settings → Interoperability.
-              </p>
-              
-              <div className="form-row">
+            {/* VM IP Address (only show if setup confirmed) */}
+            {setupConfirmed && (
+              <div className="form-section" style={{ marginTop: '24px' }}>
+                <h4>DataSync Agent VM</h4>
                 <div className="form-section">
-                  <label className="form-label required">GCS HMAC Access Key</label>
+                  <label className="form-label required">VM Internal IP Address</label>
                   <Input
                     type="text"
-                    placeholder="GOOG1E..."
-                    value={formData.gcsAccessKey || ''}
-                    onChange={(e) => updateFormData({ gcsAccessKey: e.target.value })}
+                    placeholder="10.128.0.5"
+                    value={formData.datasyncExistingVmIp || ''}
+                    onChange={(e) => updateFormData({ datasyncExistingVmIp: e.target.value })}
                     required
                   />
-                  <p className="form-help">GCS HMAC access key ID</p>
-                </div>
-
-                <div className="form-section">
-                  <label className="form-label required">GCS HMAC Secret Key</label>
-                  <Input
-                    type="password"
-                    placeholder="••••••••••••••••••••"
-                    value={formData.gcsSecretKey || ''}
-                    onChange={(e) => updateFormData({ gcsSecretKey: e.target.value })}
-                    required
-                  />
-                  <p className="form-help">GCS HMAC secret key (encrypted and stored securely)</p>
+                  <p className="form-help">
+                    Internal IP of the GCP VM running the DataSync agent.
+                    The agent must be accessible on port 80 (HTTP) for activation.
+                  </p>
                 </div>
               </div>
-            </div>
+            )}
 
-            <div className="form-section" style={{ marginTop: '24px' }}>
-              <h4>S3 Destination</h4>
-              
-              <div className="form-row">
-                <div className="form-section">
-                  <label className="form-label required">S3 Bucket Name</label>
-                  <Input
-                    type="text"
-                    placeholder="my-s3-bucket"
-                    value={formData.s3Bucket || ''}
-                    onChange={(e) => updateFormData({ s3Bucket: e.target.value })}
-                    required
-                  />
-                  <p className="form-help">Target S3 bucket for data transfer</p>
+            {/* GCS HMAC Credentials (only show if setup confirmed) */}
+            {setupConfirmed && (
+              <div className="form-section" style={{ marginTop: '24px' }}>
+                <h4>GCS HMAC Credentials</h4>
+                <p className="form-help" style={{ marginBottom: '16px' }}>
+                  DataSync uses HMAC keys to access GCS. Generate in Cloud Console → Storage → Settings → Interoperability.
+                </p>
+                <div className="form-row">
+                  <div className="form-section">
+                    <label className="form-label required">GCS HMAC Access Key</label>
+                    <Input
+                      type="text"
+                      placeholder="GOOG1E..."
+                      value={formData.gcsAccessKey || ''}
+                      onChange={(e) => updateFormData({ gcsAccessKey: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-section">
+                    <label className="form-label required">GCS HMAC Secret Key</label>
+                    <Input
+                      type="password"
+                      placeholder="••••••••••••••••••••"
+                      value={formData.gcsSecretKey || ''}
+                      onChange={(e) => updateFormData({ gcsSecretKey: e.target.value })}
+                      required
+                    />
+                  </div>
                 </div>
+              </div>
+            )}
 
+            {/* AWS Credentials & S3 (only show if setup confirmed) */}
+            {setupConfirmed && (
+              <div className="form-section" style={{ marginTop: '24px' }}>
+                <h4>AWS Credentials & S3 Destination</h4>
+                <p className="form-help" style={{ marginBottom: '16px' }}>
+                  AWS credentials for DataSync service and S3 access. IAM user needs DataSync and S3 permissions.
+                </p>
+                <div className="form-row">
+                  <div className="form-section">
+                    <label className="form-label required">AWS Access Key ID</label>
+                    <Input
+                      type="text"
+                      placeholder="AKIAIOSFODNN7EXAMPLE"
+                      value={formData.awsAccessKeyId || ''}
+                      onChange={(e) => updateFormData({ awsAccessKeyId: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-section">
+                    <label className="form-label required">AWS Secret Access Key</label>
+                    <Input
+                      type="password"
+                      placeholder="••••••••••••••••••••"
+                      value={formData.awsSecretAccessKey || ''}
+                      onChange={(e) => updateFormData({ awsSecretAccessKey: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <div className="form-section">
+                    <label className="form-label">AWS Region</label>
+                    <select
+                      className="select-input"
+                      value={formData.awsRegion || 'us-east-1'}
+                      onChange={(e) => updateFormData({ awsRegion: e.target.value })}
+                    >
+                      <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                      <option value="us-east-2">us-east-2 (Ohio)</option>
+                      <option value="us-west-1">us-west-1 (N. California)</option>
+                      <option value="us-west-2">us-west-2 (Oregon)</option>
+                      <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                      <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
+                      <option value="ap-south-1">ap-south-1 (Mumbai)</option>
+                      <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
+                      <option value="ap-southeast-2">ap-southeast-2 (Sydney)</option>
+                      <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+                    </select>
+                    <p className="form-help">AWS region for DataSync service and S3 bucket</p>
+                  </div>
+                  <div className="form-section">
+                    <label className="form-label required">S3 Bucket Name</label>
+                    <Input
+                      type="text"
+                      placeholder="my-s3-bucket"
+                      value={formData.s3Bucket || ''}
+                      onChange={(e) => updateFormData({ s3Bucket: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
                 <div className="form-section">
                   <label className="form-label required">S3 Path</label>
                   <Input
@@ -638,15 +760,135 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                   />
                   <p className="form-help">Path within S3 bucket</p>
                 </div>
+                {/* IAM Role ARN Section with Setup Instructions */}
+                <div className="form-section" style={{ marginTop: '24px' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '8px',
+                    marginBottom: '16px',
+                    paddingBottom: '12px',
+                    borderBottom: '2px solid var(--color-divider)'
+                  }}>
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <rect x="3" y="3" width="14" height="14" rx="2" />
+                      <path d="M7 10l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                      DataSync S3 IAM Role
+                    </h4>
+                  </div>
+
+                  <div className="info-box" style={{ background: '#F5F5F5', borderColor: '#9E9E9E', marginBottom: '16px' }}>
+                    <div>
+                      <strong>Required: Create an IAM Role for DataSync</strong>
+                      <p style={{ marginTop: '8px', marginBottom: '8px' }}>
+                        DataSync needs an IAM role to access your S3 bucket. You must create this role manually in your AWS account.
+                      </p>
+                      <details style={{ marginTop: '8px' }}>
+                        <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#424242', fontSize: '13px' }}>
+                          📋 Step-by-step instructions (click to expand)
+                        </summary>
+                        <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.8' }}>
+                          <p style={{ fontWeight: 600, marginBottom: '8px' }}>Option A: AWS CLI (recommended)</p>
+                          <ol style={{ marginLeft: '16px', marginBottom: '16px' }}>
+                            <li style={{ marginBottom: '8px' }}>
+                              <strong>Create a trust policy file</strong> (<code>trust-policy.json</code>):
+                              <pre style={{ 
+                                background: '#263238', color: '#EEFFFF', padding: '12px', borderRadius: '6px', 
+                                fontSize: '12px', marginTop: '4px', overflowX: 'auto', whiteSpace: 'pre'
+                              }}>{`{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "datasync.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}`}</pre>
+                            </li>
+                            <li style={{ marginBottom: '8px' }}>
+                              <strong>Create the role:</strong>
+                              <pre style={{ 
+                                background: '#263238', color: '#EEFFFF', padding: '12px', borderRadius: '6px', 
+                                fontSize: '12px', marginTop: '4px', overflowX: 'auto'
+                              }}>aws iam create-role --role-name DataSyncS3AccessRole --assume-role-policy-document file://trust-policy.json</pre>
+                            </li>
+                            <li style={{ marginBottom: '8px' }}>
+                              <strong>Attach S3 access policy:</strong>
+                              <pre style={{ 
+                                background: '#263238', color: '#EEFFFF', padding: '12px', borderRadius: '6px', 
+                                fontSize: '12px', marginTop: '4px', overflowX: 'auto'
+                              }}>aws iam attach-role-policy --role-name DataSyncS3AccessRole --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess</pre>
+                            </li>
+                            <li style={{ marginBottom: '8px' }}>
+                              <strong>Get the Role ARN:</strong>
+                              <pre style={{ 
+                                background: '#263238', color: '#EEFFFF', padding: '12px', borderRadius: '6px', 
+                                fontSize: '12px', marginTop: '4px', overflowX: 'auto'
+                              }}>aws iam get-role --role-name DataSyncS3AccessRole --query "Role.Arn" --output text</pre>
+                              <span style={{ color: '#888', fontSize: '12px' }}>Copy the output (e.g. <code>arn:aws:iam::123456789012:role/DataSyncS3AccessRole</code>) and paste below.</span>
+                            </li>
+                          </ol>
+
+                          <p style={{ fontWeight: 600, marginBottom: '8px' }}>Option B: AWS Console (UI)</p>
+                          <ol style={{ marginLeft: '16px' }}>
+                            <li style={{ marginBottom: '6px' }}>
+                              Go to <a href="https://console.aws.amazon.com/iam/home#/roles/create" target="_blank" rel="noopener noreferrer" style={{ color: '#1976d2' }}>IAM Console → Create Role</a>
+                            </li>
+                            <li style={{ marginBottom: '6px' }}>
+                              Select <strong>"AWS service"</strong> as trusted entity type
+                            </li>
+                            <li style={{ marginBottom: '6px' }}>
+                              Under <strong>"Use case"</strong>, choose <strong>"DataSync"</strong> from the dropdown (under "Use cases for other AWS services")
+                            </li>
+                            <li style={{ marginBottom: '6px' }}>
+                              Click <strong>Next</strong>, then search for and select <strong>"AmazonS3FullAccess"</strong> policy
+                            </li>
+                            <li style={{ marginBottom: '6px' }}>
+                              Click <strong>Next</strong>, name the role (e.g. <code>DataSyncS3AccessRole</code>), click <strong>Create role</strong>
+                            </li>
+                            <li style={{ marginBottom: '6px' }}>
+                              Open the newly created role and copy the <strong>ARN</strong> from the summary page
+                            </li>
+                          </ol>
+
+                          <div style={{ 
+                            marginTop: '12px', padding: '8px 12px', background: '#E3F2FD', 
+                            borderRadius: '4px', fontSize: '12px', color: '#1565C0' 
+                          }}>
+                            💡 <strong>Tip:</strong> For production, scope the S3 policy to your specific bucket instead of using <code>AmazonS3FullAccess</code>.
+                          </div>
+                        </div>
+                      </details>
+                    </div>
+                  </div>
+
+                  <label className="form-label required">DataSync S3 IAM Role ARN</label>
+                  <Input
+                    type="text"
+                    placeholder="arn:aws:iam::123456789012:role/DataSyncS3AccessRole"
+                    value={formData.datasyncS3RoleArn || ''}
+                    onChange={(e) => updateFormData({ datasyncS3RoleArn: e.target.value })}
+                    required
+                  />
+                  <p className="form-help">
+                    Paste the IAM Role ARN you created above. DataSync will assume this role to read/write your S3 bucket.
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="stage-footer">
               <button 
                 className="btn-save-continue"
                 onClick={() => handleSaveAndContinue(2)}
                 type="button"
-                disabled={isSaving}
+                disabled={isSaving || !setupConfirmed}
+                title={!setupConfirmed ? 'Please confirm DataSync agent VM setup first' : ''}
               >
                 {isSaving ? 'Saving...' : saveSuccess ? '✓ Saved' : 'Save & Continue'}
               </button>
@@ -989,18 +1231,342 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
               </div>
             </div>
 
+            {/* Redshift IAM Role Section with Setup Instructions */}
             <div className="form-section">
-              <label className="form-label required">IAM Role ARN</label>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px',
+                marginBottom: '16px',
+                paddingBottom: '12px',
+                borderBottom: '2px solid var(--color-divider)'
+              }}>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="3" y="3" width="14" height="14" rx="2" />
+                  <path d="M7 10l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                  Redshift S3 IAM Role
+                </h4>
+              </div>
+
+              <div className="info-box" style={{ background: '#F5F5F5', borderColor: '#9E9E9E', marginBottom: '16px' }}>
+                <div>
+                  <strong>Required: Create an IAM Role for Redshift</strong>
+                  <p style={{ marginTop: '8px', marginBottom: '8px' }}>
+                    Redshift needs an IAM role to read data from your S3 bucket during the COPY command. 
+                    This is separate from the DataSync role.
+                  </p>
+                  <details style={{ marginTop: '8px' }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#424242', fontSize: '13px' }}>
+                      📋 Step-by-step instructions (click to expand)
+                    </summary>
+                    <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.8' }}>
+                      <p style={{ fontWeight: 600, marginBottom: '8px' }}>Option A: AWS CLI (recommended)</p>
+                      <ol style={{ marginLeft: '16px', marginBottom: '16px' }}>
+                        <li style={{ marginBottom: '8px' }}>
+                          <strong>Create a trust policy file</strong> (<code>redshift-trust-policy.json</code>):
+                          <pre style={{ 
+                            background: '#263238', color: '#EEFFFF', padding: '12px', borderRadius: '6px', 
+                            fontSize: '12px', marginTop: '4px', overflowX: 'auto', whiteSpace: 'pre'
+                          }}>{`{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "redshift.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}`}</pre>
+                        </li>
+                        <li style={{ marginBottom: '8px' }}>
+                          <strong>Create the role:</strong>
+                          <pre style={{ 
+                            background: '#263238', color: '#EEFFFF', padding: '12px', borderRadius: '6px', 
+                            fontSize: '12px', marginTop: '4px', overflowX: 'auto'
+                          }}>aws iam create-role --role-name RedshiftS3AccessRole --assume-role-policy-document file://redshift-trust-policy.json</pre>
+                        </li>
+                        <li style={{ marginBottom: '8px' }}>
+                          <strong>Attach S3 read access policy:</strong>
+                          <pre style={{ 
+                            background: '#263238', color: '#EEFFFF', padding: '12px', borderRadius: '6px', 
+                            fontSize: '12px', marginTop: '4px', overflowX: 'auto'
+                          }}>aws iam attach-role-policy --role-name RedshiftS3AccessRole --policy-arn arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess</pre>
+                        </li>
+                        <li style={{ marginBottom: '8px' }}>
+                          <strong>Get the Role ARN:</strong>
+                          <pre style={{ 
+                            background: '#263238', color: '#EEFFFF', padding: '12px', borderRadius: '6px', 
+                            fontSize: '12px', marginTop: '4px', overflowX: 'auto'
+                          }}>aws iam get-role --role-name RedshiftS3AccessRole --query "Role.Arn" --output text</pre>
+                          <span style={{ color: '#888', fontSize: '12px' }}>Copy the output (e.g. <code>arn:aws:iam::123456789012:role/RedshiftS3AccessRole</code>) and paste below.</span>
+                        </li>
+                      </ol>
+
+                      <p style={{ fontWeight: 600, marginBottom: '8px' }}>Option B: AWS Console (UI)</p>
+                      <ol style={{ marginLeft: '16px' }}>
+                        <li style={{ marginBottom: '6px' }}>
+                          Go to <a href="https://console.aws.amazon.com/iam/home#/roles/create" target="_blank" rel="noopener noreferrer" style={{ color: '#1976d2' }}>IAM Console → Create Role</a>
+                        </li>
+                        <li style={{ marginBottom: '6px' }}>
+                          Select <strong>"AWS service"</strong> as trusted entity type
+                        </li>
+                        <li style={{ marginBottom: '6px' }}>
+                          Under <strong>"Use case"</strong>, choose <strong>"Redshift - Customizable"</strong>
+                        </li>
+                        <li style={{ marginBottom: '6px' }}>
+                          Click <strong>Next</strong>, then search for and select <strong>"AmazonS3ReadOnlyAccess"</strong> policy
+                        </li>
+                        <li style={{ marginBottom: '6px' }}>
+                          Click <strong>Next</strong>, name the role (e.g. <code>RedshiftS3AccessRole</code>), click <strong>Create role</strong>
+                        </li>
+                        <li style={{ marginBottom: '6px' }}>
+                          Open the newly created role and copy the <strong>ARN</strong> from the summary page
+                        </li>
+                      </ol>
+
+                      <div style={{ 
+                        marginTop: '12px', padding: '8px 12px', background: '#E3F2FD', 
+                        borderRadius: '4px', fontSize: '12px', color: '#1565C0' 
+                      }}>
+                        💡 <strong>Tip:</strong> For production, scope the S3 policy to your specific bucket instead of using <code>AmazonS3ReadOnlyAccess</code>.
+                      </div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+
+              <label className="form-label required">Redshift IAM Role ARN</label>
               <Input
                 type="text"
-                placeholder="arn:aws:iam::123456789012:role/RedshiftS3Role"
+                placeholder="arn:aws:iam::123456789012:role/RedshiftS3AccessRole"
                 value={formData.iamRoleArn || ''}
                 onChange={(e) => updateFormData({ iamRoleArn: e.target.value })}
                 required
               />
               <p className="form-help">
-                IAM role that Redshift will use to access S3. Must have s3:GetObject and s3:ListBucket permissions.
+                Paste the IAM Role ARN you created above. Redshift will assume this role to read data from S3.
               </p>
+            </div>
+
+            <div className="form-section" style={{ marginTop: '24px' }}>
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px',
+                marginBottom: '16px',
+                paddingBottom: '12px',
+                borderBottom: '2px solid var(--color-divider)'
+              }}>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M4 4h12v12H4z" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M4 10h12M10 4v12" strokeLinecap="round" />
+                </svg>
+                <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                  Load Type
+                </h4>
+              </div>
+
+              <div className="radio-group">
+                <label className={`radio-option ${formData.loadType === 'full' ? 'selected' : ''}`}
+                  style={formData.loadType === 'full' ? { borderColor: 'var(--color-primary)', background: '#EFF6FF' } : {}}>
+                  <input
+                    type="radio"
+                    name="loadType"
+                    value="full"
+                    checked={formData.loadType === 'full'}
+                    onChange={() => updateFormData({ loadType: 'full', primaryKeyColumn: '', timestampColumn: '', tableLoadConfigs: {} })}
+                  />
+                  <div className="radio-content">
+                    <span className="radio-title">Full Load</span>
+                    <span className="radio-description">
+                      Truncate target tables and reload all data from source. Best for initial migrations or small datasets.
+                    </span>
+                  </div>
+                </label>
+
+                <label className={`radio-option ${formData.loadType === 'incremental' ? 'selected' : ''}`}
+                  style={formData.loadType === 'incremental' ? { borderColor: 'var(--color-primary)', background: '#EFF6FF' } : {}}>
+                  <input
+                    type="radio"
+                    name="loadType"
+                    value="incremental"
+                    checked={formData.loadType === 'incremental'}
+                    onChange={() => {
+                      updateFormData({ loadType: 'incremental' });
+                      // Initialize per-table configs for all selected tables if not already set
+                      const selectedTables = (formData.selectedTables || []).map((t: string) => {
+                        const parts = t.split('.');
+                        return parts.length > 1 ? parts[1] : t;
+                      });
+                      if (selectedTables.length > 0) {
+                        const existing = formData.tableLoadConfigs || {};
+                        const updated = { ...existing };
+                        selectedTables.forEach((tbl: string) => {
+                          if (!updated[tbl]) {
+                            updated[tbl] = { load_type: 'incremental', primary_key_column: '', timestamp_column: '' };
+                          }
+                        });
+                        updateFormData({ tableLoadConfigs: updated });
+                      }
+                    }}
+                  />
+                  <div className="radio-content">
+                    <span className="radio-title">Incremental Load</span>
+                    <span className="radio-description">
+                      Only export and load rows that changed since the last run. Requires a primary key and a timestamp column per table.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              {formData.loadType === 'incremental' && (() => {
+                const selectedTables = (formData.selectedTables || []).map((t: string) => {
+                  const parts = t.split('.');
+                  return parts.length > 1 ? parts[1] : t;
+                });
+                const configs = formData.tableLoadConfigs || {};
+
+                const updateTableConfig = (tableName: string, field: string, value: string) => {
+                  const updated = { ...configs };
+                  if (!updated[tableName]) {
+                    updated[tableName] = { load_type: 'incremental', primary_key_column: '', timestamp_column: '' };
+                  }
+                  updated[tableName] = { ...updated[tableName], [field]: value };
+                  updateFormData({ tableLoadConfigs: updated });
+                };
+
+                // Single table: simpler UI
+                if (selectedTables.length <= 1) {
+                  const tbl = selectedTables[0] || '';
+                  const tblConfig = configs[tbl] || {};
+                  return (
+                    <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div className="form-section">
+                        <label className="form-label required">Primary Key Column</label>
+                        <Input
+                          type="text"
+                          placeholder="id"
+                          value={tblConfig.primary_key_column || formData.primaryKeyColumn || ''}
+                          onChange={(e) => {
+                            updateFormData({ primaryKeyColumn: e.target.value });
+                            if (tbl) updateTableConfig(tbl, 'primary_key_column', e.target.value);
+                          }}
+                          required
+                        />
+                        <p className="form-help">
+                          Column used to uniquely identify rows for upsert (merge) operations in Redshift.
+                        </p>
+                      </div>
+                      <div className="form-section">
+                        <label className="form-label required">Timestamp Column</label>
+                        <Input
+                          type="text"
+                          placeholder="updated_at"
+                          value={tblConfig.timestamp_column || formData.timestampColumn || ''}
+                          onChange={(e) => {
+                            updateFormData({ timestampColumn: e.target.value });
+                            if (tbl) updateTableConfig(tbl, 'timestamp_column', e.target.value);
+                          }}
+                          required
+                        />
+                        <p className="form-help">
+                          Column used to detect changed rows since the last extraction. Must be a TIMESTAMP or DATETIME type.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Multiple tables: per-table config
+                return (
+                  <div style={{ marginTop: '16px' }}>
+                    <p style={{ fontSize: '13px', color: '#666', marginBottom: '12px' }}>
+                      Configure the primary key and timestamp column for each table. Tables set to "Full" will reload all data.
+                    </p>
+                    <div style={{
+                      border: '1px solid var(--color-divider)',
+                      borderRadius: '8px',
+                      overflow: 'hidden'
+                    }}>
+                      {/* Header */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1.5fr 100px 1fr 1fr',
+                        gap: '12px',
+                        padding: '10px 16px',
+                        background: '#f8f9fa',
+                        borderBottom: '1px solid var(--color-divider)',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        color: '#555',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        <span>Table</span>
+                        <span>Load Type</span>
+                        <span>Primary Key</span>
+                        <span>Timestamp Col</span>
+                      </div>
+                      {/* Rows */}
+                      {selectedTables.map((tbl: string, idx: number) => {
+                        const tblConfig = configs[tbl] || { load_type: 'incremental', primary_key_column: '', timestamp_column: '' };
+                        const isIncremental = tblConfig.load_type === 'incremental';
+                        return (
+                          <div key={tbl} style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1.5fr 100px 1fr 1fr',
+                            gap: '12px',
+                            padding: '10px 16px',
+                            borderBottom: idx < selectedTables.length - 1 ? '1px solid var(--color-divider)' : 'none',
+                            alignItems: 'center',
+                            background: isIncremental ? '#fafbff' : '#fff'
+                          }}>
+                            <span style={{ fontSize: '13px', fontWeight: 500, color: '#333', wordBreak: 'break-all' }}>
+                              {tbl}
+                            </span>
+                            <select
+                              className="select-input"
+                              value={tblConfig.load_type || 'incremental'}
+                              onChange={(e) => {
+                                updateTableConfig(tbl, 'load_type', e.target.value);
+                                if (e.target.value === 'full') {
+                                  const updated = { ...configs };
+                                  updated[tbl] = { load_type: 'full', primary_key_column: '', timestamp_column: '' };
+                                  updateFormData({ tableLoadConfigs: updated });
+                                }
+                              }}
+                              style={{ padding: '6px 8px', fontSize: '13px', minWidth: 0 }}
+                            >
+                              <option value="incremental">Incremental</option>
+                              <option value="full">Full</option>
+                            </select>
+                            <Input
+                              type="text"
+                              placeholder={isIncremental ? 'id' : '—'}
+                              value={tblConfig.primary_key_column || ''}
+                              onChange={(e) => updateTableConfig(tbl, 'primary_key_column', e.target.value)}
+                              disabled={!isIncremental}
+                              style={{ padding: '6px 8px', fontSize: '13px', opacity: isIncremental ? 1 : 0.4 } as any}
+                            />
+                            <Input
+                              type="text"
+                              placeholder={isIncremental ? 'updated_at' : '—'}
+                              value={tblConfig.timestamp_column || ''}
+                              onChange={(e) => updateTableConfig(tbl, 'timestamp_column', e.target.value)}
+                              disabled={!isIncremental}
+                              style={{ padding: '6px 8px', fontSize: '13px', opacity: isIncremental ? 1 : 0.4 } as any}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="toggle-option">
@@ -1040,6 +1606,26 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
       </div>
 
       <div className="step-content migration-details-collapsible">
+        {saveError && (
+          <div style={{
+            padding: '10px 16px',
+            marginBottom: '12px',
+            borderRadius: '8px',
+            background: '#fef2f2',
+            border: '1px solid #fecaca',
+            color: '#dc2626',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="8" cy="8" r="6" />
+              <path d="M6 6l4 4M10 6l-4 4" strokeLinecap="round" />
+            </svg>
+            {saveError}
+          </div>
+        )}
         {!pathway && (
           <div className="warning-box">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">

@@ -384,16 +384,23 @@ export const MetadataDiscoveryStep: React.FC<MetadataDiscoveryStepProps> = ({
 
   const selectAllTables = () => {
     const allTableNames: string[] = [];
+    const allDatasets = new Set<string>();
     Object.entries(datasetTables).forEach(([datasetId, tables]) => {
+      allDatasets.add(datasetId);
       tables.forEach(table => {
         allTableNames.push(`${datasetId}.${table.table_id}`);
       });
     });
-    updateFormData({ selectedTables: allTableNames });
+    // Auto-set sourceDataset when selecting all tables
+    // If only one dataset, use it; otherwise keep existing or use first
+    const newSourceDataset = allDatasets.size === 1
+      ? Array.from(allDatasets)[0]
+      : (formData.sourceDataset || Array.from(allDatasets)[0]);
+    updateFormData({ selectedTables: allTableNames, sourceDataset: newSourceDataset });
   };
 
   const deselectAllTables = () => {
-    updateFormData({ selectedTables: [] });
+    updateFormData({ selectedTables: [], sourceDataset: '' });
   };
 
   const formatBytes = (bytes: number): string => {

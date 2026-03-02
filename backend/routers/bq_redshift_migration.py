@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
+import logging
 
 from database import get_db
 from repositories.bq_redshift_migration_repository import BQRedshiftMigrationRepository
@@ -17,7 +18,9 @@ from shared.middleware.auth_middleware import get_current_user
 from models.connection import Connection
 from models.bq_redshift_migration import MigrationBQRedshift, MigrationLog
 from services.aws_secrets import AWSSecretsService
-from services.encryption_service import get_encryption_service
+from services.unified_kms_service import get_unified_kms_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/migrations/bq-redshift", tags=["BQ-Redshift Migrations"])
 
@@ -75,12 +78,40 @@ class CreateMigrationRequest(BaseModel):
     overwrite_existing_files: Optional[bool] = False
     delete_source_after_transfer: Optional[bool] = False
     
+    # Path B: AWS DataSync Agent on GCP VM
+    datasync_agent_mode: Optional[str] = "create_vm"  # 'create_vm' or 'existing_vm'
+    datasync_gcp_zone: Optional[str] = None
+    datasync_gcp_machine_type: Optional[str] = "n1-standard-4"
+    datasync_gcp_network: Optional[str] = None
+    datasync_gcp_subnet: Optional[str] = None
+    datasync_existing_vm_ip: Optional[str] = None
+    datasync_s3_role_arn: Optional[str] = None
+    gcs_access_key: Optional[str] = None
+    gcs_secret_key: Optional[str] = None
+    aws_region: Optional[str] = "us-east-1"
+    
+    # GCS Configuration
+    gcs_region: Optional[str] = None
+    
+    # Service Account JSON for BigQuery export
+    service_account_json: Optional[str] = None
+    
+    # Load Type Configuration
+    load_type: Optional[str] = "full"           # full or incremental
+    primary_key_column: Optional[str] = None
+    timestamp_column: Optional[str] = None
+    run_immediately: Optional[bool] = False
+    truncate_before_load: Optional[bool] = False
+    # Per-table load config: { "table_name": { "load_type": "incremental", "primary_key_column": "id", "timestamp_column": "updated_at" } }
+    table_load_configs: Optional[dict] = None
+    
     # Redshift S3 Access (Required for COPY command)
     iam_role_arn: Optional[str] = None
     
     # Scheduling (optional)
     schedule_type: Optional[str] = None
     cron_expression: Optional[str] = None
+    scheduled_date_time: Optional[str] = None  # ISO format: YYYY-MM-DDTHH:mm
 
 
 class UpdateMigrationRequest(BaseModel):
@@ -119,12 +150,40 @@ class UpdateMigrationRequest(BaseModel):
     overwrite_existing_files: Optional[bool] = None
     delete_source_after_transfer: Optional[bool] = None
     
+    # Path B: AWS DataSync Agent on GCP VM
+    datasync_agent_mode: Optional[str] = None
+    datasync_gcp_zone: Optional[str] = None
+    datasync_gcp_machine_type: Optional[str] = None
+    datasync_gcp_network: Optional[str] = None
+    datasync_gcp_subnet: Optional[str] = None
+    datasync_existing_vm_ip: Optional[str] = None
+    datasync_s3_role_arn: Optional[str] = None
+    gcs_access_key: Optional[str] = None
+    gcs_secret_key: Optional[str] = None
+    aws_region: Optional[str] = None
+    
+    # GCS Configuration
+    gcs_region: Optional[str] = None
+    
+    # Service Account JSON for BigQuery export
+    service_account_json: Optional[str] = None
+    
+    # Load Type Configuration
+    load_type: Optional[str] = None
+    primary_key_column: Optional[str] = None
+    timestamp_column: Optional[str] = None
+    run_immediately: Optional[bool] = None
+    truncate_before_load: Optional[bool] = None
+    # Per-table load config
+    table_load_configs: Optional[dict] = None
+    
     # Redshift S3 Access (Required for COPY command)
     iam_role_arn: Optional[str] = None
     
     # Scheduling (optional)
     schedule_type: Optional[str] = None
     cron_expression: Optional[str] = None
+    scheduled_date_time: Optional[str] = None  # ISO format: YYYY-MM-DDTHH:mm
 
 
 class MigrationResponse(BaseModel):
@@ -155,6 +214,28 @@ class MigrationDetailResponse(BaseModel):
     state: dict
     schedule: dict
     metrics: dict
+    # Non-sensitive fields returned for edit mode
+    iam_role_arn: Optional[str] = None
+    datasync_agent_mode: Optional[str] = None
+    datasync_gcp_zone: Optional[str] = None
+    datasync_gcp_machine_type: Optional[str] = None
+    datasync_gcp_network: Optional[str] = None
+    datasync_gcp_subnet: Optional[str] = None
+    datasync_existing_vm_ip: Optional[str] = None
+    datasync_s3_role_arn: Optional[str] = None
+    datasync_agent_arn: Optional[str] = None
+    gcs_access_key: Optional[str] = None
+    aws_access_key_id: Optional[str] = None
+    aws_region: Optional[str] = None
+    load_type: Optional[str] = None
+    primary_key_column: Optional[str] = None
+    timestamp_column: Optional[str] = None
+    truncate_before_load: Optional[str] = None
+    table_load_configs: Optional[dict] = None
+    # Flags for encrypted fields (true if value exists)
+    has_service_account_json: Optional[bool] = False
+    has_gcs_secret_key: Optional[bool] = False
+    has_aws_secret_access_key: Optional[bool] = False
     created_at: datetime
     updated_at: datetime
 
@@ -462,8 +543,44 @@ async def create_migration(
         # Encrypt AWS secret key if provided
         aws_secret_encrypted = None
         if req.aws_secret_access_key:
-            encryption_service = get_encryption_service()
-            aws_secret_encrypted = encryption_service.encrypt(req.aws_secret_access_key)
+            try:
+                kms = get_unified_kms_service()
+                aws_secret_encrypted = kms.encrypt_credential(
+                    plaintext=req.aws_secret_access_key,
+                    credential_type='aws_secret_key',
+                    resource_type='migration'
+                )
+            except Exception as e:
+                logger.warning(f"KMS encryption failed, storing AWS secret unencrypted (DEV ONLY): {e}")
+                aws_secret_encrypted = req.aws_secret_access_key  # Store unencrypted as fallback
+        
+        # Encrypt GCS HMAC secret key if provided (Path B)
+        gcs_secret_encrypted = None
+        if req.gcs_secret_key:
+            try:
+                kms = get_unified_kms_service()
+                gcs_secret_encrypted = kms.encrypt_credential(
+                    plaintext=req.gcs_secret_key,
+                    credential_type='gcp_hmac_secret',
+                    resource_type='migration'
+                )
+            except Exception as e:
+                logger.warning(f"KMS encryption failed, storing GCS secret unencrypted (DEV ONLY): {e}")
+                gcs_secret_encrypted = req.gcs_secret_key  # Store unencrypted as fallback
+        
+        # Encrypt service account JSON if provided
+        sa_json_encrypted = None
+        if req.service_account_json:
+            try:
+                kms = get_unified_kms_service()
+                sa_json_encrypted = kms.encrypt_credential(
+                    plaintext=req.service_account_json,
+                    credential_type='gcp_service_account',
+                    resource_type='migration'
+                )
+            except Exception as e:
+                logger.warning(f"KMS encryption failed, storing service account JSON unencrypted (DEV ONLY): {e}")
+                sa_json_encrypted = req.service_account_json  # Store unencrypted as fallback
         
         # Create migration with provided fields (handle empty strings and None)
         migration_data = {
@@ -480,31 +597,84 @@ async def create_migration(
             'target_schema': req.target_schema or 'public',
             'gcs_bucket': req.gcs_bucket or '',
             'gcs_path': req.gcs_path or '',
+            'gcs_region': req.gcs_region or '',
             's3_bucket': req.s3_bucket or '',
             's3_path': req.s3_path or '',
             'export_format': req.export_format or 'AVRO',
             'compression': req.compression or 'NONE',
             # AWS credentials for GCS → S3 transfer
             'aws_access_key_id': req.aws_access_key_id or '',
-            'aws_secret_access_key_encrypted': aws_secret_encrypted or '',  # Encrypted
+            'aws_secret_access_key_encrypted': aws_secret_encrypted or '',
             'overwrite_existing_files': 'true' if req.overwrite_existing_files else 'false',
             'delete_source_after_transfer': 'true' if req.delete_source_after_transfer else 'false',
+            # Path B: AWS DataSync Agent on GCP VM
+            'datasync_agent_mode': req.datasync_agent_mode or 'create_vm',
+            'datasync_gcp_zone': req.datasync_gcp_zone or '',
+            'datasync_gcp_machine_type': req.datasync_gcp_machine_type or 'n1-standard-4',
+            'datasync_gcp_network': req.datasync_gcp_network or '',
+            'datasync_gcp_subnet': req.datasync_gcp_subnet or '',
+            'datasync_existing_vm_ip': req.datasync_existing_vm_ip or '',
+            'datasync_s3_role_arn': req.datasync_s3_role_arn or '',
+            'gcs_access_key': req.gcs_access_key or '',
+            'gcs_secret_key_encrypted': gcs_secret_encrypted or '',
+            'aws_region': req.aws_region or 'us-east-1',
+            # Service account JSON (encrypted)
+            'service_account_json_encrypted': sa_json_encrypted or '',
+            # Load type configuration
+            'load_type': req.load_type or 'full',
+            'primary_key_column': req.primary_key_column or '',
+            'timestamp_column': req.timestamp_column or '',
+            'run_immediately': 'true' if req.run_immediately else 'false',
+            'truncate_before_load': 'true' if req.truncate_before_load else 'false',
+            'table_load_configs': req.table_load_configs,
             # Redshift S3 access
             'iam_role_arn': req.iam_role_arn or '',
             'schedule_type': req.schedule_type,
             'cron_expression': req.cron_expression,
             'created_by': current_user.user_id,
-            'status': 'pending'
+            'status': 'ready'
         }
         
+        # If a scheduled_date_time is provided (one-time schedule), set status to 'scheduled' and next_run_time
+        if req.scheduled_date_time and req.schedule_type == 'one-time' and not req.run_immediately:
+            try:
+                scheduled_dt = datetime.fromisoformat(req.scheduled_date_time)
+                migration_data['next_run_time'] = scheduled_dt
+                migration_data['status'] = 'scheduled'
+                logger.info(f"Migration scheduled for {scheduled_dt}")
+            except ValueError as e:
+                logger.warning(f"Invalid scheduled_date_time format: {req.scheduled_date_time}, error: {e}")
+        
         migration = repo.create_migration(migration_data)
+        
+        # If run_immediately is set, start the migration in a background thread
+        if req.run_immediately:
+            import threading
+            import logging as bg_logging
+            
+            bg_logger = bg_logging.getLogger(__name__)
+            bg_logger.info(f"Run immediately requested for migration {migration.id}")
+            
+            def run_migration_bg(mid: int):
+                from database import db_instance
+                bg_db = db_instance.SessionLocal()
+                try:
+                    orchestrator = MigrationOrchestrator(bg_db)
+                    orchestrator.start_migration(mid)
+                except Exception as ex:
+                    bg_logging.getLogger(__name__).error(f"Background migration {mid} failed: {ex}")
+                finally:
+                    bg_db.close()
+            
+            thread = threading.Thread(target=run_migration_bg, args=(migration.id,), daemon=True)
+            thread.start()
         
         return MigrationResponse(
             id=migration.id,
             workspace_id=migration.workspace_id,
             migration_name=migration.migration_name,
             pathway=migration.pathway,
-            status=migration.status,
+            status='running' if req.run_immediately else migration.status,
             current_stage=migration.current_stage,
             created_at=migration.created_at,
             updated_at=migration.updated_at
@@ -513,6 +683,9 @@ async def create_migration(
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        logger.error(f"Failed to create migration: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create migration: {str(e)}"
@@ -525,11 +698,9 @@ async def list_migrations(
     status_filter: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user),
-    workspace_id: int = Depends(get_workspace_id)
+    db: Session = Depends(get_db)
 ):
-    """List all migrations for the current workspace"""
+    """List all migrations"""
     try:
         repo = BQRedshiftMigrationRepository(db)
         
@@ -624,6 +795,26 @@ async def get_migration(
             'state': migration_dict['state'],
             'schedule': migration_dict['schedule'],
             'metrics': migration_dict['metrics'],
+            # Non-sensitive fields for edit mode
+            'iam_role_arn': migration_dict.get('iam_role_arn'),
+            'datasync_agent_mode': migration_dict.get('datasync_agent_mode'),
+            'datasync_gcp_zone': migration_dict.get('datasync_gcp_zone'),
+            'datasync_gcp_machine_type': migration_dict.get('datasync_gcp_machine_type'),
+            'datasync_gcp_network': migration_dict.get('datasync_gcp_network'),
+            'datasync_gcp_subnet': migration_dict.get('datasync_gcp_subnet'),
+            'datasync_existing_vm_ip': migration_dict.get('datasync_existing_vm_ip'),
+            'datasync_s3_role_arn': migration_dict.get('datasync_s3_role_arn'),
+            'datasync_agent_arn': migration_dict.get('datasync_agent_arn'),
+            'gcs_access_key': migration_dict.get('gcs_access_key'),
+            'aws_access_key_id': migration_dict.get('aws_access_key_id'),
+            'aws_region': migration_dict.get('aws_region'),
+            'load_type': migration_dict.get('load_type'),
+            'primary_key_column': migration_dict.get('primary_key_column'),
+            'timestamp_column': migration_dict.get('timestamp_column'),
+            'truncate_before_load': migration_dict.get('truncate_before_load'),
+            'has_service_account_json': migration_dict.get('has_service_account_json', False),
+            'has_gcs_secret_key': migration_dict.get('has_gcs_secret_key', False),
+            'has_aws_secret_access_key': migration_dict.get('has_aws_secret_access_key', False),
             'created_at': migration_dict['created_at'],
             'updated_at': migration_dict['updated_at']
         }
@@ -855,7 +1046,9 @@ async def resume_migration(
     current_user = Depends(get_current_user),
     workspace_id: int = Depends(get_workspace_id)
 ):
-    """Resume a paused or failed migration"""
+    """Resume a paused or failed migration (runs in background thread)"""
+    import threading
+    
     try:
         repo = BQRedshiftMigrationRepository(db)
         migration = repo.get_migration_by_id(migration_id)
@@ -872,16 +1065,48 @@ async def resume_migration(
                 detail="Access denied"
             )
         
-        orchestrator = MigrationOrchestrator(db)
-        success = orchestrator.resume_migration(migration_id)
-        
-        if not success:
+        if migration.status not in ('paused', 'failed'):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Migration cannot be resumed"
+                detail=f"Migration cannot be resumed (status: {migration.status})"
             )
         
-        return {"message": "Migration resumed successfully", "migration_id": migration_id}
+        logger.info(f"Resuming migration {migration_id} in background thread")
+        
+        def resume_migration_bg(mid: int):
+            from database import db_instance
+            import traceback
+            
+            bg_db = db_instance.SessionLocal()
+            bg_logger = logging.getLogger(f"migration_{mid}")
+            try:
+                bg_logger.info(f"=== Background resume thread started for migration {mid} ===")
+                orchestrator = MigrationOrchestrator(bg_db)
+                success = orchestrator.resume_migration(mid)
+                bg_logger.info(f"Migration {mid} resume completed: success={success}")
+            except Exception as e:
+                bg_logger.error(f"Resume thread failed for migration {mid}: {e}", exc_info=True)
+                try:
+                    failed_mig = bg_db.query(MigrationBQRedshift).filter_by(id=mid).first()
+                    if failed_mig and failed_mig.status == 'running':
+                        failed_mig.status = 'failed'
+                        failed_mig.end_time = datetime.utcnow()
+                        failed_mig.updated_at = datetime.utcnow()
+                        bg_db.commit()
+                except Exception:
+                    pass
+            finally:
+                bg_db.close()
+                bg_logger.info(f"=== Background resume thread completed for migration {mid} ===")
+        
+        thread = threading.Thread(target=resume_migration_bg, args=(migration_id,), daemon=True)
+        thread.start()
+        
+        return {
+            "message": "Migration resume started in background",
+            "migration_id": migration_id,
+            "status": "running"
+        }
         
     except HTTPException:
         raise
@@ -1130,9 +1355,10 @@ async def restart_migration(
     """
     Restart a migration from the beginning.
     
-    This resets the migration to 'pending' status and clears all progress data,
-    allowing it to be run again from scratch.
+    This resets the migration, clears all progress data, and immediately
+    starts it running in a background thread.
     """
+    import threading
     import logging
     
     logger = logging.getLogger(__name__)
@@ -1159,10 +1385,10 @@ async def restart_migration(
                 detail="Cannot restart a running migration. Please cancel it first."
             )
         
-        logger.info(f"Restarting migration {migration_id} - resetting to pending status")
+        logger.info(f"Restarting migration {migration_id} - resetting and running immediately")
         
-        # Reset migration to pending status
-        migration.status = 'pending'
+        # Reset migration and set to running
+        migration.status = 'running'
         migration.current_stage = None
         migration.start_time = None
         migration.end_time = None
@@ -1173,12 +1399,51 @@ async def restart_migration(
         
         db.commit()
         
-        logger.info(f"✓ Migration {migration_id} reset to pending status")
+        logger.info(f"✓ Migration {migration_id} reset — starting in background thread")
+        
+        # Start migration in background thread immediately
+        def run_migration_bg(mid: int):
+            from database import db_instance
+            import traceback
+            
+            bg_db = db_instance.SessionLocal()
+            bg_logger = logging.getLogger(f"migration_{mid}")
+            try:
+                bg_logger.info(f"=== Background restart thread started for migration {mid} ===")
+                orchestrator = MigrationOrchestrator(bg_db)
+                success = orchestrator.start_migration(mid, _skip_status_check=True)
+                bg_logger.info(f"Migration {mid} restart completed: success={success}")
+            except Exception as e:
+                bg_logger.error(f"Restart thread failed for migration {mid}: {e}", exc_info=True)
+                try:
+                    failed_mig = bg_db.query(MigrationBQRedshift).filter_by(id=mid).first()
+                    if failed_mig and failed_mig.status == 'running':
+                        failed_mig.status = 'failed'
+                        failed_mig.end_time = datetime.utcnow()
+                        failed_mig.updated_at = datetime.utcnow()
+                        error_log = MigrationLog(
+                            migration_id=mid,
+                            log_level='CRITICAL',
+                            stage='thread',
+                            message=f'Restart thread failed: {str(e)}',
+                            stack_trace=traceback.format_exc(),
+                            created_at=datetime.utcnow()
+                        )
+                        bg_db.add(error_log)
+                        bg_db.commit()
+                except Exception:
+                    pass
+            finally:
+                bg_db.close()
+                bg_logger.info(f"=== Background restart thread completed for migration {mid} ===")
+        
+        thread = threading.Thread(target=run_migration_bg, args=(migration_id,), daemon=True)
+        thread.start()
         
         return {
-            "message": "Migration restarted successfully. It has been reset to pending status.",
+            "message": "Migration restarted and running.",
             "migration_id": migration_id,
-            "status": "pending"
+            "status": "running"
         }
         
     except HTTPException:
@@ -1227,11 +1492,12 @@ async def update_migration(
                 detail="Access denied"
             )
         
-        # Prevent editing running migrations
-        if migration.status == 'running':
+        # Prevent editing running migrations (only block if run_immediately update is requested)
+        # Allow config-only updates even on running migrations so stage-by-stage saves work
+        if migration.status == 'running' and req.run_immediately:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot update a running migration. Please pause or cancel it first."
+                detail="Cannot update a running migration with run_immediately=true. Please pause or cancel it first."
             )
         
         logger.info(f"Updating migration {migration_id}")
@@ -1248,8 +1514,47 @@ async def update_migration(
         # Encrypt AWS secret key if provided
         aws_secret_encrypted = None
         if req.aws_secret_access_key:
-            encryption_service = get_encryption_service()
-            aws_secret_encrypted = encryption_service.encrypt(req.aws_secret_access_key)
+            try:
+                kms = get_unified_kms_service()
+                aws_secret_encrypted = kms.encrypt_credential(
+                    plaintext=req.aws_secret_access_key,
+                    credential_type='aws_secret_key',
+                    resource_type='migration',
+                    resource_id=migration_id
+                )
+            except Exception as e:
+                logger.warning(f"KMS encryption failed, storing AWS secret unencrypted (DEV ONLY): {e}")
+                aws_secret_encrypted = req.aws_secret_access_key
+        
+        # Encrypt GCS HMAC secret key if provided (Path B)
+        gcs_secret_encrypted = None
+        if req.gcs_secret_key:
+            try:
+                kms = get_unified_kms_service()
+                gcs_secret_encrypted = kms.encrypt_credential(
+                    plaintext=req.gcs_secret_key,
+                    credential_type='gcp_hmac_secret',
+                    resource_type='migration',
+                    resource_id=migration_id
+                )
+            except Exception as e:
+                logger.warning(f"KMS encryption failed, storing GCS secret unencrypted (DEV ONLY): {e}")
+                gcs_secret_encrypted = req.gcs_secret_key
+        
+        # Encrypt service account JSON if provided
+        sa_json_encrypted = None
+        if req.service_account_json:
+            try:
+                kms = get_unified_kms_service()
+                sa_json_encrypted = kms.encrypt_credential(
+                    plaintext=req.service_account_json,
+                    credential_type='gcp_service_account',
+                    resource_type='migration',
+                    resource_id=migration_id
+                )
+            except Exception as e:
+                logger.warning(f"KMS encryption failed, storing service account JSON unencrypted (DEV ONLY): {e}")
+                sa_json_encrypted = req.service_account_json
         
         # Update only provided fields
         if req.migration_name is not None:
@@ -1297,11 +1602,82 @@ async def update_migration(
         if req.delete_source_after_transfer is not None:
             migration.delete_source_after_transfer = 'true' if req.delete_source_after_transfer else 'false'
         
+        # Update Path B: DataSync Agent on GCP VM fields
+        if req.datasync_agent_mode is not None:
+            migration.datasync_agent_mode = req.datasync_agent_mode
+        if req.datasync_gcp_zone is not None:
+            migration.datasync_gcp_zone = req.datasync_gcp_zone
+        if req.datasync_gcp_machine_type is not None:
+            migration.datasync_gcp_machine_type = req.datasync_gcp_machine_type
+        if req.datasync_gcp_network is not None:
+            migration.datasync_gcp_network = req.datasync_gcp_network
+        if req.datasync_gcp_subnet is not None:
+            migration.datasync_gcp_subnet = req.datasync_gcp_subnet
+        if req.datasync_existing_vm_ip is not None:
+            migration.datasync_existing_vm_ip = req.datasync_existing_vm_ip
+        if req.datasync_s3_role_arn is not None:
+            migration.datasync_s3_role_arn = req.datasync_s3_role_arn
+        if req.gcs_access_key is not None:
+            migration.gcs_access_key = req.gcs_access_key
+        if gcs_secret_encrypted is not None:
+            migration.gcs_secret_key_encrypted = gcs_secret_encrypted
+        if req.aws_region is not None:
+            migration.aws_region = req.aws_region
+        
+        # Update GCS region
+        if req.gcs_region is not None:
+            migration.gcs_region = req.gcs_region
+        
+        # Update service account JSON
+        if sa_json_encrypted is not None:
+            migration.service_account_json_encrypted = sa_json_encrypted
+        
+        # Update load type configuration
+        if req.load_type is not None:
+            migration.load_type = req.load_type
+        if req.primary_key_column is not None:
+            migration.primary_key_column = req.primary_key_column
+        if req.timestamp_column is not None:
+            migration.timestamp_column = req.timestamp_column
+        if req.run_immediately is not None:
+            migration.run_immediately = 'true' if req.run_immediately else 'false'
+        if req.truncate_before_load is not None:
+            migration.truncate_before_load = 'true' if req.truncate_before_load else 'false'
+        if req.table_load_configs is not None:
+            migration.table_load_configs = req.table_load_configs
+        
         # Update scheduling
         if req.schedule_type is not None:
             migration.schedule_type = req.schedule_type
+            
+            # If switching to save-only or run-now, clear the schedule
+            if req.schedule_type in ('save-only', 'run-now'):
+                migration.next_run_time = None
+                migration.cron_expression = None
+                # Reset status from 'scheduled' back to 'ready' (don't touch other statuses)
+                if migration.status == 'scheduled':
+                    migration.status = 'ready'
+                    logger.info(f"Migration {migration_id} schedule cleared, status reset to 'ready'")
+        
         if req.cron_expression is not None:
             migration.cron_expression = req.cron_expression
+        
+        # Handle scheduled_date_time for one-time scheduling
+        if req.scheduled_date_time and req.schedule_type == 'one-time':
+            try:
+                scheduled_dt = datetime.fromisoformat(req.scheduled_date_time)
+                migration.next_run_time = scheduled_dt
+                # Only set to 'scheduled' if not running immediately
+                if not req.run_immediately:
+                    migration.status = 'scheduled'
+                    logger.info(f"Migration {migration_id} scheduled for {scheduled_dt}")
+            except ValueError as e:
+                logger.warning(f"Invalid scheduled_date_time format: {req.scheduled_date_time}, error: {e}")
+        elif req.schedule_type == 'one-time' and not req.scheduled_date_time:
+            # one-time selected but no date provided — clear any existing schedule
+            migration.next_run_time = None
+            if migration.status == 'scheduled':
+                migration.status = 'ready'
         
         migration.updated_at = datetime.utcnow()
         
@@ -1310,12 +1686,32 @@ async def update_migration(
         
         logger.info(f"✓ Migration {migration_id} updated successfully")
         
+        # If run_immediately is set on update, start the migration in a background thread
+        if req.run_immediately and migration.status in ('pending', 'ready', 'failed', 'scheduled'):
+            import threading
+            
+            logger.info(f"Run immediately requested on update for migration {migration_id}")
+            
+            def run_migration_bg(mid: int):
+                from database import db_instance
+                bg_db = db_instance.SessionLocal()
+                try:
+                    orchestrator = MigrationOrchestrator(bg_db)
+                    orchestrator.start_migration(mid)
+                except Exception as ex:
+                    logger.error(f"Background migration {mid} failed: {ex}")
+                finally:
+                    bg_db.close()
+            
+            thread = threading.Thread(target=run_migration_bg, args=(migration_id,), daemon=True)
+            thread.start()
+        
         return MigrationResponse(
             id=migration.id,
             workspace_id=migration.workspace_id,
             migration_name=migration.migration_name,
             pathway=migration.pathway,
-            status=migration.status,
+            status='running' if req.run_immediately else migration.status,
             current_stage=migration.current_stage,
             created_at=migration.created_at,
             updated_at=migration.updated_at

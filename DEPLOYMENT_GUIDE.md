@@ -323,7 +323,7 @@ Create `backend-task-definition.json`:
         }
       ],
       "environment": [
-        {"name": "ENVIRONMENT", "value": "production"},
+        {"name": "ENVIRONMENT", "va lue": "production"},
         {"name": "AWS_REGION", "value": "us-east-1"}
       ],
       "secrets": [
