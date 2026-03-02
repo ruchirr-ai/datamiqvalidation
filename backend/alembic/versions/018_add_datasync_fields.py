@@ -11,12 +11,20 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '018'
-down_revision = '6ffb69876d21'
+down_revision = '016_add_dependency_fields'
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
+    # Columns previously in 6ffb69876d21 (merged here to fix broken chain)
+    op.add_column('migrations_bq_redshift', sa.Column('aws_access_key_id', sa.String(255), nullable=True))
+    op.add_column('migrations_bq_redshift', sa.Column('aws_secret_access_key_encrypted', sa.Text(), nullable=True))
+    op.add_column('migrations_bq_redshift', sa.Column('transfer_job_name', sa.String(500), nullable=True))
+    op.add_column('migrations_bq_redshift', sa.Column('overwrite_existing_files', sa.String(10), nullable=True, server_default='false'))
+    op.add_column('migrations_bq_redshift', sa.Column('delete_source_after_transfer', sa.String(10), nullable=True, server_default='false'))
+    op.add_column('migrations_bq_redshift', sa.Column('last_run_at', sa.DateTime(), nullable=True))
+    
     # Path B: AWS DataSync fields
     op.add_column('migrations_bq_redshift', sa.Column('datasync_subnet_id', sa.String(255), nullable=True))
     op.add_column('migrations_bq_redshift', sa.Column('datasync_security_group_id', sa.String(255), nullable=True))
