@@ -44,6 +44,9 @@ hiredis
 
 # Database Clients
 google-cloud-bigquery
+google-cloud-storage
+google-cloud-compute
+google-cloud-storage-transfer
 google-auth
 pymongo
 pymysql
