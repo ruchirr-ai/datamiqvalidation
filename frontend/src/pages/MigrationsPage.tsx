@@ -360,8 +360,9 @@ export const MigrationsPage: React.FC = () => {
       if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
       if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
       
-      // Show formatted date for older timestamps
-      return date.toLocaleString('en-US', {
+      // Show formatted date for older timestamps (in IST)
+      return date.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
         month: 'short',
         day: 'numeric',
         year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
@@ -831,7 +832,16 @@ export const MigrationsPage: React.FC = () => {
                           </span>
                           <span className="log-stage">{log.stage}</span>
                           <span className="log-time">
-                            {new Date(log.created_at).toLocaleString()}
+                            {new Date(log.created_at).toLocaleString('en-IN', {
+                              timeZone: 'Asia/Kolkata',
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                              hour12: true
+                            })}
                           </span>
                         </div>
                         <div className="log-message">{log.message}</div>
