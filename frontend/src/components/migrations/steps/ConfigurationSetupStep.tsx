@@ -1482,71 +1482,7 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                   updateFormData({ tableLoadConfigs: updated });
                 };
 
-                // Single table: simpler UI
-                if (selectedTables.length <= 1) {
-                  const tbl = selectedTables[0] || '';
-                  const tblConfig = configs[tbl] || {};
-                  const isIncremental = formData.loadType === 'incremental';
-                  
-                  return (
-                    <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      {isIncremental && (
-                        <>
-                          <div className="form-section">
-                            <label className="form-label required">Primary Key Column</label>
-                            <Input
-                              type="text"
-                              placeholder="id"
-                              value={tblConfig.primary_key_column || formData.primaryKeyColumn || ''}
-                              onChange={(e) => {
-                                updateFormData({ primaryKeyColumn: e.target.value });
-                                if (tbl) updateTableConfig(tbl, 'primary_key_column', e.target.value);
-                              }}
-                              required
-                            />
-                            <p className="form-help">
-                              Column used to uniquely identify rows for upsert (merge) operations in Redshift.
-                            </p>
-                          </div>
-                          <div className="form-section">
-                            <label className="form-label required">Timestamp Column</label>
-                            <Input
-                              type="text"
-                              placeholder="updated_at"
-                              value={tblConfig.timestamp_column || formData.timestampColumn || ''}
-                              onChange={(e) => {
-                                updateFormData({ timestampColumn: e.target.value });
-                                if (tbl) updateTableConfig(tbl, 'timestamp_column', e.target.value);
-                              }}
-                              required
-                            />
-                            <p className="form-help">
-                              Column used to detect changed rows since the last extraction. Must be a TIMESTAMP or DATETIME type.
-                            </p>
-                          </div>
-                        </>
-                      )}
-                      
-                      {/* Truncate option for single table */}
-                      <div className="toggle-option">
-                        <div className="toggle-content">
-                          <span className="toggle-title">Truncate Before Load</span>
-                          <span className="toggle-description">
-                            Delete all existing data in the target table before loading new data
-                          </span>
-                        </div>
-                        <Toggle
-                          enabled={tblConfig.truncate_before_load || false}
-                          onChange={(enabled) => {
-                            if (tbl) updateTableConfig(tbl, 'truncate_before_load', enabled);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  );
-                }
-
-                // Multiple tables: per-table config with improved UI
+                // Always show table format (even for single table)
                 return (
                   <div style={{ marginTop: '16px' }}>
                     <p style={{ fontSize: '13px', color: '#666', marginBottom: '12px' }}>
