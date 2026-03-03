@@ -540,14 +540,21 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
 
             {/* Setup Instructions */}
             <div className="form-section" style={{ marginTop: '24px' }}>
-              <h4>Setup Instructions (One-Time)</h4>
-              <div className="info-box" style={{ background: '#F5F5F5', borderColor: '#9E9E9E', marginTop: '12px' }}>
-                <div style={{ width: '100%' }}>
-                  <strong>Before proceeding, you must manually set up the DataSync agent VM:</strong>
-                  <details style={{ marginTop: '8px' }}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#424242', fontSize: '13px' }}>
-                      📋 Step-by-step instructions (click to expand)
-                    </summary>
+              <h4 style={{ marginBottom: '12px', fontSize: '15px', fontWeight: 600 }}>Setup Instructions (One-Time)</h4>
+              <div style={{ 
+                padding: '16px', 
+                background: '#F8F9FA', 
+                border: '1px solid #E0E0E0',
+                borderRadius: '6px',
+                marginBottom: '16px'
+              }}>
+                <p style={{ fontSize: '13px', color: '#424242', marginBottom: '12px' }}>
+                  Before proceeding, you must manually set up the DataSync agent VM.
+                </p>
+                <details style={{ marginTop: '8px' }}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 500, color: '#1976D2', fontSize: '13px' }}>
+                    View step-by-step instructions
+                  </summary>
                     <ol style={{ marginTop: '12px', marginLeft: '20px', fontSize: '13px', lineHeight: '1.8' }}>
                     <li style={{ marginBottom: '12px' }}>
                       <strong>Download the DataSync Agent Image from AWS Console:</strong>
@@ -605,32 +612,20 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                     <strong>Important:</strong> The VM must have outbound internet access to reach AWS DataSync endpoints. If it has no public IP, configure <strong>Cloud NAT</strong> on the VPC.
                   </p>
                   </details>
-                </div>
               </div>
 
               {/* Setup Confirmation Checkbox */}
-              <div style={{ 
-                marginTop: '20px', 
-                padding: '16px', 
-                background: setupConfirmed ? '#E8F5E9' : '#F5F5F5',
-                border: `2px solid ${setupConfirmed ? '#4CAF50' : '#9E9E9E'}`,
-                borderRadius: '8px'
-              }}>
-                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', cursor: 'pointer' }}>
+              <div style={{ marginTop: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={setupConfirmed}
                     onChange={(e) => updateFormData({ datasyncSetupConfirmed: e.target.checked })}
-                    style={{ marginTop: '2px', width: '18px', height: '18px', cursor: 'pointer' }}
+                    style={{ width: '16px', height: '16px', cursor: 'pointer', flexShrink: 0 }}
                   />
-                  <div>
-                    <strong style={{ fontSize: '14px', display: 'block', marginBottom: '4px' }}>
-                      I have completed the DataSync agent VM setup
-                    </strong>
-                    <span style={{ fontSize: '13px', color: '#666' }}>
-                      Check this box to confirm you've created the GCP VM with the DataSync agent and have the VM's IP address ready.
-                    </span>
-                  </div>
+                  <span style={{ fontSize: '14px', color: '#424242' }}>
+                    I have completed the DataSync agent VM setup
+                  </span>
                 </label>
               </div>
             </div>
