@@ -1427,10 +1427,10 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                 });
                 const configs = formData.tableLoadConfigs || {};
 
-                const updateTableConfig = (tableName: string, field: string, value: string) => {
+                const updateTableConfig = (tableName: string, field: string, value: any) => {
                   const updated = { ...configs };
                   if (!updated[tableName]) {
-                    updated[tableName] = { load_type: 'incremental', primary_key_column: '', timestamp_column: '' };
+                    updated[tableName] = { load_type: 'incremental', primary_key_column: '', timestamp_column: '', truncate_before_load: false };
                   }
                   updated[tableName] = { ...updated[tableName], [field]: value };
                   updateFormData({ tableLoadConfigs: updated });
@@ -1478,51 +1478,54 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                   );
                 }
 
-                // Multiple tables: per-table config
+                // Multiple tables: per-table config with improved UI
                 return (
                   <div style={{ marginTop: '16px' }}>
                     <p style={{ fontSize: '13px', color: '#666', marginBottom: '12px' }}>
-                      Configure the primary key and timestamp column for each table. Tables set to "Full" will reload all data.
+                      Configure load settings for each table individually. Incremental loads only fetch changed rows based on the timestamp column.
                     </p>
                     <div style={{
-                      border: '1px solid var(--color-divider)',
+                      border: '1px solid #E0E0E0',
                       borderRadius: '8px',
-                      overflow: 'hidden'
+                      overflow: 'hidden',
+                      background: '#fff'
                     }}>
                       {/* Header */}
                       <div style={{
                         display: 'grid',
-                        gridTemplateColumns: '1.5fr 100px 1fr 1fr',
+                        gridTemplateColumns: '1.2fr 110px 1fr 1fr 100px',
                         gap: '12px',
-                        padding: '10px 16px',
-                        background: '#f8f9fa',
-                        borderBottom: '1px solid var(--color-divider)',
-                        fontSize: '12px',
+                        padding: '12px 16px',
+                        background: '#F5F5F5',
+                        borderBottom: '2px solid #E0E0E0',
+                        fontSize: '11px',
                         fontWeight: 600,
-                        color: '#555',
+                        color: '#666',
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px'
                       }}>
-                        <span>Table</span>
-                        <span>Load Type</span>
-                        <span>Primary Key</span>
-                        <span>Timestamp Col</span>
+                        <span>TABLE</span>
+                        <span>LOAD TYPE</span>
+                        <span>PRIMARY KEY</span>
+                        <span>TIMESTAMP COL</span>
+                        <span>TRUNCATE</span>
                       </div>
                       {/* Rows */}
                       {selectedTables.map((tbl: string, idx: number) => {
-                        const tblConfig = configs[tbl] || { load_type: 'incremental', primary_key_column: '', timestamp_column: '' };
+                        const tblConfig = configs[tbl] || { load_type: 'incremental', primary_key_column: '', timestamp_column: '', truncate_before_load: false };
                         const isIncremental = tblConfig.load_type === 'incremental';
                         return (
                           <div key={tbl} style={{
                             display: 'grid',
-                            gridTemplateColumns: '1.5fr 100px 1fr 1fr',
+                            gridTemplateColumns: '1.2fr 110px 1fr 1fr 100px',
                             gap: '12px',
-                            padding: '10px 16px',
-                            borderBottom: idx < selectedTables.length - 1 ? '1px solid var(--color-divider)' : 'none',
+                            padding: '12px 16px',
+                            borderBottom: idx < selectedTables.length - 1 ? '1px solid #F0F0F0' : 'none',
                             alignItems: 'center',
-                            background: isIncremental ? '#fafbff' : '#fff'
+                            background: '#fff',
+                            transition: 'background 0.2s'
                           }}>
-                            <span style={{ fontSize: '13px', fontWeight: 500, color: '#333', wordBreak: 'break-all' }}>
+                            <span style={{ fontSize: '13px', fontWeight: 500, color: '#333', wordBreak: 'break-word' }}>
                               {tbl}
                             </span>
                             <select
@@ -1532,11 +1535,18 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                                 updateTableConfig(tbl, 'load_type', e.target.value);
                                 if (e.target.value === 'full') {
                                   const updated = { ...configs };
-                                  updated[tbl] = { load_type: 'full', primary_key_column: '', timestamp_column: '' };
+                                  updated[tbl] = { load_type: 'full', primary_key_column: '', timestamp_column: '', truncate_before_load: updated[tbl]?.truncate_before_load || false };
                                   updateFormData({ tableLoadConfigs: updated });
                                 }
                               }}
-                              style={{ padding: '6px 8px', fontSize: '13px', minWidth: 0 }}
+                              style={{ 
+                                padding: '6px 8px', 
+                                fontSize: '12px', 
+                                minWidth: 0,
+                                border: '1px solid #D0D0D0',
+                                borderRadius: '4px',
+                                background: '#fff'
+                              }}
                             >
                               <option value="incremental">Incremental</option>
                               <option value="full">Full</option>
@@ -1547,7 +1557,14 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                               value={tblConfig.primary_key_column || ''}
                               onChange={(e) => updateTableConfig(tbl, 'primary_key_column', e.target.value)}
                               disabled={!isIncremental}
-                              style={{ padding: '6px 8px', fontSize: '13px', opacity: isIncremental ? 1 : 0.4 } as any}
+                              style={{ 
+                                padding: '6px 8px', 
+                                fontSize: '12px', 
+                                opacity: isIncremental ? 1 : 0.5,
+                                background: isIncremental ? '#fff' : '#F8F8F8',
+                                border: '1px solid #D0D0D0',
+                                borderRadius: '4px'
+                              } as any}
                             />
                             <Input
                               type="text"
@@ -1555,8 +1572,21 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                               value={tblConfig.timestamp_column || ''}
                               onChange={(e) => updateTableConfig(tbl, 'timestamp_column', e.target.value)}
                               disabled={!isIncremental}
-                              style={{ padding: '6px 8px', fontSize: '13px', opacity: isIncremental ? 1 : 0.4 } as any}
+                              style={{ 
+                                padding: '6px 8px', 
+                                fontSize: '12px', 
+                                opacity: isIncremental ? 1 : 0.5,
+                                background: isIncremental ? '#fff' : '#F8F8F8',
+                                border: '1px solid #D0D0D0',
+                                borderRadius: '4px'
+                              } as any}
                             />
+                            <div style={{ display: 'flex', justifyContent: 'center' }}>
+                              <Toggle
+                                enabled={tblConfig.truncate_before_load || false}
+                                onChange={(enabled) => updateTableConfig(tbl, 'truncate_before_load', enabled)}
+                              />
+                            </div>
                           </div>
                         );
                       })}
@@ -1564,19 +1594,6 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                   </div>
                 );
               })()}
-            </div>
-
-            <div className="toggle-option">
-              <div className="toggle-content">
-                <span className="toggle-title">Truncate Before Load</span>
-                <span className="toggle-description">
-                  Truncate target tables before loading data
-                </span>
-              </div>
-              <Toggle
-                enabled={formData.truncateBeforeLoad || false}
-                onChange={(enabled) => updateFormData({ truncateBeforeLoad: enabled })}
-              />
             </div>
 
             <div className="stage-footer">

@@ -1083,6 +1083,7 @@ class PathwayC:
             table_load_configs = migration.table_load_configs or {}
             global_load_type = storage_config.get('load_type', 'full')
             global_pk_column = storage_config.get('primary_key_column', '')
+            global_truncate = storage_config.get('truncate_before_load', False)
             
             for i, export_result in enumerate(successful_exports, 1):
                 # Extract table name from full table reference
@@ -1100,6 +1101,7 @@ class PathwayC:
                 table_config = table_load_configs.get(table_name, {})
                 effective_load_type = table_config.get('load_type', global_load_type)
                 effective_pk_column = table_config.get('primary_key_column', global_pk_column) or None
+                effective_truncate = table_config.get('truncate_before_load', global_truncate)
                 
                 logger.info("")
                 logger.info("="*80)
@@ -1108,7 +1110,7 @@ class PathwayC:
                 logger.info(f"BigQuery Source: {project_id}.{dataset_name}.{table_name}")
                 logger.info(f"Redshift Target: {database_name}.{schema_name}.{table_name}")
                 logger.info(f"Columns: {len(columns)}")
-                logger.info(f"Load Type: {effective_load_type}, PK: {effective_pk_column or 'N/A'}")
+                logger.info(f"Load Type: {effective_load_type}, PK: {effective_pk_column or 'N/A'}, Truncate: {effective_truncate}")
                 
                 # Construct S3 prefix for this table
                 # S3 structure: bucket/path/dataset/table/files
@@ -1128,7 +1130,7 @@ class PathwayC:
                     columns=columns,
                     file_format=storage_config.get('export_format', 'PARQUET'),
                     compression=storage_config.get('compression'),
-                    truncate_before_load=storage_config.get('truncate_before_load', False),
+                    truncate_before_load=effective_truncate,
                     load_type=effective_load_type,
                     primary_key_column=effective_pk_column
                 )

@@ -12,32 +12,32 @@
 
 .toggle-switch {
   position: relative;
-  width: 48px;
+  width: 44px;
   height: 24px;
-  background: var(--color-gray-300);
+  background: #D1D5DB;
   border-radius: 9999px;
   border: none;
   cursor: pointer;
-  transition: background 0.3s ease;
+  transition: background 0.2s ease;
   padding: 0;
   outline: none;
 }
 
 .toggle-switch:hover:not(.disabled) {
-  background: var(--color-gray-400);
+  background: #9CA3AF;
 }
 
 .toggle-switch:focus-visible {
-  outline: 2px solid var(--color-blue-600);
+  outline: 2px solid #2563EB;
   outline-offset: 2px;
 }
 
 .toggle-switch.enabled {
-  background: var(--color-blue-600);
+  background: #2563EB;
 }
 
 .toggle-switch.enabled:hover:not(.disabled) {
-  background: var(--color-blue-700);
+  background: #1D4ED8;
 }
 
 .toggle-switch.disabled {
@@ -53,10 +53,10 @@
   height: 20px;
   background: white;
   border-radius: 50%;
-  transition: transform 0.3s ease;
+  transition: transform 0.2s ease;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
 .toggle-switch.enabled .toggle-switch-handle {
-  transform: translateX(24px);
+  transform: translateX(20px);
 }
