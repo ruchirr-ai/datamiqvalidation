@@ -1420,7 +1420,7 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                 </label>
               </div>
 
-              {formData.loadType === 'incremental' && (() => {
+              {(() => {
                 const selectedTables = (formData.selectedTables || []).map((t: string) => {
                   const parts = t.split('.');
                   return parts.length > 1 ? parts[1] : t;
@@ -1430,9 +1430,55 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                 const updateTableConfig = (tableName: string, field: string, value: any) => {
                   const updated = { ...configs };
                   if (!updated[tableName]) {
-                    updated[tableName] = { load_type: 'incremental', primary_key_column: '', timestamp_column: '', truncate_before_load: false };
+                    updated[tableName] = { 
+                      load_type: formData.loadType || 'full', 
+                      primary_key_column: '', 
+                      timestamp_column: '', 
+                      truncate_before_load: false 
+                    };
                   }
                   updated[tableName] = { ...updated[tableName], [field]: value };
+                  updateFormData({ tableLoadConfigs: updated });
+                };
+
+                // Bulk operations
+                const handleSelectAllTruncate = (enabled: boolean) => {
+                  const updated = { ...configs };
+                  selectedTables.forEach((tbl: string) => {
+                    if (!updated[tbl]) {
+                      updated[tbl] = { 
+                        load_type: formData.loadType || 'full', 
+                        primary_key_column: '', 
+                        timestamp_column: '', 
+                        truncate_before_load: enabled 
+                      };
+                    } else {
+                      updated[tbl] = { ...updated[tbl], truncate_before_load: enabled };
+                    }
+                  });
+                  updateFormData({ tableLoadConfigs: updated });
+                };
+
+                const handleSelectAllLoadType = (loadType: string) => {
+                  const updated = { ...configs };
+                  selectedTables.forEach((tbl: string) => {
+                    if (!updated[tbl]) {
+                      updated[tbl] = { 
+                        load_type: loadType, 
+                        primary_key_column: '', 
+                        timestamp_column: '', 
+                        truncate_before_load: false 
+                      };
+                    } else {
+                      updated[tbl] = { 
+                        ...updated[tbl], 
+                        load_type: loadType,
+                        // Clear PK and timestamp if switching to full
+                        primary_key_column: loadType === 'full' ? '' : updated[tbl].primary_key_column,
+                        timestamp_column: loadType === 'full' ? '' : updated[tbl].timestamp_column
+                      };
+                    }
+                  });
                   updateFormData({ tableLoadConfigs: updated });
                 };
 
@@ -1440,39 +1486,61 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                 if (selectedTables.length <= 1) {
                   const tbl = selectedTables[0] || '';
                   const tblConfig = configs[tbl] || {};
+                  const isIncremental = formData.loadType === 'incremental';
+                  
                   return (
                     <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      <div className="form-section">
-                        <label className="form-label required">Primary Key Column</label>
-                        <Input
-                          type="text"
-                          placeholder="id"
-                          value={tblConfig.primary_key_column || formData.primaryKeyColumn || ''}
-                          onChange={(e) => {
-                            updateFormData({ primaryKeyColumn: e.target.value });
-                            if (tbl) updateTableConfig(tbl, 'primary_key_column', e.target.value);
+                      {isIncremental && (
+                        <>
+                          <div className="form-section">
+                            <label className="form-label required">Primary Key Column</label>
+                            <Input
+                              type="text"
+                              placeholder="id"
+                              value={tblConfig.primary_key_column || formData.primaryKeyColumn || ''}
+                              onChange={(e) => {
+                                updateFormData({ primaryKeyColumn: e.target.value });
+                                if (tbl) updateTableConfig(tbl, 'primary_key_column', e.target.value);
+                              }}
+                              required
+                            />
+                            <p className="form-help">
+                              Column used to uniquely identify rows for upsert (merge) operations in Redshift.
+                            </p>
+                          </div>
+                          <div className="form-section">
+                            <label className="form-label required">Timestamp Column</label>
+                            <Input
+                              type="text"
+                              placeholder="updated_at"
+                              value={tblConfig.timestamp_column || formData.timestampColumn || ''}
+                              onChange={(e) => {
+                                updateFormData({ timestampColumn: e.target.value });
+                                if (tbl) updateTableConfig(tbl, 'timestamp_column', e.target.value);
+                              }}
+                              required
+                            />
+                            <p className="form-help">
+                              Column used to detect changed rows since the last extraction. Must be a TIMESTAMP or DATETIME type.
+                            </p>
+                          </div>
+                        </>
+                      )}
+                      
+                      {/* Truncate option for single table */}
+                      <div className="toggle-option">
+                        <div className="toggle-content">
+                          <span className="toggle-title">Truncate Before Load</span>
+                          <span className="toggle-description">
+                            Delete all existing data in the target table before loading new data
+                          </span>
+                        </div>
+                        <Toggle
+                          enabled={tblConfig.truncate_before_load || false}
+                          onChange={(enabled) => {
+                            if (tbl) updateTableConfig(tbl, 'truncate_before_load', enabled);
                           }}
-                          required
                         />
-                        <p className="form-help">
-                          Column used to uniquely identify rows for upsert (merge) operations in Redshift.
-                        </p>
-                      </div>
-                      <div className="form-section">
-                        <label className="form-label required">Timestamp Column</label>
-                        <Input
-                          type="text"
-                          placeholder="updated_at"
-                          value={tblConfig.timestamp_column || formData.timestampColumn || ''}
-                          onChange={(e) => {
-                            updateFormData({ timestampColumn: e.target.value });
-                            if (tbl) updateTableConfig(tbl, 'timestamp_column', e.target.value);
-                          }}
-                          required
-                        />
-                        <p className="form-help">
-                          Column used to detect changed rows since the last extraction. Must be a TIMESTAMP or DATETIME type.
-                        </p>
                       </div>
                     </div>
                   );
@@ -1482,75 +1550,258 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                 return (
                   <div style={{ marginTop: '16px' }}>
                     <p style={{ fontSize: '13px', color: '#666', marginBottom: '12px' }}>
-                      Configure load settings for each table individually. Incremental loads only fetch changed rows based on the timestamp column.
+                      Configure load settings for each table individually. {formData.loadType === 'incremental' ? 'Incremental loads only fetch changed rows based on the timestamp column.' : 'Full loads reload all data from source.'}
                     </p>
+                    
+                    {/* Clean Bulk Actions Bar */}
                     <div style={{
-                      border: '1px solid #E0E0E0',
+                      display: 'flex',
+                      gap: '12px',
+                      padding: '12px 16px',
+                      background: '#F9FAFB',
+                      border: '1px solid #E5E7EB',
+                      borderRadius: '8px',
+                      marginBottom: '16px',
+                      alignItems: 'center'
+                    }}>
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Bulk Actions:
+                      </span>
+                      
+                      <button
+                        type="button"
+                        onClick={() => handleSelectAllLoadType('incremental')}
+                        style={{
+                          padding: '6px 14px',
+                          fontSize: '13px',
+                          background: '#FFFFFF',
+                          border: '1px solid #E5E7EB',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontWeight: 500,
+                          color: '#374151',
+                          transition: 'all 0.2s',
+                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.background = '#F9FAFB';
+                          e.currentTarget.style.borderColor = '#3B82F6';
+                          e.currentTarget.style.color = '#3B82F6';
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.background = '#FFFFFF';
+                          e.currentTarget.style.borderColor = '#E5E7EB';
+                          e.currentTarget.style.color = '#374151';
+                        }}
+                      >
+                        Set All Incremental
+                      </button>
+                      
+                      <button
+                        type="button"
+                        onClick={() => handleSelectAllLoadType('full')}
+                        style={{
+                          padding: '6px 14px',
+                          fontSize: '13px',
+                          background: '#FFFFFF',
+                          border: '1px solid #E5E7EB',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontWeight: 500,
+                          color: '#374151',
+                          transition: 'all 0.2s',
+                          boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                        }}
+                        onMouseOver={(e) => {
+                          e.currentTarget.style.background = '#F9FAFB';
+                          e.currentTarget.style.borderColor = '#3B82F6';
+                          e.currentTarget.style.color = '#3B82F6';
+                        }}
+                        onMouseOut={(e) => {
+                          e.currentTarget.style.background = '#FFFFFF';
+                          e.currentTarget.style.borderColor = '#E5E7EB';
+                          e.currentTarget.style.color = '#374151';
+                        }}
+                      >
+                        Set All Full
+                      </button>
+                      
+                      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '12px', color: '#6B7280', fontWeight: 500 }}>Truncate All:</span>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectAllTruncate(true)}
+                          style={{
+                            padding: '5px 12px',
+                            fontSize: '12px',
+                            background: '#FFFFFF',
+                            border: '1px solid #E5E7EB',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontWeight: 500,
+                            color: '#374151',
+                            transition: 'all 0.2s',
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.background = '#ECFDF5';
+                            e.currentTarget.style.borderColor = '#10B981';
+                            e.currentTarget.style.color = '#059669';
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.background = '#FFFFFF';
+                            e.currentTarget.style.borderColor = '#E5E7EB';
+                            e.currentTarget.style.color = '#374151';
+                          }}
+                        >
+                          ON
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectAllTruncate(false)}
+                          style={{
+                            padding: '5px 12px',
+                            fontSize: '12px',
+                            background: '#FFFFFF',
+                            border: '1px solid #E5E7EB',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontWeight: 500,
+                            color: '#374151',
+                            transition: 'all 0.2s',
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                          }}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.background = '#FEF2F2';
+                            e.currentTarget.style.borderColor = '#EF4444';
+                            e.currentTarget.style.color = '#DC2626';
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.background = '#FFFFFF';
+                            e.currentTarget.style.borderColor = '#E5E7EB';
+                            e.currentTarget.style.color = '#374151';
+                          }}
+                        >
+                          OFF
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{
+                      border: '1px solid #E5E7EB',
                       borderRadius: '8px',
                       overflow: 'hidden',
-                      background: '#fff'
+                      background: '#fff',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                     }}>
                       {/* Header */}
                       <div style={{
                         display: 'grid',
-                        gridTemplateColumns: '1.2fr 110px 1fr 1fr 100px',
+                        gridTemplateColumns: '1.3fr 130px 1.1fr 1.1fr 90px',
                         gap: '12px',
                         padding: '12px 16px',
-                        background: '#F5F5F5',
-                        borderBottom: '2px solid #E0E0E0',
+                        background: '#F9FAFB',
+                        borderBottom: '1px solid #E5E7EB',
                         fontSize: '11px',
                         fontWeight: 600,
-                        color: '#666',
+                        color: '#6B7280',
                         textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
+                        letterSpacing: '0.6px'
                       }}>
                         <span>TABLE</span>
                         <span>LOAD TYPE</span>
                         <span>PRIMARY KEY</span>
                         <span>TIMESTAMP COL</span>
-                        <span>TRUNCATE</span>
+                        <span style={{ textAlign: 'center' }}>TRUNCATE</span>
                       </div>
                       {/* Rows */}
                       {selectedTables.map((tbl: string, idx: number) => {
-                        const tblConfig = configs[tbl] || { load_type: 'incremental', primary_key_column: '', timestamp_column: '', truncate_before_load: false };
+                        const tblConfig = configs[tbl] || { 
+                          load_type: formData.loadType || 'full', 
+                          primary_key_column: '', 
+                          timestamp_column: '', 
+                          truncate_before_load: false 
+                        };
                         const isIncremental = tblConfig.load_type === 'incremental';
                         return (
                           <div key={tbl} style={{
                             display: 'grid',
-                            gridTemplateColumns: '1.2fr 110px 1fr 1fr 100px',
+                            gridTemplateColumns: '1.3fr 130px 1.1fr 1.1fr 90px',
                             gap: '12px',
                             padding: '12px 16px',
-                            borderBottom: idx < selectedTables.length - 1 ? '1px solid #F0F0F0' : 'none',
+                            borderBottom: idx < selectedTables.length - 1 ? '1px solid #F3F4F6' : 'none',
                             alignItems: 'center',
                             background: '#fff',
-                            transition: 'background 0.2s'
-                          }}>
-                            <span style={{ fontSize: '13px', fontWeight: 500, color: '#333', wordBreak: 'break-word' }}>
+                            transition: 'background 0.15s'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = '#F9FAFB'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                          >
+                            <span style={{ 
+                              fontSize: '14px', 
+                              fontWeight: 500, 
+                              color: '#111827', 
+                              wordBreak: 'break-word'
+                            }}>
                               {tbl}
                             </span>
+                            
+                            {/* Clean Modern Dropdown */}
                             <select
-                              className="select-input"
                               value={tblConfig.load_type || 'incremental'}
                               onChange={(e) => {
                                 updateTableConfig(tbl, 'load_type', e.target.value);
                                 if (e.target.value === 'full') {
                                   const updated = { ...configs };
-                                  updated[tbl] = { load_type: 'full', primary_key_column: '', timestamp_column: '', truncate_before_load: updated[tbl]?.truncate_before_load || false };
+                                  updated[tbl] = { 
+                                    load_type: 'full', 
+                                    primary_key_column: '', 
+                                    timestamp_column: '', 
+                                    truncate_before_load: updated[tbl]?.truncate_before_load || false 
+                                  };
                                   updateFormData({ tableLoadConfigs: updated });
                                 }
                               }}
-                              style={{ 
-                                padding: '6px 8px', 
-                                fontSize: '12px', 
-                                minWidth: 0,
-                                border: '1px solid #D0D0D0',
-                                borderRadius: '4px',
-                                background: '#fff'
+                              style={{
+                                padding: '8px 32px 8px 12px',
+                                fontSize: '14px',
+                                fontWeight: 400,
+                                color: '#1F2937',
+                                background: '#FFFFFF',
+                                border: '1px solid #E5E7EB',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                appearance: 'none',
+                                backgroundImage: `url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%236B7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+                                backgroundRepeat: 'no-repeat',
+                                backgroundPosition: 'right 10px center',
+                                transition: 'all 0.2s ease',
+                                outline: 'none',
+                                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                              }}
+                              onFocus={(e) => {
+                                e.currentTarget.style.borderColor = '#3B82F6';
+                                e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1), 0 1px 2px rgba(0, 0, 0, 0.05)';
+                              }}
+                              onBlur={(e) => {
+                                e.currentTarget.style.borderColor = '#E5E7EB';
+                                e.currentTarget.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+                              }}
+                              onMouseEnter={(e) => {
+                                if (document.activeElement !== e.currentTarget) {
+                                  e.currentTarget.style.borderColor = '#D1D5DB';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (document.activeElement !== e.currentTarget) {
+                                  e.currentTarget.style.borderColor = '#E5E7EB';
+                                }
                               }}
                             >
                               <option value="incremental">Incremental</option>
                               <option value="full">Full</option>
                             </select>
+                            
                             <Input
                               type="text"
                               placeholder={isIncremental ? 'id' : '—'}
@@ -1558,12 +1809,15 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                               onChange={(e) => updateTableConfig(tbl, 'primary_key_column', e.target.value)}
                               disabled={!isIncremental}
                               style={{ 
-                                padding: '6px 8px', 
-                                fontSize: '12px', 
-                                opacity: isIncremental ? 1 : 0.5,
-                                background: isIncremental ? '#fff' : '#F8F8F8',
-                                border: '1px solid #D0D0D0',
-                                borderRadius: '4px'
+                                padding: '8px 12px', 
+                                fontSize: '14px', 
+                                fontWeight: 400,
+                                color: isIncremental ? '#1F2937' : '#9CA3AF',
+                                background: isIncremental ? '#FFFFFF' : '#F9FAFB',
+                                border: '1px solid #E5E7EB',
+                                borderRadius: '6px',
+                                transition: 'all 0.2s ease',
+                                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                               } as any}
                             />
                             <Input
@@ -1573,12 +1827,15 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                               onChange={(e) => updateTableConfig(tbl, 'timestamp_column', e.target.value)}
                               disabled={!isIncremental}
                               style={{ 
-                                padding: '6px 8px', 
-                                fontSize: '12px', 
-                                opacity: isIncremental ? 1 : 0.5,
-                                background: isIncremental ? '#fff' : '#F8F8F8',
-                                border: '1px solid #D0D0D0',
-                                borderRadius: '4px'
+                                padding: '8px 12px', 
+                                fontSize: '14px', 
+                                fontWeight: 400,
+                                color: isIncremental ? '#1F2937' : '#9CA3AF',
+                                background: isIncremental ? '#FFFFFF' : '#F9FAFB',
+                                border: '1px solid #E5E7EB',
+                                borderRadius: '6px',
+                                transition: 'all 0.2s ease',
+                                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
                               } as any}
                             />
                             <div style={{ display: 'flex', justifyContent: 'center' }}>
