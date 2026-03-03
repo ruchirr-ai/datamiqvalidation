@@ -1,0 +1,13 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle for better visibility -->
+  <circle cx="16" cy="16" r="15" fill="#3B82F6"/>
+  <!-- Paper airplane icon rotated -30 degrees, centered, white color -->
+  <g transform="translate(16, 16) rotate(-30) translate(-10, -10)">
+    <path d="M2.478 1.405a.65.65 0 00-.826.84l2.132 6.905H11.5a.65.65 0 010 1.3H3.784l-2.132 6.905a.65.65 0 00.826.84 50.519 50.519 0 0016.045-7.986.65.65 0 000-1.118A50.517 50.517 0 002.478 1.405z" 
+          fill="white" 
+          stroke="white" 
+          stroke-width="1" 
+          stroke-linecap="round" 
+          stroke-linejoin="round"/>
+  </g>
+</svg>
