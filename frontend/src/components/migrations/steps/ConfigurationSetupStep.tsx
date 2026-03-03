@@ -523,20 +523,17 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
 
         {isExpanded && (
           <div className="stage-content-collapsible">
-            <div className="info-box" style={{ background: '#E8F5E9', borderColor: '#4CAF50' }}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#4CAF50" strokeWidth="2">
-                <circle cx="8" cy="8" r="6" />
-                <path d="M8 6v4M8 11h.01" strokeLinecap="round" />
-              </svg>
-              <div>
-                <strong>Private Network Transfer via GCP VM</strong>
-                <p>
-                  The AWS DataSync agent runs as a GCP Compute Engine VM inside your VPC.
-                  This gives the agent private network access to GCS — no data traverses the public internet for reads.
-                  The agent then transfers data to S3 over an encrypted channel.
-                </p>
-              </div>
-            </div>
+            <p style={{ 
+              fontSize: '13px', 
+              color: '#424242', 
+              padding: '12px 16px',
+              background: '#F8F9FA',
+              border: '1px solid #E0E0E0',
+              borderRadius: '6px',
+              marginBottom: '20px'
+            }}>
+              <strong>Private Network Transfer:</strong> The AWS DataSync agent runs as a GCP VM inside your VPC, giving it private access to GCS. Data transfers to S3 over an encrypted channel.
+            </p>
 
             {/* Setup Instructions */}
             <div className="form-section" style={{ marginTop: '24px' }}>
@@ -774,16 +771,20 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                     </h4>
                   </div>
 
-                  <div className="info-box" style={{ background: '#F5F5F5', borderColor: '#9E9E9E', marginBottom: '16px' }}>
-                    <div>
-                      <strong>Required: Create an IAM Role for DataSync</strong>
-                      <p style={{ marginTop: '8px', marginBottom: '8px' }}>
-                        DataSync needs an IAM role to access your S3 bucket. You must create this role manually in your AWS account.
-                      </p>
-                      <details style={{ marginTop: '8px' }}>
-                        <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#424242', fontSize: '13px' }}>
-                          📋 Step-by-step instructions (click to expand)
-                        </summary>
+                  <div style={{ 
+                    padding: '12px 16px',
+                    background: '#F8F9FA',
+                    border: '1px solid #E0E0E0',
+                    borderRadius: '6px',
+                    marginBottom: '16px'
+                  }}>
+                    <p style={{ fontSize: '13px', color: '#424242', marginBottom: '8px' }}>
+                      <strong>Required:</strong> DataSync needs an IAM role to access your S3 bucket.
+                    </p>
+                    <details style={{ marginTop: '8px' }}>
+                      <summary style={{ cursor: 'pointer', fontWeight: 500, color: '#1976D2', fontSize: '13px' }}>
+                        View setup instructions
+                      </summary>
                         <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.8' }}>
                           <p style={{ fontWeight: 600, marginBottom: '8px' }}>Option A: AWS CLI (recommended)</p>
                           <ol style={{ marginLeft: '16px', marginBottom: '16px' }}>
@@ -859,7 +860,6 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                           </div>
                         </div>
                       </details>
-                    </div>
                   </div>
 
                   <label className="form-label required">DataSync S3 IAM Role ARN</label>
@@ -1245,17 +1245,20 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                 </h4>
               </div>
 
-              <div className="info-box" style={{ background: '#F5F5F5', borderColor: '#9E9E9E', marginBottom: '16px' }}>
-                <div>
-                  <strong>Required: Create an IAM Role for Redshift</strong>
-                  <p style={{ marginTop: '8px', marginBottom: '8px' }}>
-                    Redshift needs an IAM role to read data from your S3 bucket during the COPY command. 
-                    This is separate from the DataSync role.
-                  </p>
-                  <details style={{ marginTop: '8px' }}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 600, color: '#424242', fontSize: '13px' }}>
-                      📋 Step-by-step instructions (click to expand)
-                    </summary>
+              <div style={{ 
+                padding: '12px 16px',
+                background: '#F8F9FA',
+                border: '1px solid #E0E0E0',
+                borderRadius: '6px',
+                marginBottom: '16px'
+              }}>
+                <p style={{ fontSize: '13px', color: '#424242', marginBottom: '8px' }}>
+                  <strong>Required:</strong> Redshift needs an IAM role to read data from your S3 bucket during the COPY command.
+                </p>
+                <details style={{ marginTop: '8px' }}>
+                  <summary style={{ cursor: 'pointer', fontWeight: 500, color: '#1976D2', fontSize: '13px' }}>
+                    View setup instructions
+                  </summary>
                     <div style={{ marginTop: '12px', fontSize: '13px', lineHeight: '1.8' }}>
                       <p style={{ fontWeight: 600, marginBottom: '8px' }}>Option A: AWS CLI (recommended)</p>
                       <ol style={{ marginLeft: '16px', marginBottom: '16px' }}>
@@ -1331,7 +1334,6 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                       </div>
                     </div>
                   </details>
-                </div>
               </div>
 
               <label className="form-label required">Redshift IAM Role ARN</label>
