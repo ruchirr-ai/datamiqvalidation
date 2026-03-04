@@ -98,6 +98,8 @@ class RedshiftLoader:
         )
         
         self.connection = None
+        self.migration_id = None
+        self.migration_name = None
     
     def connect(self) -> bool:
         """
@@ -711,6 +713,7 @@ class RedshiftLoader:
                         logger.error(f"  Column: {error.get('column_name')}")
                         logger.error(f"  Error: {error.get('error_message')}")
                         logger.error(f"  Raw Line: {error.get('raw_line', '')[:200]}")
+                    self._log_copy_history(schema, table, copy_sql, manifest_uri or s3_prefix, file_format, compression, start_time, 'failed', error_message='COPY failed', error_details=error_details)
                     return False, {'error': 'COPY failed', 'error_details': error_details}
                 
                 if elapsed % 30 == 0:  # Log progress every 30 seconds
@@ -718,6 +721,7 @@ class RedshiftLoader:
             
             if not copy_completed:
                 logger.error(f"✗ COPY operation timed out after {max_wait_seconds}s")
+                self._log_copy_history(schema, table, copy_sql, manifest_uri or s3_prefix, file_format, compression, start_time, 'failed', error_message=f'COPY timeout after {max_wait_seconds}s')
                 return False, {'error': f'COPY timeout after {max_wait_seconds}s'}
             
             end_time = datetime.utcnow()
@@ -733,6 +737,8 @@ class RedshiftLoader:
             logger.info(f"Rows Loaded: {stats.get('rows_loaded', 0):,}")
             logger.info(f"Bytes Loaded: {stats.get('bytes_loaded', 0):,}")
             logger.info("="*80)
+            
+            self._log_copy_history(schema, table, copy_sql, manifest_uri or s3_prefix, file_format, compression, start_time, 'completed', rows_loaded=stats.get('rows_loaded', 0), bytes_loaded=stats.get('bytes_loaded', 0))
             
             return True, stats
             
@@ -759,8 +765,43 @@ class RedshiftLoader:
                     logger.error(f"  Raw Line: {error.get('raw_line', '')[:200]}")
                 logger.error("="*80)
             
+            self._log_copy_history(schema, table, copy_sql if 'copy_sql' in dir() else '', manifest_uri or (s3_prefix if 's3_prefix' in dir() else ''), file_format, compression, start_time if 'start_time' in dir() else datetime.utcnow(), 'failed', error_message=str(e), error_details=error_details)
+            
             return False, {'error': str(e), 'error_details': error_details}
     
+    def _log_copy_history(self, schema, table, copy_sql, source_uri, file_format, compression, start_time, status, rows_loaded=0, bytes_loaded=0, error_message=None, error_details=None):
+        """Log COPY command to copy_history table."""
+        try:
+            from database import db_instance
+            from models.copy_history import CopyHistory
+            
+            end_time = datetime.utcnow()
+            duration = (end_time - start_time).total_seconds() if start_time else None
+            
+            with db_instance.get_session() as db:
+                record = CopyHistory(
+                    migration_id=self.migration_id or 0,
+                    migration_name=self.migration_name or 'Unknown',
+                    schema_name=schema,
+                    table_name=table,
+                    copy_command=copy_sql.strip() if copy_sql else '',
+                    source_uri=source_uri,
+                    file_format=file_format,
+                    compression=compression,
+                    iam_role_arn=self.iam_role_arn,
+                    status=status,
+                    started_at=start_time,
+                    completed_at=end_time,
+                    duration_seconds=duration,
+                    rows_loaded=rows_loaded or 0,
+                    bytes_loaded=bytes_loaded or 0,
+                    error_message=error_message,
+                    error_details=error_details,
+                )
+                db.add(record)
+        except Exception as log_err:
+            logger.warning(f"Failed to log COPY history: {log_err}")
+
     def _get_load_stats(
         self, 
         schema: str, 

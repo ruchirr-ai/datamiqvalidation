@@ -998,6 +998,8 @@ class PathwayC:
                 aws_secret_access_key=aws_secret_access_key,
                 aws_region=storage_config.get('aws_region', 'us-east-1')
             )
+            loader.migration_id = migration_id
+            loader.migration_name = migration.migration_name
             
             # Connect to Redshift
             if not loader.connect():

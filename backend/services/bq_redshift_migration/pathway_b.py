@@ -634,6 +634,7 @@ class PathwayB:
             mig = db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
             cp = mig.checkpoint_data or {} if mig else {}
             saved_dest_arn = cp.get("datasync_dest_location_arn")
+            _par_migration_name = mig.migration_name if mig else 'Unknown'
         finally:
             db.close()
         
@@ -681,10 +682,29 @@ class PathwayB:
                     s3_config_role_arn=datasync_s3_role_arn,
                 )
                 
+                _par_task_name = f"DataMIQ-Mig{migration_id}-{table_name}"
+                _par_task_start = datetime.utcnow()
                 result = agent.create_and_run_task(
                     source_location_arn=source_arn,
                     dest_location_arn=table_dest_arn,
-                    task_name=f"DataMIQ-Mig{migration_id}-{table_name}",
+                    task_name=_par_task_name,
+                )
+                
+                # Log parallel task to history
+                _par_task_status = 'completed' if result.get('status') == 'success' else 'failed'
+                self._log_task_history(
+                    migration_id=migration_id, migration_name=_par_migration_name,
+                    task_name=_par_task_name, task_arn=result.get('task_arn'),
+                    execution_arn=result.get('execution_arn'), agent_arn=agent.agent_arn,
+                    agent_ip=agent.agent_ip, source_arn=source_arn,
+                    source_uri=f"gs://{gcs_bucket}{table_subdir}",
+                    dest_arn=table_dest_arn,
+                    dest_uri=f"s3://{s3_bucket}{s3_table_subdir}",
+                    status=_par_task_status, started_at=_par_task_start,
+                    table_name=table_name,
+                    files_transferred=result.get('files_transferred', 0),
+                    bytes_transferred=result.get('bytes_transferred', 0),
+                    error_message=result.get('error'),
                 )
                 
                 return {
@@ -1046,6 +1066,7 @@ class PathwayB:
             try:
                 _mig = _db.query(MigrationBQRedshift).filter_by(id=migration_id).first()
                 _cp = _mig.checkpoint_data or {} if _mig else {}
+                _migration_name = _mig.migration_name if _mig else 'Unknown'
             finally:
                 _db.close()
             
@@ -1086,10 +1107,28 @@ class PathwayB:
                 self._save_checkpoint(migration_id, {"datasync_dest_location_arn": dest_arn})
             
             # Step 5: Create and run task
+            _task_start = datetime.utcnow()
+            _task_name = f"DataMIQ-Migration-{migration_id}"
             result = agent.create_and_run_task(
                 source_location_arn=source_arn,
                 dest_location_arn=dest_arn,
-                task_name=f"DataMIQ-Migration-{migration_id}",
+                task_name=_task_name,
+            )
+            
+            # Log task to history
+            _task_status = 'completed' if result.get('status') == 'success' else ('agent_offline' if result.get('status') == 'agent_offline' else 'failed')
+            self._log_task_history(
+                migration_id=migration_id, migration_name=_migration_name,
+                task_name=_task_name, task_arn=result.get('task_arn'),
+                execution_arn=result.get('execution_arn'), agent_arn=agent.agent_arn,
+                agent_ip=agent_ip, source_arn=source_arn,
+                source_uri=f"gs://{gcs_bucket}/{gcs_path}" if gcs_path else f"gs://{gcs_bucket}",
+                dest_arn=dest_arn,
+                dest_uri=f"s3://{s3_bucket}/{s3_path}" if s3_path else f"s3://{s3_bucket}",
+                status=_task_status, started_at=_task_start,
+                files_transferred=result.get('files_transferred', 0),
+                bytes_transferred=result.get('bytes_transferred', 0),
+                error_message=result.get('error'),
             )
             
             # Handle agent offline — clear saved ARNs, re-activate, and retry once
@@ -1132,10 +1171,28 @@ class PathwayB:
                 # Retry the task
                 if self.log_callback:
                     self.log_callback(migration_id, "INFO", "transfer", "Retrying DataSync task with re-activated agent...")
+                _retry_start = datetime.utcnow()
+                _retry_task_name = f"DataMIQ-Migration-{migration_id}-retry"
                 result = agent.create_and_run_task(
                     source_location_arn=source_arn,
                     dest_location_arn=dest_arn,
-                    task_name=f"DataMIQ-Migration-{migration_id}-retry",
+                    task_name=_retry_task_name,
+                )
+                
+                # Log retry task
+                _retry_status = 'completed' if result.get('status') == 'success' else ('agent_offline' if result.get('status') == 'agent_offline' else 'failed')
+                self._log_task_history(
+                    migration_id=migration_id, migration_name=_migration_name,
+                    task_name=_retry_task_name, task_arn=result.get('task_arn'),
+                    execution_arn=result.get('execution_arn'), agent_arn=agent.agent_arn,
+                    agent_ip=agent_ip, source_arn=source_arn,
+                    source_uri=f"gs://{gcs_bucket}/{gcs_path}" if gcs_path else f"gs://{gcs_bucket}",
+                    dest_arn=dest_arn,
+                    dest_uri=f"s3://{s3_bucket}/{s3_path}" if s3_path else f"s3://{s3_bucket}",
+                    status=_retry_status, started_at=_retry_start,
+                    files_transferred=result.get('files_transferred', 0),
+                    bytes_transferred=result.get('bytes_transferred', 0),
+                    error_message=result.get('error'),
                 )
                 
                 # If still offline after retry, fail
@@ -1351,6 +1408,50 @@ class PathwayB:
         finally:
             db.close()
     
+    def _log_task_history(self, migration_id, migration_name, task_name, task_arn, execution_arn,
+                          agent_arn, agent_ip, source_arn, source_uri, dest_arn, dest_uri,
+                          status, started_at, table_name=None, files_transferred=0,
+                          bytes_transferred=0, error_message=None, error_code=None,
+                          error_details=None, raw_result=None):
+        """Log a DataSync task to the task_history table."""
+        try:
+            from database import db_instance
+            from models.task_history import TaskHistory
+            from datetime import datetime
+
+            end_time = datetime.utcnow()
+            duration = (end_time - started_at).total_seconds() if started_at else None
+
+            with db_instance.get_session() as db:
+                record = TaskHistory(
+                    migration_id=migration_id,
+                    migration_name=migration_name or 'Unknown',
+                    task_arn=task_arn,
+                    execution_arn=execution_arn,
+                    task_name=task_name,
+                    task_type='datasync',
+                    agent_arn=agent_arn,
+                    agent_ip=agent_ip,
+                    source_location_arn=source_arn,
+                    source_uri=source_uri,
+                    dest_location_arn=dest_arn,
+                    dest_uri=dest_uri,
+                    table_name=table_name,
+                    status=status,
+                    started_at=started_at,
+                    completed_at=end_time,
+                    duration_seconds=duration,
+                    files_transferred=files_transferred or 0,
+                    bytes_transferred=bytes_transferred or 0,
+                    error_message=error_message,
+                    error_code=error_code,
+                    error_details=error_details,
+                    raw_result=raw_result,
+                )
+                db.add(record)
+        except Exception as log_err:
+            logger.warning(f"Failed to log task history: {log_err}")
+
     def _save_checkpoint(self, migration_id: int, data: Dict):
         """Save key-value pairs into migration checkpoint_data."""
         from database import get_db
@@ -1446,6 +1547,38 @@ class PathwayB:
         if self.log_callback:
             self.log_callback(migration_id, "INFO", "transfer",
                 f"Agent activated: {agent_arn}")
+        
+        # Wait for agent to fully initialize after activation.
+        # Freshly activated agents need time to become fully operational.
+        # Without this delay, the first DataSync task often fails because
+        # the agent hasn't finished its internal initialization.
+        logger.info("Waiting 60s for agent to fully initialize after activation...")
+        if self.log_callback:
+            self.log_callback(migration_id, "INFO", "transfer",
+                "Waiting 60 seconds for agent to fully initialize...")
+        time.sleep(60)
+        
+        # Verify agent is ONLINE before proceeding
+        for verify_attempt in range(3):
+            try:
+                resp = agent.datasync_client.describe_agent(AgentArn=agent_arn)
+                status = resp.get("Status", "UNKNOWN")
+                logger.info(f"Agent status after wait: {status}")
+                if status == "ONLINE":
+                    logger.info("Agent is ONLINE and ready for tasks")
+                    if self.log_callback:
+                        self.log_callback(migration_id, "INFO", "transfer",
+                            "Agent is ONLINE and ready for tasks")
+                    break
+                else:
+                    logger.warning(f"Agent status is {status}, waiting 30s more...")
+                    if self.log_callback:
+                        self.log_callback(migration_id, "INFO", "transfer",
+                            f"Agent status: {status}, waiting for ONLINE...")
+                    time.sleep(30)
+            except Exception as e:
+                logger.warning(f"Could not verify agent status: {e}, waiting 30s...")
+                time.sleep(30)
         
         # Step 3: Save to registry (upsert)
         db = next(get_db())

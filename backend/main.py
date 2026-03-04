@@ -17,6 +17,8 @@ from routers.bq_redshift_migration import router as bq_redshift_router
 from routers.pathway_a_test_router import router as pathway_a_test_router
 from routers.bq_export_test_router import router as bq_export_test_router
 from routers.assessment_router import router as assessment_router
+from routers.copy_history_router import router as copy_history_router
+from routers.task_history_router import router as task_history_router
 from database import db_instance
 
 # Import all models to ensure they're registered with SQLAlchemy
@@ -161,6 +163,8 @@ app.include_router(bq_redshift_router)
 app.include_router(pathway_a_test_router)
 app.include_router(bq_export_test_router)
 app.include_router(assessment_router)
+app.include_router(copy_history_router)
+app.include_router(task_history_router)
 
 # Health check endpoint
 @app.get("/health")

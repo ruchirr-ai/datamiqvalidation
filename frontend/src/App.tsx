@@ -21,6 +21,8 @@ import { BQRedshiftMigrationsPage } from './pages/migrations/BQRedshiftMigration
 import { CreateMigrationWizard } from './components/migrations/CreateMigrationWizard';
 import { PathwayATestPage } from './pages/PathwayATestPage';
 import { BQExportTestPage } from './pages/BQExportTestPage';
+import { CopyHistoryPage } from './pages/CopyHistoryPage';
+import { TaskHistoryPage } from './pages/TaskHistoryPage';
 import './styles/global.css';
 
 // Navigation items configuration
@@ -147,6 +149,8 @@ const AppContent: React.FC = () => {
                 <Route path="/migrations/create" element={<CreateMigrationWizard />} />
                 <Route path="/migrations/pathway-a-test" element={<PathwayATestPage />} />
                 <Route path="/migrations/bq-export-test" element={<BQExportTestPage />} />
+                <Route path="/monitoring/copy-history" element={<CopyHistoryPage />} />
+                <Route path="/monitoring/task-history" element={<TaskHistoryPage />} />
                 <Route path="/jobs" element={<JobsPage />} />
                 <Route
                   path="/administration"
