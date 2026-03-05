@@ -810,96 +810,113 @@ class RedshiftLoader:
         start_time: Optional[datetime] = None
     ) -> Dict:
         """
-        Get load statistics from SYS_LOAD_HISTORY (preferred) with fallback
-        to counting rows directly.
+        Get load statistics for a COPY command.
+        
+        Tries multiple approaches in order:
+        1. SYS_LOAD_HISTORY (best - has loaded_rows and loaded_bytes)
+        2. STL_QUERY (rows affected by the query)
+        3. stl_load_commits lines_scanned (rough row count)
         
         Args:
             schema: Schema name
             table: Table name
-            copy_id: COPY query ID (optional, for precise tracking)
-            start_time: Start time of COPY operation (optional, fallback)
+            copy_id: COPY query ID from pg_last_copy_id()
+            start_time: Start time of COPY operation
             
         Returns:
-            Dictionary with load statistics
+            Dictionary with rows_loaded and bytes_loaded
         """
+        rows_loaded = 0
+        bytes_loaded = 0
+        
+        # Approach 1: SYS_LOAD_HISTORY (has loaded_rows and loaded_bytes)
         try:
-            # Primary: Use SYS_LOAD_HISTORY which has loaded_rows and loaded_bytes
             if copy_id:
                 query = """
-                SELECT 
-                    loaded_rows as rows_loaded,
-                    loaded_bytes as bytes_loaded
+                SELECT loaded_rows, loaded_bytes
                 FROM sys_load_history
                 WHERE query_id = %s
                 """
                 params = (copy_id,)
-            elif start_time:
+            else:
                 query = """
-                SELECT 
-                    loaded_rows as rows_loaded,
-                    loaded_bytes as bytes_loaded
+                SELECT loaded_rows, loaded_bytes
                 FROM sys_load_history
                 WHERE table_name = %s
                   AND start_time >= %s
                 ORDER BY start_time DESC
                 LIMIT 1
                 """
-                params = (table, start_time)
-            else:
-                query = """
-                SELECT 
-                    loaded_rows as rows_loaded,
-                    loaded_bytes as bytes_loaded
-                FROM sys_load_history
-                WHERE table_name = %s
-                ORDER BY start_time DESC
-                LIMIT 1
-                """
-                params = (table,)
+                params = (table, start_time or datetime.utcnow())
             
             with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
                 cursor.execute(query, params)
                 result = cursor.fetchone()
-                
-                if result and (result.get('rows_loaded') or result.get('bytes_loaded')):
-                    stats = dict(result)
-                    logger.info(f"Load stats from SYS_LOAD_HISTORY: rows={stats.get('rows_loaded')}, bytes={stats.get('bytes_loaded')}")
-                    return stats
-            
-            logger.info("SYS_LOAD_HISTORY returned no data, falling back to row count")
+                if result:
+                    rows_loaded = result.get('loaded_rows', 0) or 0
+                    bytes_loaded = result.get('loaded_bytes', 0) or 0
+                    if rows_loaded > 0 or bytes_loaded > 0:
+                        logger.info(f"Stats from SYS_LOAD_HISTORY: rows={rows_loaded:,}, bytes={bytes_loaded:,}")
+                        return {'rows_loaded': rows_loaded, 'bytes_loaded': bytes_loaded}
+                    else:
+                        logger.info("SYS_LOAD_HISTORY returned 0 rows/bytes, trying next approach")
         except Exception as e:
-            logger.warning(f"Could not query SYS_LOAD_HISTORY: {e}")
+            logger.warning(f"SYS_LOAD_HISTORY query failed: {e}")
         
-        # Fallback: Count rows directly and estimate bytes from stl_load_commits lines_scanned
+        # Approach 2: STL_QUERY (has rows column = number of rows affected)
         try:
-            rows_loaded = 0
-            bytes_loaded = 0
-            
-            with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                # Count rows in the table
-                cursor.execute(f"SELECT COUNT(*) as cnt FROM {schema}.{table}")
-                count_result = cursor.fetchone()
-                if count_result:
-                    rows_loaded = count_result.get('cnt', 0)
-                
-                # Try to get bytes from stl_load_commits lines_scanned as rough proxy
-                if copy_id:
+            if copy_id:
+                with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
                     cursor.execute("""
-                        SELECT SUM(lines_scanned) as lines_scanned
-                        FROM stl_load_commits
+                        SELECT rows, elapsed / 1000000.0 as duration_sec
+                        FROM stl_query
                         WHERE query = %s
                     """, (copy_id,))
-                    lc_result = cursor.fetchone()
-                    if lc_result and lc_result.get('lines_scanned'):
-                        # lines_scanned is a rough proxy; use it if we have nothing else
-                        pass
-            
-            logger.info(f"Fallback load stats: rows={rows_loaded}")
-            return {'rows_loaded': rows_loaded, 'bytes_loaded': bytes_loaded}
-            
+                    result = cursor.fetchone()
+                    if result and result.get('rows'):
+                        rows_loaded = result.get('rows', 0) or 0
+                        logger.info(f"Stats from STL_QUERY: rows={rows_loaded:,}")
+                        # STL_QUERY doesn't have bytes, try to get from S3 file sizes
         except Exception as e:
-            logger.warning(f"Could not get fallback load stats: {e}")
-            return {}
+            logger.warning(f"STL_QUERY query failed: {e}")
+        
+        # Approach 3: stl_load_commits lines_scanned (rough row count if nothing else worked)
+        if rows_loaded == 0:
+            try:
+                if copy_id:
+                    with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                        cursor.execute("""
+                            SELECT SUM(lines_scanned) as total_lines
+                            FROM stl_load_commits
+                            WHERE query = %s
+                        """, (copy_id,))
+                        result = cursor.fetchone()
+                        if result and result.get('total_lines'):
+                            rows_loaded = result.get('total_lines', 0) or 0
+                            logger.info(f"Stats from stl_load_commits: lines_scanned={rows_loaded:,}")
+            except Exception as e:
+                logger.warning(f"stl_load_commits query failed: {e}")
+        
+        # Approach 4: Get bytes from S3 source files if we still don't have bytes
+        if bytes_loaded == 0 and rows_loaded > 0:
+            try:
+                if copy_id:
+                    with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
+                        # STL_FILE_SCAN has bytes column
+                        cursor.execute("""
+                            SELECT SUM(bytes) as total_bytes
+                            FROM stl_file_scan
+                            WHERE query = %s
+                        """, (copy_id,))
+                        result = cursor.fetchone()
+                        if result and result.get('total_bytes'):
+                            bytes_loaded = result.get('total_bytes', 0) or 0
+                            logger.info(f"Stats from stl_file_scan: bytes={bytes_loaded:,}")
+            except Exception as e:
+                logger.warning(f"stl_file_scan query failed: {e}")
+        
+        logger.info(f"Final load stats: rows={rows_loaded:,}, bytes={bytes_loaded:,}")
+        return {'rows_loaded': rows_loaded, 'bytes_loaded': bytes_loaded}
     
     def _get_load_errors(
         self, 
