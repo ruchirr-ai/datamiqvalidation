@@ -54,7 +54,8 @@ def get_decrypted_connection_params(connection: Connection) -> Dict[str, Any]:
     Tries encrypted params first, falls back to unencrypted for backward compatibility.
     """
     # Try encrypted params first (new method)
-    if connection.connection_params_encrypted:
+    encrypted = getattr(connection, 'connection_params_encrypted', None)
+    if encrypted:
         try:
             kms = get_unified_kms_service()
             params_json = kms.decrypt_credential(

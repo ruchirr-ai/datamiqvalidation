@@ -21,7 +21,8 @@ class Connection(Base):
     name = Column(String(255), nullable=False)
     type = Column(String(50), nullable=False)  # bigquery, redshift, postgresql, etc.
     database = Column(String(100), nullable=False)
-    connection_params = Column(JSON, nullable=False)  # Encrypted connection details
+    connection_params = Column(JSON, nullable=False)  # Unencrypted connection details (legacy)
+    connection_params_encrypted = Column(String, nullable=True)  # KMS-encrypted connection params
     created_by = Column(String(255), nullable=False, default='system')
     status = Column(String(50), nullable=False, default='disconnected')  # connected, disconnected, error
     last_tested_at = Column(DateTime, nullable=True)
