@@ -728,7 +728,8 @@ class RedshiftLoader:
             duration = (end_time - start_time).total_seconds()
             
             # Get final load statistics
-            stats = self._get_load_stats(schema, table, copy_id, start_time)
+            source_uri = manifest_uri or s3_prefix
+            stats = self._get_load_stats(schema, table, copy_id, start_time, source_uri)
             
             logger.info("="*80)
             logger.info("✓ COPY COMMAND COMPLETED SUCCESSFULLY")
@@ -807,29 +808,23 @@ class RedshiftLoader:
         schema: str, 
         table: str, 
         copy_id: Optional[int] = None,
-        start_time: Optional[datetime] = None
+        start_time: Optional[datetime] = None,
+        source_uri: Optional[str] = None
     ) -> Dict:
         """
         Get load statistics for a COPY command.
         
-        Tries multiple approaches in order:
-        1. SYS_LOAD_HISTORY (best - has loaded_rows and loaded_bytes)
-        2. STL_QUERY (rows affected by the query)
-        3. stl_load_commits lines_scanned (rough row count)
+        Tries multiple approaches for rows:
+        1. SYS_LOAD_HISTORY (loaded_rows + loaded_bytes)
+        2. stl_load_commits lines_scanned
         
-        Args:
-            schema: Schema name
-            table: Table name
-            copy_id: COPY query ID from pg_last_copy_id()
-            start_time: Start time of COPY operation
-            
-        Returns:
-            Dictionary with rows_loaded and bytes_loaded
+        For bytes (if Redshift doesn't provide):
+        3. Calculate from S3 source file sizes
         """
         rows_loaded = 0
         bytes_loaded = 0
         
-        # Approach 1: SYS_LOAD_HISTORY (has loaded_rows and loaded_bytes)
+        # Approach 1: SYS_LOAD_HISTORY
         try:
             if copy_id:
                 query = """
@@ -855,32 +850,17 @@ class RedshiftLoader:
                 if result:
                     rows_loaded = result.get('loaded_rows', 0) or 0
                     bytes_loaded = result.get('loaded_bytes', 0) or 0
-                    if rows_loaded > 0 or bytes_loaded > 0:
+                    if rows_loaded > 0 and bytes_loaded > 0:
                         logger.info(f"Stats from SYS_LOAD_HISTORY: rows={rows_loaded:,}, bytes={bytes_loaded:,}")
                         return {'rows_loaded': rows_loaded, 'bytes_loaded': bytes_loaded}
+                    elif rows_loaded > 0:
+                        logger.info(f"SYS_LOAD_HISTORY: rows={rows_loaded:,}, bytes=0 (will try S3)")
                     else:
-                        logger.info("SYS_LOAD_HISTORY returned 0 rows/bytes, trying next approach")
+                        logger.info("SYS_LOAD_HISTORY returned 0, trying next approach")
         except Exception as e:
             logger.warning(f"SYS_LOAD_HISTORY query failed: {e}")
         
-        # Approach 2: STL_QUERY (has rows column = number of rows affected)
-        try:
-            if copy_id:
-                with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                    cursor.execute("""
-                        SELECT rows, elapsed / 1000000.0 as duration_sec
-                        FROM stl_query
-                        WHERE query = %s
-                    """, (copy_id,))
-                    result = cursor.fetchone()
-                    if result and result.get('rows'):
-                        rows_loaded = result.get('rows', 0) or 0
-                        logger.info(f"Stats from STL_QUERY: rows={rows_loaded:,}")
-                        # STL_QUERY doesn't have bytes, try to get from S3 file sizes
-        except Exception as e:
-            logger.warning(f"STL_QUERY query failed: {e}")
-        
-        # Approach 3: stl_load_commits lines_scanned (rough row count if nothing else worked)
+        # Approach 2: stl_load_commits lines_scanned
         if rows_loaded == 0:
             try:
                 if copy_id:
@@ -897,26 +877,85 @@ class RedshiftLoader:
             except Exception as e:
                 logger.warning(f"stl_load_commits query failed: {e}")
         
-        # Approach 4: Get bytes from S3 source files if we still don't have bytes
-        if bytes_loaded == 0 and rows_loaded > 0:
+        # Approach 3: Calculate bytes from S3 source files
+        if bytes_loaded == 0 and source_uri:
             try:
-                if copy_id:
-                    with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
-                        # STL_FILE_SCAN has bytes column
-                        cursor.execute("""
-                            SELECT SUM(bytes) as total_bytes
-                            FROM stl_file_scan
-                            WHERE query = %s
-                        """, (copy_id,))
-                        result = cursor.fetchone()
-                        if result and result.get('total_bytes'):
-                            bytes_loaded = result.get('total_bytes', 0) or 0
-                            logger.info(f"Stats from stl_file_scan: bytes={bytes_loaded:,}")
+                bytes_loaded = self._get_s3_source_size(source_uri)
+                if bytes_loaded > 0:
+                    logger.info(f"Stats from S3 source files: bytes={bytes_loaded:,}")
             except Exception as e:
-                logger.warning(f"stl_file_scan query failed: {e}")
+                logger.warning(f"S3 source size calculation failed: {e}")
         
         logger.info(f"Final load stats: rows={rows_loaded:,}, bytes={bytes_loaded:,}")
         return {'rows_loaded': rows_loaded, 'bytes_loaded': bytes_loaded}
+    
+    def _get_s3_source_size(self, source_uri: str) -> int:
+        """
+        Calculate total size of S3 source files from a URI (prefix or manifest).
+        
+        Args:
+            source_uri: S3 URI (s3://bucket/prefix/ or s3://bucket/path/manifest.json)
+            
+        Returns:
+            Total bytes of source files
+        """
+        try:
+            if not source_uri or not source_uri.startswith('s3://'):
+                return 0
+            
+            # Parse S3 URI
+            uri_parts = source_uri.replace('s3://', '').split('/', 1)
+            bucket = uri_parts[0]
+            key = uri_parts[1] if len(uri_parts) > 1 else ''
+            
+            total_bytes = 0
+            
+            # Check if this is a manifest file
+            if key.endswith('.manifest') or key.endswith('manifest.json'):
+                # Read manifest and sum file sizes
+                try:
+                    response = self.s3_client.get_object(Bucket=bucket, Key=key)
+                    manifest = json.loads(response['Body'].read().decode('utf-8'))
+                    entries = manifest.get('entries', [])
+                    
+                    for entry in entries:
+                        entry_uri = entry.get('url', '')
+                        if entry_uri.startswith('s3://'):
+                            e_parts = entry_uri.replace('s3://', '').split('/', 1)
+                            e_bucket = e_parts[0]
+                            e_key = e_parts[1] if len(e_parts) > 1 else ''
+                            try:
+                                head = self.s3_client.head_object(Bucket=e_bucket, Key=e_key)
+                                total_bytes += head.get('ContentLength', 0)
+                            except Exception:
+                                pass
+                    
+                    logger.info(f"Manifest has {len(entries)} files, total size: {total_bytes:,} bytes")
+                    return total_bytes
+                except Exception as e:
+                    logger.warning(f"Could not read manifest for size: {e}")
+            
+            # It's a prefix — list all objects and sum sizes
+            prefix = key.rstrip('/')
+            if prefix:
+                prefix += '/'
+            
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        # Skip manifest files and directories
+                        obj_key = obj['Key']
+                        if obj_key.endswith('/') or 'manifest' in obj_key.lower():
+                            continue
+                        total_bytes += obj.get('Size', 0)
+            
+            logger.info(f"S3 prefix {source_uri}: total size={total_bytes:,} bytes")
+            return total_bytes
+            
+        except Exception as e:
+            logger.warning(f"Failed to calculate S3 source size: {e}")
+            return 0
     
     def _get_load_errors(
         self, 
