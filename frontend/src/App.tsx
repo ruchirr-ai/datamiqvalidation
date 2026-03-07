@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { MainLayout } from './components/layout/MainLayout';
+import { ChatAgent } from './components/ChatAgent/ChatAgent';
 import { LoginScreen } from './pages/LoginScreen';
 import { DashboardPage } from './pages/DashboardPage';
 import { ConnectionsPage } from './pages/ConnectionsPage';
@@ -113,71 +114,92 @@ const AppContent: React.FC = () => {
     navigate('/login');
   };
 
+  // Determine current page context for ChatAgent
+  const getCurrentPageContext = () => {
+    const path = location.pathname;
+    if (path.includes('/assessments')) return 'assessments';
+    if (path.includes('/connections')) return 'connections';
+    if (path.includes('/migrations')) return 'migrations';
+    if (path.includes('/jobs')) return 'jobs';
+    if (path.includes('/dashboard')) return 'dashboard';
+    return 'dashboard';
+  };
+
   return (
-    <Routes>
-      <Route path="/login" element={<LoginScreen />} />
-      
-      <Route
-        path="/*"
-        element={
-          <ProtectedRoute>
-            <MainLayout
-              navigationItems={navigationItems}
-              currentPath={location.pathname}
-              user={user ? {
-                username: user.username,
-                role: user.role,
-                avatar: undefined
-              } : undefined}
-              onNavigate={handleNavigate}
-              onLogout={handleLogout}
-            >
-              <Routes>
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/connections" element={<ConnectionsPage />} />
-                <Route path="/assessments" element={<AssessmentsPage />} />
-                <Route path="/assessments/:assessmentId/report" element={<AssessmentReportPage />} />
-                <Route path="/assessments/schema-analysis" element={<SchemaAnalysisPage />} />
-                <Route path="/assessments/compatibility" element={<CompatibilityCheckPage />} />
-                <Route path="/assessments/reports" element={<AssessmentReportsPage />} />
-                <Route path="/assessments/data-profiling" element={<DataProfilingPage />} />
-                <Route path="/migrations" element={<MigrationsPage />} />
-                <Route path="/migrations/bq-redshift" element={<BQRedshiftMigrationsPage />} />
-                <Route path="/migrations/create" element={<CreateMigrationWizard />} />
-                <Route path="/migrations/pathway-a-test" element={<PathwayATestPage />} />
-                <Route path="/migrations/bq-export-test" element={<BQExportTestPage />} />
-                <Route path="/jobs" element={<JobsPage />} />
-                <Route
-                  path="/administration"
-                  element={
-                    <ProtectedRoute requiredRole="admin">
-                      <AdministrationPage />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/admin"
-                  element={
-                    <ProtectedRoute requiredRole="admin">
-                      <AdminPage />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/admin/data-connections/sources"
-                  element={
-                    <ProtectedRoute requiredRole="admin">
-                      <DatabaseFieldConfigPage />
-                    </ProtectedRoute>
-                  }
-                />
-              </Routes>
-            </MainLayout>
-          </ProtectedRoute>
-        }
-      />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/login" element={<LoginScreen />} />
+        
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute>
+              <MainLayout
+                navigationItems={navigationItems}
+                currentPath={location.pathname}
+                user={user ? {
+                  username: user.username,
+                  role: user.role,
+                  avatar: undefined
+                } : undefined}
+                onNavigate={handleNavigate}
+                onLogout={handleLogout}
+              >
+                <Routes>
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/dashboard" element={<DashboardPage />} />
+                  <Route path="/connections" element={<ConnectionsPage />} />
+                  <Route path="/assessments" element={<AssessmentsPage />} />
+                  <Route path="/assessments/:assessmentId/report" element={<AssessmentReportPage />} />
+                  <Route path="/assessments/schema-analysis" element={<SchemaAnalysisPage />} />
+                  <Route path="/assessments/compatibility" element={<CompatibilityCheckPage />} />
+                  <Route path="/assessments/reports" element={<AssessmentReportsPage />} />
+                  <Route path="/assessments/data-profiling" element={<DataProfilingPage />} />
+                  <Route path="/migrations" element={<MigrationsPage />} />
+                  <Route path="/migrations/bq-redshift" element={<BQRedshiftMigrationsPage />} />
+                  <Route path="/migrations/create" element={<CreateMigrationWizard />} />
+                  <Route path="/migrations/pathway-a-test" element={<PathwayATestPage />} />
+                  <Route path="/migrations/bq-export-test" element={<BQExportTestPage />} />
+                  <Route path="/jobs" element={<JobsPage />} />
+                  <Route
+                    path="/administration"
+                    element={
+                      <ProtectedRoute requiredRole="admin">
+                        <AdministrationPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin"
+                    element={
+                      <ProtectedRoute requiredRole="admin">
+                        <AdminPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/data-connections/sources"
+                    element={
+                      <ProtectedRoute requiredRole="admin">
+                        <DatabaseFieldConfigPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                </Routes>
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
+
+      {/* ChatAgent - Show on all authenticated pages except login */}
+      {user && location.pathname !== '/login' && (
+        <ChatAgent 
+          currentPage={getCurrentPageContext()}
+          hasAssessments={true}
+        />
+      )}
+    </>
   );
 };
 
