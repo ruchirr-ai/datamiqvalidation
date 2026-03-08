@@ -422,23 +422,43 @@ class RedshiftLoader:
             logger.error("="*80)
             return False
     
-    def list_s3_files(self, bucket: str, prefix: str) -> List[str]:
+    def list_s3_files(self, bucket: str, prefix: str, file_format: Optional[str] = None) -> List[str]:
         """
-        List all files in S3 prefix.
+        List all files in S3 prefix, optionally filtered by format.
         
         Args:
             bucket: S3 bucket name
             prefix: S3 prefix/path
+            file_format: If provided, only return files matching this format
+                         (e.g., 'CSV' returns .csv and .csv.gz, 'PARQUET' returns .parquet)
             
         Returns:
             List of S3 file URIs
         """
         try:
             logger.info(f"Listing files in s3://{bucket}/{prefix}")
+            if file_format:
+                logger.info(f"Filtering for format: {file_format}")
             
             files = []
             skipped = []
             paginator = self.s3_client.get_paginator('list_objects_v2')
+            
+            # Build format-specific extension filter
+            if file_format:
+                fmt = file_format.upper()
+                if fmt == 'CSV':
+                    allowed_extensions = ('.csv', '.csv.gz', '.csv.snappy', '.csv.zst')
+                elif fmt == 'PARQUET':
+                    allowed_extensions = ('.parquet', '.parquet.snappy', '.parquet.gz')
+                elif fmt == 'JSON':
+                    allowed_extensions = ('.json', '.json.gz', '.json.snappy', '.json.zst')
+                elif fmt == 'AVRO':
+                    allowed_extensions = ('.avro', '.avro.snappy', '.avro.gz')
+                else:
+                    allowed_extensions = None  # No filter
+            else:
+                allowed_extensions = None
             
             # Data file extensions we expect from BigQuery exports
             data_extensions = ('.csv', '.parquet', '.json', '.avro', '.gz', '.snappy', '.zst')
@@ -451,13 +471,22 @@ class RedshiftLoader:
                         if key.endswith('/'):
                             continue
                         
-                        # Skip non-data files (metadata, manifests, etc.)
                         key_lower = key.lower()
-                        if any(key_lower.endswith(ext) for ext in data_extensions):
-                            file_uri = f"s3://{bucket}/{key}"
-                            files.append(file_uri)
+                        
+                        # If format filter is set, only include matching files
+                        if allowed_extensions:
+                            if any(key_lower.endswith(ext) for ext in allowed_extensions):
+                                file_uri = f"s3://{bucket}/{key}"
+                                files.append(file_uri)
+                            else:
+                                skipped.append(key)
                         else:
-                            skipped.append(key)
+                            # No format filter — include all data files
+                            if any(key_lower.endswith(ext) for ext in data_extensions):
+                                file_uri = f"s3://{bucket}/{key}"
+                                files.append(file_uri)
+                            else:
+                                skipped.append(key)
             
             logger.info(f"✓ Found {len(files)} data files")
             for f in files[:10]:  # Log first 10 files
@@ -465,7 +494,7 @@ class RedshiftLoader:
             if len(files) > 10:
                 logger.info(f"  ... and {len(files) - 10} more")
             if skipped:
-                logger.info(f"  Skipped {len(skipped)} non-data files: {skipped[:5]}")
+                logger.info(f"  Skipped {len(skipped)} non-matching files: {skipped[:5]}")
             
             return files
             
@@ -1126,7 +1155,7 @@ class RedshiftLoader:
                     return result
             
             # Step 2: List S3 files
-            files = self.list_s3_files(s3_bucket, s3_prefix)
+            files = self.list_s3_files(s3_bucket, s3_prefix, file_format=file_format)
             if not files:
                 logger.warning(f"No files found in s3://{s3_bucket}/{s3_prefix}")
                 result['error'] = 'No files found'
