@@ -3,7 +3,7 @@ Authentication Middleware
 FastAPI dependencies for JWT authentication and authorization
 """
 
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import Depends, HTTPException, status, Header, Request
 from typing import Optional, Callable
 from sqlalchemy.orm import Session
 import logging
@@ -378,3 +378,70 @@ async def get_current_user_optional(
     except Exception as e:
         logger.error(f"Error in optional authentication: {str(e)}")
         return None
+
+
+def get_workspace_id(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user)
+) -> int:
+    """
+    Get workspace ID from request header or use default workspace
+    
+    This dependency extracts the workspace_id from the X-Workspace-ID header.
+    If not provided, defaults to workspace 1.
+    
+    Args:
+        request: FastAPI request object
+        current_user: Current authenticated user
+        
+    Returns:
+        Workspace ID as integer
+        
+    Example:
+        @router.get("/projects")
+        async def list_projects(
+            workspace_id: int = Depends(get_workspace_id)
+        ):
+            return {"workspace_id": workspace_id}
+    """
+    # Try to get from header
+    workspace_id = request.headers.get("X-Workspace-ID")
+    if workspace_id:
+        return int(workspace_id)
+    
+    # Default to workspace 1 for now (should be from user's default workspace)
+    return 1
+
+
+def get_workspace_id(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user)
+) -> int:
+    """
+    Get workspace ID from request header or use default workspace
+
+    This dependency extracts the workspace_id from the X-Workspace-ID header.
+    If not provided, defaults to workspace 1.
+
+    Args:
+        request: FastAPI request object
+        current_user: Current authenticated user
+
+    Returns:
+        Workspace ID as integer
+
+    Example:
+        @router.get("/projects")
+        async def list_projects(
+            workspace_id: int = Depends(get_workspace_id)
+        ):
+            return {"workspace_id": workspace_id}
+    """
+    # Try to get from header
+    workspace_id = request.headers.get("X-Workspace-ID")
+    if workspace_id:
+        return int(workspace_id)
+
+    # Default to workspace 1 for now (should be from user's default workspace)
+    return 1
+

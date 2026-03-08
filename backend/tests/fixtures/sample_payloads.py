@@ -19,83 +19,88 @@ INVALID_LOGIN_MISSING_FIELD = {
     # password missing
 }
 
-INVALID_LOGIN_EMPTY_PASSWORD = {
-    "username": "admin",
-    "password": ""
+# Conversion payloads
+VALID_STANDALONE_CONVERSION = {
+    "source_code": "SELECT * FROM dataset.my_table WHERE created_at > CURRENT_TIMESTAMP()",
+    "source_dialect": "bigquery",
+    "target_dialect": "redshift",
+    "asset_type": "view",
+    "use_sqlglot": True,
 }
 
-# User creation payloads
-VALID_USER_CREATE = {
-    "username": "newuser",
-    "password": "NewPass123!",
-    "role": "user"
-}
-
-VALID_ADMIN_CREATE = {
-    "username": "admin",
-    "password": "AdminPass123!",
-    "role": "admin"
-}
-
-# Password validation test cases
-VALID_PASSWORDS = [
-    "ValidPass123",
-    "SecureP@ss1",
-    "MyPassword1",
-    "Test1234Pass",
-    "Admin123!@#"
-]
-
-INVALID_PASSWORDS = {
-    "short": "Pass1",  # Too short
-    "no_uppercase": "password123",  # No uppercase
-    "no_lowercase": "PASSWORD123",  # No lowercase
-    "no_number": "PasswordOnly",  # No number
-    "empty": "",  # Empty
-}
-
-# Database connection payloads
-VALID_DB_CONNECTION = {
-    "name": "Production DB",
-    "type": "postgresql",
-    "host": "db.example.com",
-    "port": 5432,
-    "database": "mydb",
-    "username": "dbuser",
-    "password": "DbPass123!"
-}
-
-# Migration project payloads
-VALID_MIGRATION_PROJECT = {
-    "name": "Customer Data Migration",
+VALID_BATCH_CONVERSION = {
     "source_connection_id": 1,
     "target_connection_id": 2,
-    "description": "Migrate customer data from MySQL to PostgreSQL"
+    "asset_list": [
+        {"asset_type": "view", "asset_name": "users_view", "source_code": "CREATE VIEW users_view AS SELECT * FROM users"},
+        {"asset_type": "stored_procedure", "asset_name": "update_user", "source_code": "CREATE PROCEDURE update_user..."},
+    ],
 }
 
-# JWT token payloads
-VALID_TOKEN_PAYLOAD = {
-    "user_id": 1,
-    "username": "testuser",
-    "role": "user",
-    "exp": 1706198400,  # Example expiration timestamp
-    "iat": 1706169600   # Example issued at timestamp
+# ConversionJob model payloads
+VALID_CONVERSION_JOB_DATA = {
+    "workspace_id": 1,
+    "source_code": "SELECT * FROM dataset.my_table",
+    "source_dialect": "bigquery",
+    "target_dialect": "redshift",
+    "asset_type": "view",
+    "use_sqlglot": True,
+    "status": "pending",
+    "retry_count": 0,
 }
 
-# Session data
-VALID_SESSION_DATA = {
-    "user_id": 1,
-    "token_hash": "abc123hash",
-    "ip_address": "192.168.1.1",
-    "user_agent": "Mozilla/5.0"
+# ConversionBatch model payloads
+VALID_CONVERSION_BATCH_DATA = {
+    "workspace_id": 1,
+    "source_connection_id": 1,
+    "target_connection_id": 2,
+    "total_assets": 5,
+    "completed_assets": 0,
+    "failed_assets": 0,
+    "status": "pending",
 }
 
-# Audit log data
-VALID_AUDIT_LOG = {
-    "event_type": "login_attempt",
-    "user_id": 1,
-    "username": "testuser",
-    "ip_address": "192.168.1.1",
-    "details": {"success": True},
-    "success": True
+# Copy History payloads
+VALID_COPY_HISTORY_DATA = {
+    "migration_id": 1,
+    "schema_name": "public",
+    "table_name": "users",
+    "copy_command": "COPY users FROM 's3://bucket/users.csv'",
+    "status": "running",
 }
+
+# Task History payloads
+VALID_TASK_HISTORY_DATA = {
+    "migration_id": 1,
+    "task_name": "Copy users table",
+    "task_arn": "arn:aws:datasync:us-east-1:123456789:task/task-123",
+    "agent_arn": "arn:aws:datasync:us-east-1:123456789:agent/agent-456",
+    "agent_ip": "10.0.1.100",
+    "source_uri": "s3://source-bucket/data/",
+    "dest_uri": "s3://dest-bucket/data/",
+    "status": "running",
+}
+
+# DataSync Agent payloads
+VALID_DATASYNC_AGENT_DATA = {
+    "workspace_id": 1,
+    "vm_ip": "10.0.1.100",
+    "agent_arn": "arn:aws:datasync:us-east-1:123456789:agent/agent-456",
+    "aws_region": "us-east-1",
+    "status": "online",
+}
+
+# Asset types
+VALID_ASSET_TYPES = [
+    "view",
+    "stored_procedure",
+    "function",
+    "trigger",
+    "table_ddl",
+]
+
+# Job statuses
+VALID_JOB_STATUSES = ["pending", "processing", "completed", "failed"]
+
+# Batch statuses
+VALID_BATCH_STATUSES = ["pending", "processing", "completed", "failed"]

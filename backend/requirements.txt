@@ -42,6 +42,9 @@ httpx
 redis
 hiredis
 
+# SQL Parsing
+sqlglot
+
 # Database Clients
 google-cloud-bigquery
 google-auth
