@@ -2070,10 +2070,10 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
             {cmp.savings_pct > 0 ? `${cmp.savings_pct}% Cost Optimization Opportunity` : 'Cost Comparison'}
           </div>
           <div className="tco-savings-detail">
-            Current BigQuery 3-Year TCO: <strong>${fmt(cmp.bq_3yr_tco)}</strong> →{' '}
-            Best Redshift ({cmp.best_option}) 3-Year TCO: <strong>${fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.provisioned_3yr_tco)}</strong>
+            Current BigQuery 3-Year TCO: <strong>{fmt(cmp.bq_3yr_tco)}</strong> →{' '}
+            Best Redshift ({cmp.best_option}) 3-Year TCO: <strong>{fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.provisioned_3yr_tco)}</strong>
             {cmp.best_option === 'provisioned' && <span style={{ fontSize: '12px', opacity: 0.8 }}> (with 1-Year RI)</span>}
-            {cmp.savings_pct > 0 && <> — Potential savings: <strong>${fmt(cmp.savings_amount)}</strong></>}
+            {cmp.savings_pct > 0 && <> — Potential savings: <strong>{fmt(cmp.savings_amount)}</strong></>}
           </div>
         </div>
       </div>
@@ -2122,13 +2122,13 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
             <div className="rec-config-details">
               <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{prov.node_type}</span></div>
               <div className="rec-config-row"><span>Nodes</span><span>{prov.num_nodes}</span></div>
-              <div className="rec-config-row"><span>Compute (On-Demand)</span><span>${fmt(prov.compute_monthly)}/mo</span></div>
-              <div className="rec-config-row"><span>Storage</span><span>${fmt(prov.storage_monthly)}/mo</span></div>
-              <div className="rec-config-row rec-config-row-total"><span>On-Demand Total</span><span>${fmt(prov.monthly)}/mo</span></div>
-              <div className="rec-config-row"><span>Annual (On-Demand)</span><span>${fmt(prov.annual)}</span></div>
+              <div className="rec-config-row"><span>Compute (On-Demand)</span><span>{fmt(prov.compute_monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Storage</span><span>{fmt(prov.storage_monthly)}/mo</span></div>
+              <div className="rec-config-row rec-config-row-total"><span>On-Demand Total</span><span>{fmt(prov.monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Annual (On-Demand)</span><span>{fmt(prov.annual)}</span></div>
               <div style={{ borderTop: '1px dashed var(--color-border)', margin: '8px 0', paddingTop: '8px' }}>
-                <div className="rec-config-row" style={{ color: '#2563eb', fontWeight: 500 }}><span>1-Year RI (40% off)</span><span>${fmt(prov.ri_1yr_monthly)}/mo • ${fmt(prov.ri_1yr_annual)}/yr</span></div>
-                <div className="rec-config-row" style={{ color: '#16a34a', fontWeight: 500 }}><span>3-Year RI (75% off)</span><span>${fmt(prov.ri_3yr_monthly)}/mo • ${fmt(prov.ri_3yr_annual)}/yr</span></div>
+                <div className="rec-config-row" style={{ color: '#2563eb', fontWeight: 500 }}><span>1-Year RI (40% off)</span><span>{fmt(prov.ri_1yr_monthly)}/mo • {fmt(prov.ri_1yr_annual)}/yr</span></div>
+                <div className="rec-config-row" style={{ color: '#16a34a', fontWeight: 500 }}><span>3-Year RI (75% off)</span><span>{fmt(prov.ri_3yr_monthly)}/mo • {fmt(prov.ri_3yr_annual)}/yr</span></div>
               </div>
             </div>
           </div>
@@ -2167,27 +2167,27 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
         <h3 className="rec-section-title"><TrendingUp size={18} /> 3-Year TCO Comparison (incl. migration costs)</h3>
         <div className="tco-bar-chart">
           <div className="tco-bar-item">
-            <div className="tco-bar-label-top">${fmt(cmp.bq_3yr_tco)}</div>
+            <div className="tco-bar-label-top">{fmt(cmp.bq_3yr_tco)}</div>
             <div className="tco-bar" style={{ height: `${Math.max((cmp.bq_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #ef4444, #f87171)' }}></div>
             <div className="tco-bar-label">BigQuery</div>
           </div>
           <div className="tco-bar-item">
-            <div className="tco-bar-label-top">${fmt(provOnDemand3yr)}</div>
+            <div className="tco-bar-label-top">{fmt(provOnDemand3yr)}</div>
             <div className="tco-bar" style={{ height: `${Math.max((provOnDemand3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #94a3b8, #cbd5e1)' }}></div>
             <div className="tco-bar-label">Provisioned<br/><span style={{ fontSize: '10px' }}>On-Demand</span></div>
           </div>
           <div className="tco-bar-item">
-            <div className="tco-bar-label-top">${fmt(provRI1yr3yr)}</div>
+            <div className="tco-bar-label-top">{fmt(provRI1yr3yr)}</div>
             <div className="tco-bar" style={{ height: `${Math.max((provRI1yr3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #3b82f6, #60a5fa)' }}></div>
             <div className="tco-bar-label">Provisioned<br/><span style={{ fontSize: '10px' }}>1-Year RI</span></div>
           </div>
           <div className="tco-bar-item">
-            <div className="tco-bar-label-top">${fmt(provRI3yr3yr)}</div>
+            <div className="tco-bar-label-top">{fmt(provRI3yr3yr)}</div>
             <div className="tco-bar" style={{ height: `${Math.max((provRI3yr3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #2563eb, #3b82f6)' }}></div>
             <div className="tco-bar-label">Provisioned<br/><span style={{ fontSize: '10px' }}>3-Year RI</span></div>
           </div>
           <div className="tco-bar-item">
-            <div className="tco-bar-label-top">${fmt(cmp.serverless_3yr_tco)}</div>
+            <div className="tco-bar-label-top">{fmt(cmp.serverless_3yr_tco)}</div>
             <div className="tco-bar" style={{ height: `${Math.max((cmp.serverless_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #22c55e, #4ade80)' }}></div>
             <div className="tco-bar-label">Serverless</div>
           </div>
