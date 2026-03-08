@@ -269,6 +269,14 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
           <Shield size={16} />
           <span>Security Policies</span>
         </button>
+        <button className="toc-item" onClick={() => setActiveTab('recommendations')}>
+          <TrendingUp size={16} />
+          <span>Recommendations</span>
+        </button>
+        <button className="toc-item" onClick={() => setActiveTab('tco')}>
+          <DollarSign size={16} />
+          <span>TCO Analysis</span>
+        </button>
       </div>
     </div>
     
