@@ -16,6 +16,8 @@ from datetime import datetime
 
 from database import get_db
 from services.bigquery_assessment_service import BigQueryAssessmentService
+from services.recommendation_engine import RecommendationEngine
+from services.tco_engine import TCOEngine
 from repositories.assessment_repository import AssessmentRepository
 from repositories.connection_repository import ConnectionRepository
 
@@ -74,6 +76,15 @@ class DatasetSummary(BaseModel):
 class AssessmentDetailResponse(BaseModel):
     assessment: AssessmentResponse
     datasets: List[DatasetSummary]
+
+
+@router.get("/tco/regions")
+async def get_tco_regions():
+    """
+    Get list of available AWS regions for TCO analysis.
+    """
+    tco_engine = TCOEngine()
+    return {'regions': tco_engine.get_available_regions()}
 
 
 @router.post("/", response_model=AssessmentResponse)
@@ -674,6 +685,170 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
         raise
     except Exception as e:
         print(f"Error getting assessment report: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/recommendations")
+async def get_assessment_recommendations(assessment_id: int, db: Session = Depends(get_db)):
+    """
+    Get Redshift configuration recommendations based on assessment data.
+    """
+    try:
+        assessment_repo = AssessmentRepository(db)
+
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        tables = assessment_repo.get_tables(assessment_id)
+        columns = assessment_repo.get_columns(assessment_id)
+        query_stats = assessment_repo.get_query_stats(assessment_id)
+        datasets = assessment_repo.get_datasets(assessment_id)
+
+        # Convert ORM objects to dicts
+        assessment_dict = {
+            'total_size_mb': assessment.total_size_mb or 0,
+            'total_tables': assessment.total_tables or 0,
+            'total_datasets': assessment.total_datasets or 0,
+        }
+        tables_list = [
+            {
+                'id': t.id,
+                'table_name': t.table_name,
+                'dataset_name': t.dataset_name,
+                'table_type': t.table_type,
+                'row_count': t.row_count or 0,
+                'size_mb': t.size_mb or 0,
+                'partitioning_columns': t.partitioning_columns or [],
+                'clustering_columns': t.clustering_columns or [],
+            }
+            for t in tables
+        ]
+        columns_list = [
+            {
+                'table_id': c.table_id,
+                'column_name': c.column_name,
+                'data_type': c.data_type,
+                'is_nullable': c.is_nullable,
+                'ordinal_position': c.ordinal_position,
+            }
+            for c in columns
+        ]
+        query_stats_list = [
+            {
+                'job_id': q.job_id,
+                'query_text': q.query_text,
+                'bytes_scanned': q.bytes_scanned or 0,
+                'slot_milliseconds': q.slot_milliseconds or 0,
+                'user_email': q.user_email,
+                'execution_time': q.execution_time.isoformat() if q.execution_time else None,
+            }
+            for q in query_stats
+        ]
+        datasets_list = [
+            {
+                'dataset_name': d.dataset_name,
+                'location': d.location,
+            }
+            for d in datasets
+        ]
+
+        engine = RecommendationEngine()
+        recommendations = engine.generate_recommendations(
+            assessment_dict, tables_list, columns_list, query_stats_list, datasets_list
+        )
+
+        return recommendations
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error generating recommendations: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/tco")
+async def get_assessment_tco(
+    assessment_id: int,
+    region: str = 'us-east-1',
+    db: Session = Depends(get_db)
+):
+    """
+    Get TCO analysis comparing BigQuery vs Redshift costs.
+    """
+    try:
+        assessment_repo = AssessmentRepository(db)
+
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        tables = assessment_repo.get_tables(assessment_id)
+        query_stats = assessment_repo.get_query_stats(assessment_id)
+
+        assessment_dict = {
+            'total_size_mb': assessment.total_size_mb or 0,
+        }
+        tables_list = [
+            {
+                'table_name': t.table_name,
+                'row_count': t.row_count or 0,
+                'size_mb': t.size_mb or 0,
+            }
+            for t in tables
+        ]
+        query_stats_list = [
+            {
+                'bytes_scanned': q.bytes_scanned or 0,
+                'slot_milliseconds': q.slot_milliseconds or 0,
+                'execution_time': q.execution_time.isoformat() if q.execution_time else None,
+                'query_text': q.query_text,
+                'user_email': q.user_email,
+            }
+            for q in query_stats
+        ]
+
+        # First get config recommendations (includes workload analysis)
+        columns = assessment_repo.get_columns(assessment_id)
+        datasets = assessment_repo.get_datasets(assessment_id)
+        columns_list = [
+            {'table_id': c.table_id, 'column_name': c.column_name, 'data_type': c.data_type}
+            for c in columns
+        ]
+        datasets_list = [{'dataset_name': d.dataset_name, 'location': d.location} for d in datasets]
+
+        rec_engine = RecommendationEngine()
+        recs = rec_engine.generate_recommendations(
+            assessment_dict,
+            [{'id': t.id, 'table_name': t.table_name, 'dataset_name': t.dataset_name,
+              'table_type': t.table_type, 'row_count': t.row_count or 0,
+              'partitioning_columns': t.partitioning_columns or [],
+              'clustering_columns': t.clustering_columns or []}
+             for t in tables],
+            columns_list, query_stats_list, datasets_list
+        )
+
+        provisioned_config = recs['config_recommendation']['provisioned']
+        serverless_config = recs['config_recommendation']['serverless']
+        workload_metrics = recs.get('workload_metrics', {})
+
+        tco_engine = TCOEngine()
+        tco = tco_engine.calculate_tco(
+            assessment_dict, tables_list, query_stats_list,
+            provisioned_config, serverless_config,
+            workload_metrics, region
+        )
+
+        return tco
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error calculating TCO: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

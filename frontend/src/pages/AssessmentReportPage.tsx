@@ -8,10 +8,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   FileSearch, ArrowLeft, Database, Table as TableIcon, Eye, Code, 
-  Brain, Activity, Shield, Users, TrendingUp, Lock 
+  Brain, Activity, Shield, Users, TrendingUp, Lock, DollarSign,
+  Server, Zap, Info, CheckCircle, ChevronRight
 } from 'lucide-react';
 import { Button, Badge } from '../components/ui';
-import { getAssessmentReport, AssessmentFullReport } from '../services/assessmentsApi';
+import { 
+  getAssessmentReport, AssessmentFullReport,
+  getAssessmentRecommendations, RecommendationsData,
+  getAssessmentTCO, TCOData,
+  getTCORegions, AWSRegion
+} from '../services/assessmentsApi';
 import './AssessmentReportPage.css';
 
 export const AssessmentReportPage: React.FC = () => {
@@ -130,6 +136,8 @@ export const AssessmentReportPage: React.FC = () => {
     { id: 'query-insights', label: 'Query Insights', icon: Activity },
     { id: 'user-insights', label: 'User Insights', icon: Users },
     { id: 'security', label: 'Security', icon: Shield },
+    { id: 'recommendations', label: 'Recommendations', icon: TrendingUp },
+    { id: 'tco', label: 'TCO Analysis', icon: DollarSign },
   ];
 
   return (
@@ -204,6 +212,12 @@ export const AssessmentReportPage: React.FC = () => {
             columns={report.columns}
             tables={report.tables}
           />
+        )}
+        {activeTab === 'recommendations' && (
+          <RecommendationsSection assessmentId={parseInt(assessmentId!)} />
+        )}
+        {activeTab === 'tco' && (
+          <TCOAnalysisSection assessmentId={parseInt(assessmentId!)} />
         )}
       </div>
     </div>
@@ -1805,6 +1819,363 @@ const ShardedTablesSection: React.FC<any> = ({ shardedTables, formatSize, format
           })}
         </div>
       )}
+    </div>
+  );
+};
+
+// Recommendations Section Component
+const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessmentId }) => {
+  const [data, setData] = useState<RecommendationsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const result = await getAssessmentRecommendations(assessmentId);
+        setData(result);
+      } catch (err: any) {
+        setError(err.detail || err.message || 'Failed to load recommendations');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [assessmentId]);
+
+  if (loading) return <div className="section-content"><div style={{ padding: '40px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }}></div><p style={{ marginTop: '16px', color: 'var(--color-text-secondary)' }}>Generating recommendations...</p></div></div>;
+  if (error || !data) return <div className="section-content"><p style={{ color: 'var(--color-error)', padding: '20px' }}>{error || 'No data'}</p></div>;
+
+  const { query_classification: qc, config_recommendation: cr, dist_sort_keys: dsk, architecture: arch } = data;
+  const recommended = cr.recommended;
+
+  return (
+    <div className="section-content">
+      <h2 className="section-heading">Migration Recommendations</h2>
+
+      {/* Redshift Configuration Comparison */}
+      <div className="rec-section">
+        <h3 className="rec-section-title"><Server size={18} /> Redshift Configuration Comparison</h3>
+        <div className="rec-config-grid">
+          {/* Provisioned Card */}
+          <div className={`rec-config-card ${recommended === 'provisioned' ? 'rec-config-recommended' : ''}`}>
+            {recommended === 'provisioned' && <div className="rec-badge">Recommended</div>}
+            <div className="rec-config-header">
+              <Server size={20} />
+              <span>Provisioned Cluster</span>
+            </div>
+            <div className="rec-config-details">
+              <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{cr.provisioned.node_type}</span></div>
+              <div className="rec-config-row"><span>Number of Nodes</span><span>{cr.provisioned.num_nodes}</span></div>
+              <div className="rec-config-row"><span>Total vCPU</span><span>{cr.provisioned.vcpu_total}</span></div>
+              <div className="rec-config-row"><span>Total Memory</span><span>{cr.provisioned.memory_gb_total} GB</span></div>
+              <div className="rec-config-row"><span>Storage Type</span><span>{cr.provisioned.storage_type}</span></div>
+            </div>
+            <div className="rec-config-usecase">
+              <Info size={14} /> {cr.provisioned.use_case}
+            </div>
+            <div className="rec-config-pros">
+              <div className="rec-pros-title">Best for:</div>
+              <ul>
+                <li>Steady, predictable workloads</li>
+                <li>Large datasets (&gt;500 GB)</li>
+                <li>Consistent performance SLAs</li>
+                <li>Reserved Instance pricing (up to 75% savings)</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Serverless Card */}
+          <div className={`rec-config-card ${recommended === 'serverless' ? 'rec-config-recommended' : ''}`}>
+            {recommended === 'serverless' && <div className="rec-badge">Recommended</div>}
+            <div className="rec-config-header">
+              <Zap size={20} />
+              <span>Serverless</span>
+            </div>
+            <div className="rec-config-details">
+              <div className="rec-config-row"><span>Base RPU</span><span>{cr.serverless.base_rpu}</span></div>
+              <div className="rec-config-row"><span>Max RPU</span><span>{cr.serverless.max_rpu}</span></div>
+              <div className="rec-config-row"><span>Est. Utilization</span><span>{cr.serverless.est_utilization_pct}%</span></div>
+            </div>
+            <div className="rec-config-usecase">
+              <Info size={14} /> Pay only for compute used — auto-scales based on workload
+            </div>
+            <div className="rec-config-pros">
+              <div className="rec-pros-title">Best for:</div>
+              <ul>
+                <li>Variable / unpredictable workloads</li>
+                <li>Small-medium datasets (&lt;500 GB)</li>
+                <li>Development & testing</li>
+                <li>Cost optimization for intermittent usage</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        {/* Recommendation Reasons */}
+        <div className="rec-reasons-box">
+          <div className="rec-reasons-title"><CheckCircle size={16} /> Why {recommended === 'serverless' ? 'Serverless' : 'Provisioned'}?</div>
+          <ul className="rec-reasons-list">
+            {cr.reasons.map((r, i) => <li key={i}>{r}</li>)}
+          </ul>
+        </div>
+
+        {/* Key Stats */}
+        <div className="rec-stats-row">
+          <div className="rec-stat"><span className="rec-stat-value">{cr.key_stats.total_data_volume_gb} GB</span><span className="rec-stat-label">Data Volume</span></div>
+          <div className="rec-stat"><span className="rec-stat-value">{cr.key_stats.total_rows.toLocaleString()}</span><span className="rec-stat-label">Total Rows</span></div>
+          <div className="rec-stat"><span className="rec-stat-value">{cr.key_stats.total_tables}</span><span className="rec-stat-label">Tables</span></div>
+          <div className="rec-stat"><span className="rec-stat-value">{cr.key_stats.total_queries_analyzed.toLocaleString()}</span><span className="rec-stat-label">Queries Analyzed</span></div>
+        </div>
+      </div>
+
+      {/* Distribution & Sort Key Recommendations */}
+      <div className="rec-section">
+        <h3 className="rec-section-title"><TableIcon size={18} /> Distribution & Sort Key Recommendations</h3>
+        {dsk.length === 0 ? (
+          <div className="empty-state-small"><p>No table-level recommendations available.</p></div>
+        ) : (
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Table</th>
+                  <th>DISTKEY</th>
+                  <th>SORTKEY</th>
+                  <th>Reasoning</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dsk.map((row, i) => (
+                  <tr key={i}>
+                    <td className="font-mono font-medium">{row.table_name}</td>
+                    <td><Badge variant={row.distkey === 'EVEN' ? 'default' : 'info'}>{row.distkey}</Badge></td>
+                    <td><Badge variant={row.sortkey === 'AUTO' ? 'default' : 'info'}>{row.sortkey}</Badge></td>
+                    <td>
+                      <ul className="rec-reasoning-list">
+                        {row.reasoning.map((r, j) => <li key={j}>{r}</li>)}
+                      </ul>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="rec-info-box" style={{ marginTop: 'var(--spacing-6)' }}>
+          <div className="rec-info-title"><Info size={16} /> Key Optimization Guidelines</div>
+          <ul className="rec-info-list">
+            <li>DISTKEY should be chosen based on JOIN columns with high cardinality for even data distribution across nodes.</li>
+            <li>SORTKEY should align with WHERE clause filters and ORDER BY columns — BigQuery partitioning/clustering columns are ideal candidates.</li>
+            <li>Tables with fewer than 1M rows use EVEN distribution (no skew benefit from KEY distribution).</li>
+            <li>Use COMPOUND sort keys when queries filter on multiple columns in a predictable order.</li>
+          </ul>
+        </div>
+      </div>
+
+      {/* Query Classification & Architecture */}
+      <div className="rec-section">
+        <h3 className="rec-section-title"><Activity size={18} /> Query Classification & Architecture</h3>
+        <div className="rec-cards-row">
+          <div className="rec-card rec-card-blue">
+            <div className="rec-card-icon"><Zap size={24} /></div>
+            <div className="rec-card-value">{qc.adhoc_count.toLocaleString()}</div>
+            <div className="rec-card-label">Ad-hoc Queries</div>
+            <div className="rec-card-pct">{qc.adhoc_pct}%</div>
+          </div>
+          <div className="rec-card rec-card-purple">
+            <div className="rec-card-icon"><TrendingUp size={24} /></div>
+            <div className="rec-card-value">{qc.bi_count.toLocaleString()}</div>
+            <div className="rec-card-label">BI / Scheduled Queries</div>
+            <div className="rec-card-pct">{qc.bi_pct}%</div>
+          </div>
+          <div className="rec-card rec-card-green">
+            <div className="rec-card-icon"><Activity size={24} /></div>
+            <div className="rec-card-value">{qc.total_queries.toLocaleString()}</div>
+            <div className="rec-card-label">Total Queries Analyzed</div>
+          </div>
+        </div>
+
+        {/* Architecture Recommendation */}
+        {arch.strategies.map((s, i) => (
+          <div key={i} className="rec-info-box">
+            <div className="rec-info-title"><Info size={16} /> {s.title}</div>
+            <ul className="rec-info-list">
+              {s.points.map((p, j) => <li key={j}>{p}</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// TCO Analysis Section Component
+const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }) => {
+  const [data, setData] = useState<TCOData | null>(null);
+  const [regions, setRegions] = useState<AWSRegion[]>([]);
+  const [selectedRegion, setSelectedRegion] = useState('us-east-1');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getTCORegions().then(r => setRegions(r.regions)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const result = await getAssessmentTCO(assessmentId, selectedRegion);
+        setData(result);
+      } catch (err: any) {
+        setError(err.detail || err.message || 'Failed to load TCO analysis');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [assessmentId, selectedRegion]);
+
+  const fmt = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  if (loading) return <div className="section-content"><div style={{ padding: '40px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }}></div><p style={{ marginTop: '16px', color: 'var(--color-text-secondary)' }}>Calculating TCO...</p></div></div>;
+  if (error || !data) return <div className="section-content"><p style={{ color: 'var(--color-error)', padding: '20px' }}>{error || 'No data'}</p></div>;
+
+  const { bigquery_costs: bq, provisioned_costs: prov, serverless_costs: svls, migration_costs: mig, comparison: cmp, cost_notes } = data;
+  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco) || 1;
+
+  return (
+    <div className="section-content">
+      <div className="tco-header-row">
+        <h2 className="section-heading" style={{ margin: 0 }}>TCO Analysis</h2>
+        <div className="tco-region-select">
+          <label>AWS Region:</label>
+          <select value={selectedRegion} onChange={e => setSelectedRegion(e.target.value)} className="filter-select">
+            {regions.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Cost Optimization Opportunity */}
+      <div className={`tco-savings-box ${cmp.savings_pct > 0 ? 'tco-savings-positive' : 'tco-savings-neutral'}`}>
+        <div className="tco-savings-icon"><DollarSign size={28} /></div>
+        <div className="tco-savings-content">
+          <div className="tco-savings-title">
+            {cmp.savings_pct > 0 ? `${cmp.savings_pct}% Cost Optimization Opportunity` : 'Cost Comparison'}
+          </div>
+          <div className="tco-savings-detail">
+            Current BigQuery 3-Year TCO: <strong>{fmt(cmp.bq_3yr_tco)}</strong> →{' '}
+            Best Redshift ({cmp.best_option}) 3-Year TCO: <strong>{fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.provisioned_3yr_tco)}</strong>
+            {cmp.savings_pct > 0 && <> — Potential savings: <strong>{fmt(cmp.savings_amount)}</strong></>}
+          </div>
+        </div>
+      </div>
+
+      {/* Current BigQuery Costs */}
+      <div className="tco-section">
+        <h3 className="rec-section-title"><Database size={18} /> Current BigQuery Costs (Extrapolated Monthly)</h3>
+        <div className="tco-cost-grid">
+          <div className="tco-cost-card">
+            <div className="tco-cost-label">Storage</div>
+            <div className="tco-cost-value">{fmt(bq.storage.monthly)}<span>/mo</span></div>
+            <div className="tco-cost-detail">{bq.storage.data_volume_gb} GB × ${bq.storage.rate_per_gb_month}/GB</div>
+          </div>
+          <div className="tco-cost-card">
+            <div className="tco-cost-label">Query ({(bq.query as any).pricing_model})</div>
+            <div className="tco-cost-value">{fmt(bq.query.monthly)}<span>/mo</span></div>
+            <div className="tco-cost-detail">
+              {(bq.query as any).monthly_tb_scanned} TB/mo scanned • {(bq.query as any).monthly_slot_hours} slot-hrs/mo
+            </div>
+          </div>
+          <div className="tco-cost-card tco-cost-total">
+            <div className="tco-cost-label">Total BigQuery</div>
+            <div className="tco-cost-value">{fmt(bq.monthly)}<span>/mo</span></div>
+            <div className="tco-cost-detail">{fmt(bq.annual)} / year</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Redshift Cost Comparison */}
+      <div className="tco-section">
+        <h3 className="rec-section-title"><Server size={18} /> Amazon Redshift Cost Comparison</h3>
+        <div className="rec-config-grid">
+          {/* Provisioned */}
+          <div className={`rec-config-card ${cmp.best_option === 'provisioned' ? 'rec-config-recommended' : ''}`}>
+            {cmp.best_option === 'provisioned' && <div className="rec-badge">Best Value</div>}
+            <div className="rec-config-header"><Server size={20} /><span>Provisioned (On-Demand)</span></div>
+            <div className="rec-config-details">
+              <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{prov.node_type}</span></div>
+              <div className="rec-config-row"><span>Nodes</span><span>{prov.num_nodes}</span></div>
+              <div className="rec-config-row"><span>Compute</span><span>{fmt(prov.compute_monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Storage</span><span>{fmt(prov.storage_monthly)}/mo</span></div>
+              <div className="rec-config-row rec-config-row-total"><span>On-Demand Total</span><span>{fmt(prov.monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Annual (On-Demand)</span><span>{fmt(prov.annual)}</span></div>
+              <div className="rec-config-row" style={{ color: 'var(--color-primary)' }}><span>1-Year RI (40% off)</span><span>{fmt(prov.ri_1yr_monthly)}/mo</span></div>
+              <div className="rec-config-row" style={{ color: 'var(--color-primary)' }}><span>3-Year RI (75% off)</span><span>{fmt(prov.ri_3yr_monthly)}/mo</span></div>
+            </div>
+          </div>
+          {/* Serverless */}
+          <div className={`rec-config-card ${cmp.best_option === 'serverless' ? 'rec-config-recommended' : ''}`}>
+            {cmp.best_option === 'serverless' && <div className="rec-badge">Best Value</div>}
+            <div className="rec-config-header"><Zap size={20} /><span>Serverless</span></div>
+            <div className="rec-config-details">
+              <div className="rec-config-row"><span>Base RPU</span><span>{svls.base_rpu}</span></div>
+              <div className="rec-config-row"><span>Max RPU</span><span>{svls.max_rpu}</span></div>
+              <div className="rec-config-row"><span>Est. RPU-hours/mo</span><span>{svls.est_rpu_hours_monthly?.toLocaleString()}</span></div>
+              <div className="rec-config-row"><span>RPU Rate</span><span>${svls.rpu_hour_rate}/RPU-hr</span></div>
+              <div className="rec-config-row"><span>Compute</span><span>{fmt(svls.compute_monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Storage</span><span>{fmt(svls.storage_monthly)}/mo</span></div>
+              <div className="rec-config-row rec-config-row-total"><span>Total</span><span>{fmt(svls.monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Annual</span><span>{fmt(svls.annual)}</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Migration Costs */}
+      <div className="tco-section">
+        <h3 className="rec-section-title"><ChevronRight size={18} /> One-Time Migration Costs</h3>
+        <div className="tco-cost-grid">
+          <div className="tco-cost-card">
+            <div className="tco-cost-label">Data Transfer (GCP → AWS)</div>
+            <div className="tco-cost-value">{fmt(mig.total)}</div>
+            <div className="tco-cost-detail">{mig.data_volume_gb} GB × ${mig.rate_per_gb}/GB egress</div>
+          </div>
+        </div>
+      </div>
+
+      {/* 3-Year TCO Comparison Bar Chart */}
+      <div className="tco-section">
+        <h3 className="rec-section-title"><TrendingUp size={18} /> 3-Year TCO Comparison (incl. migration costs)</h3>
+        <div className="tco-bar-chart">
+          <div className="tco-bar-item">
+            <div className="tco-bar-label-top">{fmt(cmp.bq_3yr_tco)}</div>
+            <div className="tco-bar" style={{ height: `${Math.max((cmp.bq_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #ef4444, #f87171)' }}></div>
+            <div className="tco-bar-label">BigQuery</div>
+          </div>
+          <div className="tco-bar-item">
+            <div className="tco-bar-label-top">{fmt(cmp.provisioned_3yr_tco)}</div>
+            <div className="tco-bar" style={{ height: `${Math.max((cmp.provisioned_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #3b82f6, #60a5fa)' }}></div>
+            <div className="tco-bar-label">Provisioned (On-Demand)</div>
+          </div>
+          <div className="tco-bar-item">
+            <div className="tco-bar-label-top">{fmt(cmp.serverless_3yr_tco)}</div>
+            <div className="tco-bar" style={{ height: `${Math.max((cmp.serverless_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #22c55e, #4ade80)' }}></div>
+            <div className="tco-bar-label">Serverless</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Cost Notes */}
+      <div className="rec-info-box">
+        <div className="rec-info-title"><Info size={16} /> Cost Analysis Notes</div>
+        <ul className="rec-info-list">
+          {cost_notes.map((n, i) => <li key={i}>{n}</li>)}
+        </ul>
+      </div>
     </div>
   );
 };
