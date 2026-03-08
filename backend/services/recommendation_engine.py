@@ -385,9 +385,10 @@ class RecommendationEngine:
         avg_vcpus_needed = monthly_vcpu_hours / 730 if monthly_vcpu_hours > 0 else 0
 
         # Select node type based on BOTH data size and compute needs
+        # For very light workloads, a single node is sufficient
         if size_gb < 50 and avg_vcpus_needed < 2:
             node_type = 'dc2.large'
-            min_nodes = 2
+            min_nodes = 1
         elif size_gb < 160 and avg_vcpus_needed < 4:
             node_type = 'dc2.large'
             min_nodes = 2
@@ -452,37 +453,42 @@ class RecommendationEngine:
 
         RPU sizing:
         - Base RPU: minimum RPUs always available (affects cold-start latency)
-        - Max RPU: upper limit for auto-scaling
+          AWS minimum is 4 RPU (since June 2025).
+        - Max RPU: upper limit for auto-scaling (up to 1024)
         - RPU-hours/month: estimated from BQ slot usage (not a flat %)
 
         BQ slots → RPU conversion:
         - 1 RPU ≈ 2 BQ slots in compute capacity
-        - Minimum 8 RPU (AWS minimum)
+        - Minimum 4 RPU (AWS hard minimum for Redshift Serverless)
         """
-        # Base RPU: sized for typical query complexity
         # Peak BQ slots → peak RPU needed
-        peak_rpu = max(8, math.ceil(peak_slots / 2 / 8) * 8)  # Round up to nearest 8
+        # 1 RPU ≈ 2 BQ slots, round up to nearest 4
+        peak_rpu = max(4, math.ceil(peak_slots / 2 / 4) * 4)
 
-        if size_gb < 50:
-            base_rpu = 8
-        elif size_gb < 200:
+        # Base RPU: AWS minimum is 4 RPU.
+        # For light workloads, 4 is sufficient.
+        # For heavier workloads, scale up based on peak concurrency.
+        if monthly_slot_hours < 100:
+            base_rpu = 4  # AWS minimum — ideal for light workloads
+        elif monthly_slot_hours < 500:
             base_rpu = max(8, min(peak_rpu, 16))
-        elif size_gb < 1000:
+        elif monthly_slot_hours < 2000:
             base_rpu = max(16, min(peak_rpu, 32))
         else:
             base_rpu = max(32, min(peak_rpu, 64))
 
-        # Max RPU: allow headroom for burst
-        max_rpu = max(base_rpu * 4, peak_rpu * 2, 32)
-        max_rpu = min(max_rpu, 512)  # AWS max
-        # Round to nearest 8
-        max_rpu = math.ceil(max_rpu / 8) * 8
+        # Max RPU: allow headroom for burst, but keep reasonable for light workloads
+        if monthly_slot_hours < 10:
+            max_rpu = 8  # Light workload — minimal burst needed
+        elif monthly_slot_hours < 100:
+            max_rpu = 16
+        else:
+            max_rpu = max(base_rpu * 4, peak_rpu * 2, 32)
+            max_rpu = min(max_rpu, 1024)  # AWS max (updated from 512)
+        # Round to nearest 4
+        max_rpu = math.ceil(max_rpu / 4) * 4
 
-        # Actual RPU-hours from BQ workload (not a flat percentage)
-        # rpu_hours_monthly comes from _analyze_workload
-        # Minimum: base_rpu * some minimum active hours (assume at least idle cost)
-        # Serverless charges only when queries run, but base RPU has a minimum
-        # If no queries, minimum cost = 0 (truly pay-per-use)
+        # Actual RPU-hours from BQ workload
         actual_rpu_hours = rpu_hours_monthly
 
         # Calculate effective utilization for display

@@ -9,7 +9,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { 
   FileSearch, ArrowLeft, Database, Table as TableIcon, Eye, Code, 
   Brain, Activity, Shield, Users, TrendingUp, Lock, DollarSign,
-  Server, Zap, Info, CheckCircle, ChevronRight
+  Zap, Info, CheckCircle, Server
 } from 'lucide-react';
 import { Button, Badge } from '../components/ui';
 import { 
@@ -1976,11 +1976,8 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
   if (loading) return <div className="section-content"><div style={{ padding: '40px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }}></div><p style={{ marginTop: '16px', color: 'var(--color-text-secondary)' }}>Calculating TCO...</p></div></div>;
   if (error || !data) return <div className="section-content"><p style={{ color: 'var(--color-error)', padding: '20px' }}>{error || 'No data'}</p></div>;
 
-  const { bigquery_costs: bq, provisioned_costs: prov, serverless_costs: svls, migration_costs: mig, comparison: cmp, cost_notes } = data;
-  const provOnDemand3yr = cmp.provisioned_3yr_ondemand || cmp.provisioned_3yr_tco;
-  const provRI1yr3yr = cmp.provisioned_3yr_ri1yr || cmp.provisioned_3yr_tco;
-  const provRI3yr3yr = cmp.provisioned_3yr_ri3yr || cmp.provisioned_3yr_tco;
-  const maxTCO = Math.max(cmp.bq_3yr_tco, provOnDemand3yr, cmp.serverless_3yr_tco) || 1;
+  const { bigquery_costs: bq, provisioned_costs: prov, serverless_costs: svls, migration_costs: mig, comparison: cmp } = data;
+  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco) || 1;
 
   return (
     <div className="section-content">
@@ -2002,10 +1999,8 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
             {cmp.savings_pct > 0 ? `${cmp.savings_pct}% Cost Optimization Opportunity` : 'Cost Comparison'}
           </div>
           <div className="tco-savings-detail">
-            Current BigQuery 3-Year TCO: <strong>{fmt(cmp.bq_3yr_tco)}</strong> →{' '}
-            Best Redshift ({cmp.best_option}) 3-Year TCO: <strong>{fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.provisioned_3yr_tco)}</strong>
-            {cmp.best_option === 'provisioned' && <span style={{ fontSize: '12px', opacity: 0.8 }}> (with 1-Year RI)</span>}
-            {cmp.savings_pct > 0 && <> — Potential savings: <strong>{fmt(cmp.savings_amount)}</strong></>}
+            BigQuery 3-Year: <strong>{fmt(cmp.bq_3yr_tco)}</strong> → Best Redshift ({cmp.best_option}): <strong>{fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.provisioned_3yr_tco)}</strong>
+            {cmp.savings_pct > 0 && <> — Savings: <strong>{fmt(cmp.savings_amount)}</strong></>}
           </div>
         </div>
       </div>
@@ -2018,33 +2013,31 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
         </div>
       )}
 
-      {/* Current BigQuery Costs */}
+      {/* Monthly Cost Summary */}
       <div className="tco-section">
-        <h3 className="rec-section-title"><Database size={18} /> Current BigQuery Costs (Extrapolated Monthly)</h3>
+        <h3 className="rec-section-title"><Database size={18} /> Monthly Cost Summary</h3>
         <div className="tco-cost-grid">
           <div className="tco-cost-card">
-            <div className="tco-cost-label">Storage</div>
-            <div className="tco-cost-value">{fmt(bq.storage.monthly)}<span>/mo</span></div>
-            <div className="tco-cost-detail">{bq.storage.data_volume_gb} GB × ${bq.storage.rate_per_gb_month}/GB</div>
+            <div className="tco-cost-label">BigQuery (Current)</div>
+            <div className="tco-cost-value">{fmt(bq.monthly)}<span>/mo</span></div>
+            <div className="tco-cost-detail">Storage {fmt(bq.storage.monthly)} + Query {fmt(bq.query.monthly)}</div>
           </div>
           <div className="tco-cost-card">
-            <div className="tco-cost-label">Query ({(bq.query as any).pricing_model})</div>
-            <div className="tco-cost-value">{fmt(bq.query.monthly)}<span>/mo</span></div>
-            <div className="tco-cost-detail">
-              {(bq.query as any).monthly_tb_scanned} TB/mo scanned • {(bq.query as any).monthly_slot_hours} slot-hrs/mo
-            </div>
+            <div className="tco-cost-label">Redshift Provisioned</div>
+            <div className="tco-cost-value">{fmt(prov.monthly)}<span>/mo</span></div>
+            <div className="tco-cost-detail">{prov.num_nodes}× {prov.node_type}</div>
           </div>
-          <div className="tco-cost-card tco-cost-total">
-            <div className="tco-cost-label">Total BigQuery</div>
-            <div className="tco-cost-value">{fmt(bq.monthly)}<span>/mo</span></div>
-            <div className="tco-cost-detail">{fmt(bq.annual)} / year</div>
+          <div className="tco-cost-card">
+            <div className="tco-cost-label">Redshift Serverless</div>
+            <div className="tco-cost-value">{fmt(svls.monthly)}<span>/mo</span></div>
+            <div className="tco-cost-detail">{svls.est_rpu_hours_monthly} RPU-hrs/mo</div>
           </div>
         </div>
       </div>
 
-      {/* Redshift Cost Comparison */}
+      {/* Redshift Cost Details */}
       <div className="tco-section">
-        <h3 className="rec-section-title"><Server size={18} /> Amazon Redshift Cost Comparison</h3>
+        <h3 className="rec-section-title"><Server size={18} /> Redshift Cost Details</h3>
         <div className="rec-config-grid">
           {/* Provisioned */}
           <div className={`rec-config-card ${cmp.best_option === 'provisioned' ? 'rec-config-recommended' : ''}`}>
@@ -2054,14 +2047,10 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
             <div className="rec-config-details">
               <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{prov.node_type}</span></div>
               <div className="rec-config-row"><span>Nodes</span><span>{prov.num_nodes}</span></div>
-              <div className="rec-config-row"><span>Compute (On-Demand)</span><span>{fmt(prov.compute_monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Compute</span><span>{fmt(prov.compute_monthly)}/mo</span></div>
               <div className="rec-config-row"><span>Storage</span><span>{fmt(prov.storage_monthly)}/mo</span></div>
-              <div className="rec-config-row rec-config-row-total"><span>On-Demand Total</span><span>{fmt(prov.monthly)}/mo</span></div>
-              <div className="rec-config-row"><span>Annual (On-Demand)</span><span>{fmt(prov.annual)}</span></div>
-              <div style={{ borderTop: '1px dashed var(--color-border)', margin: '8px 0', paddingTop: '8px' }}>
-                <div className="rec-config-row" style={{ color: '#2563eb', fontWeight: 500 }}><span>1-Year RI (40% off)</span><span>{fmt(prov.ri_1yr_monthly)}/mo • {fmt(prov.ri_1yr_annual)}/yr</span></div>
-                <div className="rec-config-row" style={{ color: '#16a34a', fontWeight: 500 }}><span>3-Year RI (75% off)</span><span>{fmt(prov.ri_3yr_monthly)}/mo • {fmt(prov.ri_3yr_annual)}/yr</span></div>
-              </div>
+              <div className="rec-config-row rec-config-row-total"><span>Total</span><span>{fmt(prov.monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Annual</span><span>{fmt(prov.annual)}</span></div>
             </div>
           </div>
           {/* Serverless */}
@@ -2069,7 +2058,7 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
             {cmp.best_option === 'serverless' && <div className="rec-badge">Best Value</div>}
             <div className="rec-config-header"><Zap size={20} /><span>Serverless</span></div>
             <div className="rec-config-details">
-              <div className="rec-config-row"><span>Base RPU</span><span>{svls.base_rpu}</span></div>
+              <div className="rec-config-row"><span>Base RPU</span><span>{svls.base_rpu} <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>(AWS min)</span></span></div>
               <div className="rec-config-row"><span>Max RPU</span><span>{svls.max_rpu}</span></div>
               <div className="rec-config-row"><span>Est. RPU-hours/mo</span><span>{svls.est_rpu_hours_monthly?.toLocaleString()}</span></div>
               <div className="rec-config-row"><span>RPU Rate</span><span>${svls.rpu_hour_rate}/RPU-hr</span></div>
@@ -2082,21 +2071,9 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
         </div>
       </div>
 
-      {/* Migration Costs */}
-      <div className="tco-section">
-        <h3 className="rec-section-title"><ChevronRight size={18} /> One-Time Migration Costs</h3>
-        <div className="tco-cost-grid">
-          <div className="tco-cost-card">
-            <div className="tco-cost-label">Data Transfer (GCP → AWS)</div>
-            <div className="tco-cost-value">{fmt(mig.total)}</div>
-            <div className="tco-cost-detail">{mig.data_volume_gb} GB × ${mig.rate_per_gb}/GB egress</div>
-          </div>
-        </div>
-      </div>
-
       {/* 3-Year TCO Comparison Bar Chart */}
       <div className="tco-section">
-        <h3 className="rec-section-title"><TrendingUp size={18} /> 3-Year TCO Comparison (incl. migration costs)</h3>
+        <h3 className="rec-section-title"><TrendingUp size={18} /> 3-Year TCO Comparison</h3>
         <div className="tco-bar-chart">
           <div className="tco-bar-item">
             <div className="tco-bar-label-top">{fmt(cmp.bq_3yr_tco)}</div>
@@ -2104,19 +2081,9 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
             <div className="tco-bar-label">BigQuery</div>
           </div>
           <div className="tco-bar-item">
-            <div className="tco-bar-label-top">{fmt(provOnDemand3yr)}</div>
-            <div className="tco-bar" style={{ height: `${Math.max((provOnDemand3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #94a3b8, #cbd5e1)' }}></div>
-            <div className="tco-bar-label">Provisioned<br/><span style={{ fontSize: '10px' }}>On-Demand</span></div>
-          </div>
-          <div className="tco-bar-item">
-            <div className="tco-bar-label-top">{fmt(provRI1yr3yr)}</div>
-            <div className="tco-bar" style={{ height: `${Math.max((provRI1yr3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #3b82f6, #60a5fa)' }}></div>
-            <div className="tco-bar-label">Provisioned<br/><span style={{ fontSize: '10px' }}>1-Year RI</span></div>
-          </div>
-          <div className="tco-bar-item">
-            <div className="tco-bar-label-top">{fmt(provRI3yr3yr)}</div>
-            <div className="tco-bar" style={{ height: `${Math.max((provRI3yr3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #2563eb, #3b82f6)' }}></div>
-            <div className="tco-bar-label">Provisioned<br/><span style={{ fontSize: '10px' }}>3-Year RI</span></div>
+            <div className="tco-bar-label-top">{fmt(cmp.provisioned_3yr_tco)}</div>
+            <div className="tco-bar" style={{ height: `${Math.max((cmp.provisioned_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #3b82f6, #60a5fa)' }}></div>
+            <div className="tco-bar-label">Provisioned</div>
           </div>
           <div className="tco-bar-item">
             <div className="tco-bar-label-top">{fmt(cmp.serverless_3yr_tco)}</div>
@@ -2126,12 +2093,12 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
         </div>
       </div>
 
-      {/* Cost Notes */}
+      {/* Migration Cost */}
       <div className="rec-info-box">
-        <div className="rec-info-title"><Info size={16} /> Cost Analysis Notes</div>
-        <ul className="rec-info-list">
-          {cost_notes.map((n, i) => <li key={i}>{n}</li>)}
-        </ul>
+        <div className="rec-info-title"><Info size={16} /> Migration Cost</div>
+        <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+          One-time data transfer (GCP → AWS): <strong>{fmt(mig.total)}</strong> ({mig.data_volume_gb} GB). Included in Redshift 3-year totals above.
+        </p>
       </div>
     </div>
   );
