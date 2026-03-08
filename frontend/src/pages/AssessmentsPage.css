@@ -152,6 +152,17 @@
   color: #000000;
 }
 
+.assessment-name-link {
+  cursor: pointer;
+  color: #2563eb;
+  transition: color 0.15s;
+}
+
+.assessment-name-link:hover {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+
 .project-id-cell {
   display: flex;
   align-items: center;

@@ -269,7 +269,17 @@ export const AssessmentsPage: React.FC = () => {
                   <td>
                     <div className="assessment-name-cell">
                       <FileSearch size={16} style={{ color: '#66748C', flexShrink: 0 }} />
-                      <span className="assessment-name">{assessment.name}</span>
+                      {assessment.status === 'completed' ? (
+                        <span 
+                          className="assessment-name assessment-name-link"
+                          onClick={() => handleViewReport(assessment.id)}
+                          title="Click to view report"
+                        >
+                          {assessment.name}
+                        </span>
+                      ) : (
+                        <span className="assessment-name">{assessment.name}</span>
+                      )}
                     </div>
                   </td>
                   <td>{getStatusBadge(assessment.status)}</td>
