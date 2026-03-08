@@ -272,16 +272,10 @@ class TCOEngine:
         migration_costs = self._calculate_migration_costs(total_size_gb)
 
         # 5. 3-year TCO comparison
-        # Use RI pricing for provisioned 3-year comparison (nobody runs on-demand for 3 years)
-        # 3-year all-upfront RI is the fairest comparison for a 3-year TCO
+        # Use on-demand pricing for provisioned (consistent with detail card display)
         bq_3yr = bq_costs['annual'] * 3
-        prov_3yr_ondemand = provisioned_costs['annual'] * 3 + migration_costs['total']
-        prov_3yr_ri1yr = provisioned_costs['ri_1yr_annual'] * 3 + migration_costs['total']
-        prov_3yr_ri3yr = provisioned_costs['ri_3yr_annual'] * 3 + migration_costs['total']
+        prov_3yr = provisioned_costs['annual'] * 3 + migration_costs['total']
         svls_3yr = serverless_costs['annual'] * 3 + migration_costs['total']
-
-        # For the headline comparison, use 1-year RI (most common commitment level)
-        prov_3yr = prov_3yr_ri1yr
 
         # Check if provisioned is overkill for light workloads
         provisioned_viable = True
@@ -309,9 +303,6 @@ class TCOEngine:
             'comparison': {
                 'bq_3yr_tco': round(bq_3yr, 2),
                 'provisioned_3yr_tco': round(prov_3yr, 2),
-                'provisioned_3yr_ondemand': round(prov_3yr_ondemand, 2),
-                'provisioned_3yr_ri1yr': round(prov_3yr_ri1yr, 2),
-                'provisioned_3yr_ri3yr': round(prov_3yr_ri3yr, 2),
                 'serverless_3yr_tco': round(svls_3yr, 2),
                 'best_option': best_redshift,
                 'savings_amount': round(savings, 2),
