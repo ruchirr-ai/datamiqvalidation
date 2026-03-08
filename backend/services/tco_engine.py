@@ -272,12 +272,30 @@ class TCOEngine:
         migration_costs = self._calculate_migration_costs(total_size_gb)
 
         # 5. 3-year TCO comparison
+        # Use RI pricing for provisioned 3-year comparison (nobody runs on-demand for 3 years)
+        # 3-year all-upfront RI is the fairest comparison for a 3-year TCO
         bq_3yr = bq_costs['annual'] * 3
-        prov_3yr = provisioned_costs['annual'] * 3 + migration_costs['total']
+        prov_3yr_ondemand = provisioned_costs['annual'] * 3 + migration_costs['total']
+        prov_3yr_ri1yr = provisioned_costs['ri_1yr_annual'] * 3 + migration_costs['total']
+        prov_3yr_ri3yr = provisioned_costs['ri_3yr_annual'] * 3 + migration_costs['total']
         svls_3yr = serverless_costs['annual'] * 3 + migration_costs['total']
 
-        best_redshift = 'serverless' if svls_3yr < prov_3yr else 'provisioned'
-        best_redshift_3yr = min(svls_3yr, prov_3yr)
+        # For the headline comparison, use 1-year RI (most common commitment level)
+        prov_3yr = prov_3yr_ri1yr
+
+        # Check if provisioned is overkill for light workloads
+        provisioned_viable = True
+        provisioned_note = None
+        if monthly_slot_hours < 10:
+            provisioned_viable = False
+            provisioned_note = (
+                'Provisioned cluster is not recommended for this workload. '
+                f'With only {monthly_slot_hours:.1f} slot-hours/month, a 24/7 cluster would be idle >99% of the time. '
+                'Serverless pay-per-query is significantly more cost-effective.'
+            )
+
+        best_redshift = 'serverless' if (svls_3yr < prov_3yr or not provisioned_viable) else 'provisioned'
+        best_redshift_3yr = svls_3yr if best_redshift == 'serverless' else prov_3yr
         savings = bq_3yr - best_redshift_3yr
         savings_pct = (savings / bq_3yr * 100) if bq_3yr > 0 else 0
 
@@ -291,10 +309,15 @@ class TCOEngine:
             'comparison': {
                 'bq_3yr_tco': round(bq_3yr, 2),
                 'provisioned_3yr_tco': round(prov_3yr, 2),
+                'provisioned_3yr_ondemand': round(prov_3yr_ondemand, 2),
+                'provisioned_3yr_ri1yr': round(prov_3yr_ri1yr, 2),
+                'provisioned_3yr_ri3yr': round(prov_3yr_ri3yr, 2),
                 'serverless_3yr_tco': round(svls_3yr, 2),
                 'best_option': best_redshift,
                 'savings_amount': round(savings, 2),
                 'savings_pct': round(savings_pct, 1),
+                'provisioned_viable': provisioned_viable,
+                'provisioned_note': provisioned_note,
             },
             'workload_summary': {
                 'query_time_span_days': round(query_time_span_days, 1),
@@ -481,14 +504,15 @@ class TCOEngine:
             f'BigQuery costs extrapolated from {query_span_days:.0f} days of captured query data to monthly estimates.',
             f'BQ query cost uses the higher of On-Demand (${BQ_QUERY_ON_DEMAND_PER_TB}/TB) or Editions (${BQ_EDITIONS_STANDARD_PER_SLOT_HOUR}/slot-hour) pricing.',
             f'BQ monthly compute: {monthly_slot_hours:.1f} slot-hours/month estimated from INFORMATION_SCHEMA.JOBS.',
-            f'Redshift Provisioned: {num_nodes}× {node_type} at 24/7 on-demand pricing. RI pricing can reduce by 40-75%.',
+            f'Redshift Provisioned 3-year TCO uses 1-Year RI pricing (40% discount). On-demand and 3-Year RI (75% discount) also shown for comparison.',
             f'Redshift Serverless: {svls.get("est_rpu_hours_monthly", 0):.1f} RPU-hours/month derived from BQ slot usage (1 RPU ≈ 2 BQ slots).',
             f'Data transfer cost (${migration["total"]:.2f}) is a one-time GCP egress expense included in Redshift 3-year TCO.',
             f'Pricing for region: {region} ({pricing["label"]}).',
         ]
         if monthly_slot_hours < 10:
             notes.append(
-                'Note: Very low BQ compute detected. If the assessment captured only a subset of queries, '
-                'actual costs may be higher. Consider re-running the assessment with a longer query window.'
+                '⚠️ Very low BQ compute detected. Provisioned cluster would be idle >99% of the time — '
+                'Serverless is strongly recommended. If the assessment captured only a subset of queries, '
+                'actual costs may be higher.'
             )
         return notes

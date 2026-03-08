@@ -341,10 +341,15 @@ export interface ServerlessCosts extends TCOCostBreakdown {
 export interface TCOComparison {
   bq_3yr_tco: number;
   provisioned_3yr_tco: number;
+  provisioned_3yr_ondemand?: number;
+  provisioned_3yr_ri1yr?: number;
+  provisioned_3yr_ri3yr?: number;
   serverless_3yr_tco: number;
   best_option: string;
   savings_amount: number;
   savings_pct: number;
+  provisioned_viable?: boolean;
+  provisioned_note?: string | null;
 }
 
 export interface TCOData {
