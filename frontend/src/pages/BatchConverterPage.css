@@ -1,0 +1,820 @@
+/* Batch Converter Page — Wizard-style multi-step flow */
+
+.batch-converter-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* --- Header --- */
+.batch-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.batch-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.batch-title svg {
+  flex-shrink: 0;
+}
+
+.batch-subtitle {
+  font-size: var(--font-size-base);
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+/* --- Step Indicator --- */
+.step-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 20px 24px;
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.step-circle-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: default;
+}
+
+.step-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  border: 2px solid var(--color-divider);
+  background: var(--color-bg-surface);
+  color: var(--color-text-disabled);
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.step-circle.active {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.step-circle.completed {
+  border-color: var(--color-success);
+  background: var(--color-success);
+  color: #fff;
+}
+
+.step-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-disabled);
+  white-space: nowrap;
+}
+
+.step-label.active {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.step-label.completed {
+  color: var(--color-success);
+}
+
+.step-connector {
+  width: 48px;
+  height: 2px;
+  background: var(--color-divider);
+  margin: 0 8px;
+  flex-shrink: 0;
+}
+
+.step-connector.completed {
+  background: var(--color-success);
+}
+
+/* --- Wizard Content Card --- */
+.wizard-content-card {
+  padding: 24px;
+}
+
+/* --- Step 2: Configuration --- */
+.batch-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.batch-config-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: end;
+}
+
+.batch-config-row--three {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.batch-config-row--actions {
+  grid-template-columns: 140px 1fr;
+}
+
+.batch-config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.batch-config-field--small {
+  max-width: 140px;
+}
+
+.batch-config-field--toggle {
+  display: flex;
+  align-items: center;
+}
+
+/* --- SQLGlot toggle wrapper for batch page --- */
+.batch-config-field--toggle .sqlglot-toggle-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-bg-secondary, #F7F7F7);
+  border: 1px solid var(--color-divider, #E5E7EB);
+  border-radius: var(--radius-md, 8px);
+  padding: 8px 14px;
+}
+
+.batch-config-field--toggle .sqlglot-info-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  cursor: help;
+  color: var(--color-text-secondary);
+  flex-shrink: 0;
+}
+
+.batch-config-field--toggle .sqlglot-info-icon:hover,
+.batch-config-field--toggle .sqlglot-info-icon:focus {
+  color: var(--color-primary);
+}
+
+.batch-config-field--toggle .sqlglot-info-icon .sqlglot-tooltip {
+  display: none;
+}
+
+.batch-config-field--toggle .sqlglot-info-icon:hover .sqlglot-tooltip {
+  display: block;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 280px;
+  padding: 10px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm, 0 2px 8px rgba(0, 0, 0, 0.15));
+  z-index: 100;
+  pointer-events: none;
+  white-space: normal;
+}
+
+/* --- Step 1: Assessment Picker --- */
+
+.asset-selection-step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.assessment-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.assessment-picker-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin: 4px 0 0;
+}
+
+/* --- Asset Name Editor (Req 2.2) --- */
+.asset-name-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-divider);
+}
+
+.asset-name-editor-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.asset-name-editor-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.asset-name-editor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.asset-name-editor-row {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.asset-name-editor-type {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  text-transform: capitalize;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.asset-name-editor-input {
+  height: 32px;
+  padding: 0 10px;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family);
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.asset-name-editor-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+/* --- Step 2: Configuration Form --- */
+
+.batch-config-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.batch-config-select,
+.batch-config-input {
+  height: 36px;
+  padding: 0 12px;
+  font-size: var(--font-size-base);
+  font-family: var(--font-family);
+  color: var(--color-text-primary);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.batch-config-select:focus,
+.batch-config-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+.batch-config-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.batch-config-input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+.batch-config-input:read-only {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  cursor: default;
+}
+
+.batch-config-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+/* --- Step 3: Review & Confirm --- */
+.review-section {
+  margin-bottom: 20px;
+}
+
+.review-section:last-child {
+  margin-bottom: 0;
+}
+
+.review-section-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.review-assets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.review-asset-type-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-divider);
+}
+
+.review-asset-type-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.review-asset-type-count {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+  background: var(--color-hover-bg);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.review-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.review-config-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-divider);
+}
+
+.review-config-key {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.review-config-value {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+  word-break: break-all;
+}
+
+/* --- Wizard Navigation --- */
+.wizard-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-divider);
+  margin-top: 24px;
+}
+
+.wizard-nav-left,
+.wizard-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* --- Placeholder steps (4 & 5) — replaced with real styles --- */
+
+/* --- Step 4: Progress Monitoring --- */
+.progress-step {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.progress-bar-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progress-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.progress-bar-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.progress-bar-pct {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.progress-bar-track {
+  width: 100%;
+  height: 8px;
+  background: var(--color-bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: var(--color-primary);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.progress-bar-fill.has-errors {
+  background: var(--color-warning);
+}
+
+.progress-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.progress-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 12px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-divider);
+}
+
+.progress-stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.progress-stat--success .progress-stat-value {
+  color: var(--color-success);
+}
+
+.progress-stat--error .progress-stat-value {
+  color: var(--color-error);
+}
+
+.progress-stat-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.progress-current {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--color-hover-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-divider);
+  font-size: var(--font-size-sm);
+}
+
+.progress-current-label {
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-medium);
+}
+
+.progress-current-name {
+  color: var(--color-text-primary);
+  font-family: var(--font-family-code);
+  font-weight: 500;
+}
+
+.progress-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.progress-errors-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-error);
+  margin: 0;
+}
+
+.progress-errors-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progress-error-item {
+  padding: 10px 14px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-divider);
+  border-left: 3px solid var(--color-error);
+  border-radius: var(--radius-sm);
+}
+
+.progress-error-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.progress-error-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-code);
+}
+
+.progress-error-msg {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* --- Step 5: Summary --- */
+.summary-step {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.summary-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.summary-new-conversion {
+  display: flex;
+  align-items: center;
+}
+
+.summary-title {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.summary-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 12px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-divider);
+}
+
+.summary-stat-value {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.summary-stat--success .summary-stat-value {
+  color: var(--color-success);
+}
+
+.summary-stat--error .summary-stat-value {
+  color: var(--color-error);
+}
+
+.summary-stat-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summary-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.summary-section-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* S3 export form */
+.s3-export-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 14px 16px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-divider);
+}
+
+.s3-export-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.s3-export-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.s3-export-input {
+  flex: 1;
+}
+
+.s3-export-region {
+  width: 130px;
+  flex-shrink: 0;
+}
+
+.s3-export-alert {
+  margin-top: 4px;
+}
+
+/* Submit error */
+.submit-error-alert {
+  margin-top: 12px;
+}
+
+/* Deploy result */
+.deploy-assets-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.deploy-failed-asset {
+  font-size: var(--font-size-sm);
+  color: var(--color-error);
+  margin: 4px 0 0 0;
+}
+
+/* --- Responsive --- */
+@media (max-width: 1023px) {
+  .batch-config-row,
+  .batch-config-row--three {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .review-config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .step-label {
+    display: none;
+  }
+
+  .step-connector {
+    width: 24px;
+  }
+
+  .s3-export-row {
+    flex-wrap: wrap;
+  }
+
+  .s3-export-region {
+    width: 100%;
+  }
+}
+
+@media (max-width: 767px) {
+  .batch-converter-page {
+    padding: 16px;
+  }
+
+  .batch-config-row,
+  .batch-config-row--three,
+  .batch-config-row--actions {
+    grid-template-columns: 1fr;
+  }
+
+  .review-assets-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .step-connector {
+    width: 16px;
+    margin: 0 4px;
+  }
+
+  .wizard-nav {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .wizard-nav-left,
+  .wizard-nav-right {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .progress-stats,
+  .summary-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .s3-export-row {
+    flex-direction: column;
+  }
+
+  .s3-export-region {
+    width: 100%;
+  }
+}

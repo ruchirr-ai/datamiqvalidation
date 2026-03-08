@@ -165,11 +165,13 @@ export const bqRedshiftApi = {
    */
   async getMigration(id: number): Promise<Migration> {
     const response = await fetch(`${API_BASE}/${id}`, {
+      method: 'GET',
       headers: getAuthHeaders()
     });
     
     if (!response.ok) {
-      throw new Error('Failed to fetch migration');
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to get migration');
     }
     
     return response.json();
@@ -188,23 +190,6 @@ export const bqRedshiftApi = {
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.detail || 'Failed to create migration');
-    }
-    
-    return response.json();
-  },
-
-  /**
-   * Get migration by ID
-   */
-  async getMigration(id: number): Promise<Migration> {
-    const response = await fetch(`${API_BASE}/${id}`, {
-      method: 'GET',
-      headers: getAuthHeaders()
-    });
-    
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.detail || 'Failed to get migration');
     }
     
     return response.json();

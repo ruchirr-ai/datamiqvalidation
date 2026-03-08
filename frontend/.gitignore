@@ -27,3 +27,7 @@ dist-ssr
 .env
 .env.local
 .env.production
+
+#coworker_version
+coworker_version1
+coworker_version2

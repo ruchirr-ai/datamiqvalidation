@@ -1,0 +1,112 @@
+/* AssetSelector — Grouped checkbox list for asset selection */
+
+.asset-selector {
+  display: flex;
+  flex-direction: column;
+}
+
+.asset-selection-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-base);
+}
+
+.asset-group {
+  margin-bottom: 20px;
+}
+
+.asset-group:last-child {
+  margin-bottom: 0;
+}
+
+.asset-group-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-divider);
+  margin-bottom: 8px;
+}
+
+.asset-group-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.asset-group-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.asset-group-count {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.asset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.asset-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 28px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.asset-item:hover {
+  background: var(--color-hover-bg);
+}
+
+.asset-item label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  flex: 1;
+}
+
+.asset-item input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.asset-name {
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-sm);
+}
+
+.asset-selection-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  margin-top: 16px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.asset-selection-summary strong {
+  color: var(--color-text-primary);
+}

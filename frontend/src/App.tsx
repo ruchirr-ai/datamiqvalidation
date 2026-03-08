@@ -22,6 +22,10 @@ import { BQRedshiftMigrationsPage } from './pages/migrations/BQRedshiftMigration
 import { CreateMigrationWizard } from './components/migrations/CreateMigrationWizard';
 import { PathwayATestPage } from './pages/PathwayATestPage';
 import { BQExportTestPage } from './pages/BQExportTestPage';
+import { StandaloneConverterPage } from './pages/StandaloneConverterPage';
+import { BatchConverterPage } from './pages/BatchConverterPage';
+import { CopyHistoryPage } from './pages/CopyHistoryPage';
+import { TaskHistoryPage } from './pages/TaskHistoryPage';
 import './styles/global.css';
 
 // Navigation items configuration
@@ -60,6 +64,19 @@ const navigationItems = [
       </svg>
     ),
     path: '/migrations',
+    requiredRole: 'member'
+  },
+  {
+    id: 'converter',
+    label: 'Code Converter',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M7 5L3 10L7 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M13 5L17 10L13 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M12 3L8 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      </svg>
+    ),
+    path: '/converter',
     requiredRole: 'member'
   },
   {
@@ -160,6 +177,10 @@ const AppContent: React.FC = () => {
                   <Route path="/migrations/create" element={<CreateMigrationWizard />} />
                   <Route path="/migrations/pathway-a-test" element={<PathwayATestPage />} />
                   <Route path="/migrations/bq-export-test" element={<BQExportTestPage />} />
+                  <Route path="/converter" element={<StandaloneConverterPage />} />
+                  <Route path="/converter/batch" element={<BatchConverterPage />} />
+                  <Route path="/monitoring/copy-history" element={<CopyHistoryPage />} />
+                  <Route path="/monitoring/task-history" element={<TaskHistoryPage />} />
                   <Route path="/jobs" element={<JobsPage />} />
                   <Route
                     path="/administration"

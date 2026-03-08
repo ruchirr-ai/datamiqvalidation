@@ -1,0 +1,152 @@
+/* Batch History Table */
+
+.batch-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.batch-history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+
+.batch-history__title {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-history__count {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-secondary);
+}
+
+/* Table */
+.batch-history__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.batch-history__table thead {
+  border-top: 1px solid var(--color-divider);
+}
+
+.batch-history__table th {
+  padding: 10px 20px;
+  text-align: left;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-divider);
+  white-space: nowrap;
+}
+
+.batch-history__table td {
+  padding: 10px 20px;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-divider);
+  vertical-align: middle;
+}
+
+.batch-history__table tbody tr {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.batch-history__table tbody tr:hover {
+  background: var(--color-hover-bg);
+}
+
+.batch-history__table tbody tr.batch-history__row--selected {
+  background: var(--color-selected-bg);
+}
+
+/* Batch ID */
+.batch-history__batch-id {
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-family-code);
+  font-size: var(--font-size-sm);
+}
+
+/* Project name */
+.batch-history__project {
+  font-weight: var(--font-weight-medium);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-history__project--empty {
+  color: var(--color-text-disabled);
+}
+
+/* Count cells */
+.batch-history__count-cell {
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.batch-history__count-cell--success {
+  color: var(--color-success);
+}
+
+.batch-history__count-cell--error {
+  color: var(--color-error);
+}
+
+/* Date */
+.batch-history__date {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+/* Empty state */
+.batch-history__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+/* Responsive */
+@media (max-width: 1023px) {
+  .batch-history__table th:nth-child(2),
+  .batch-history__table td:nth-child(2) {
+    display: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .batch-history__table th,
+  .batch-history__table td {
+    padding: 8px 12px;
+  }
+
+  .batch-history__header {
+    padding: 12px 12px;
+  }
+
+  .batch-history__table th:nth-child(5),
+  .batch-history__table td:nth-child(5),
+  .batch-history__table th:nth-child(6),
+  .batch-history__table td:nth-child(6) {
+    display: none;
+  }
+}

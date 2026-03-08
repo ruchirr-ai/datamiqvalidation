@@ -26,7 +26,7 @@ def get_history_service(db: Session = Depends(get_db)) -> HistoryService:
 
 # Copy History Endpoints
 
-@router.get("/copy-history")
+@router.get("/copy-history/list")
 async def list_copy_history(
     migration_id: Optional[int] = None,
     status: Optional[str] = None,
@@ -99,7 +99,7 @@ async def get_copy_history_detail(
 
 # Task History Endpoints
 
-@router.get("/task-history")
+@router.get("/task-history/list")
 async def list_task_history(
     migration_id: Optional[int] = None,
     status: Optional[str] = None,
