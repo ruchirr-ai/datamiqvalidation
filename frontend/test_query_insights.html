@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Query Insights Test</title>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #E5E7EB;
+            border-radius: 8px;
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background: #D1FAE5;
+            color: #065F46;
+        }
+        .error {
+            background: #FEE2E2;
+            color: #991B1B;
+        }
+        .warning {
+            background: #FEF3C7;
+            color: #92400E;
+        }
+        button {
+            padding: 10px 20px;
+            background: #2A6BDB;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #1E4FA0;
+        }
+        pre {
+            background: #F7F7F7;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Query Insights & User Insights Test</h1>
+    <p>This page tests the Query Insights and User Insights functionality with sample data.</p>
+
+    <div class="test-section">
+        <h2>Test Configuration</h2>
+        <label>
+            Assessment ID: 
+            <input type="number" id="assessmentId" value="1" style="padding: 5px; margin-left: 10px;">
+        </label>
+        <button onclick="runTests()" style="margin-left: 10px;">Run Tests</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Test Results</h2>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+
+        async function runTests() {
+            const assessmentId = document.getElementById('assessmentId').value;
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p>Running tests...</p>';
+
+            const results = [];
+
+            // Test 1: Fetch assessment report
+            try {
+                const response = await fetch(`${API_BASE}/api/assessments/${assessmentId}/report`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const data = await response.json();
+                
+                results.push({
+                    test: 'Fetch Assessment Report',
+                    status: 'success',
+                    message: `Successfully fetched report for assessment ${assessmentId}`
+                });
+
+                // Test 2: Check query_stats array
+                if (!data.query_stats) {
+                    results.push({
+                        test: 'Query Stats Array',
+                        status: 'error',
+                        message: 'query_stats array is missing from response'
+                    });
+                } else if (data.query_stats.length === 0) {
+                    results.push({
+                        test: 'Query Stats Array',
+                        status: 'warning',
+                        message: 'query_stats array is empty - no query statistics collected'
+                    });
+                } else {
+                    results.push({
+                        test: 'Query Stats Array',
+                        status: 'success',
+                        message: `Found ${data.query_stats.length} query statistics`
+                    });
+
+                    // Test 3: Check query_stats structure
+                    const sample = data.query_stats[0];
+                    const requiredFields = ['job_id', 'execution_time', 'bytes_scanned', 'slot_milliseconds', 'cache_hit', 'user_email'];
+                    const missingFields = requiredFields.filter(field => !(field in sample));
+                    
+                    if (missingFields.length > 0) {
+                        results.push({
+                            test: 'Query Stats Structure',
+                            status: 'error',
+                            message: `Missing fields: ${missingFields.join(', ')}`
+                        });
+                    } else {
+                        results.push({
+                            test: 'Query Stats Structure',
+                            status: 'success',
+                            message: 'All required fields present'
+                        });
+                    }
+
+                    // Test 4: Check unique users
+                    const uniqueUsers = new Set(data.query_stats.map(q => q.user_email).filter(Boolean));
+                    results.push({
+                        test: 'Unique Users',
+                        status: uniqueUsers.size > 0 ? 'success' : 'warning',
+                        message: `Found ${uniqueUsers.size} unique users: ${Array.from(uniqueUsers).join(', ')}`
+                    });
+
+                    // Test 5: Check time range
+                    const times = data.query_stats
+                        .map(q => q.execution_time)
+                        .filter(Boolean)
+                        .map(t => new Date(t));
+                    
+                    if (times.length > 0) {
+                        const minTime = new Date(Math.min(...times));
+                        const maxTime = new Date(Math.max(...times));
+                        const daysDiff = Math.ceil((maxTime - minTime) / (1000 * 60 * 60 * 24));
+                        
+                        results.push({
+                            test: 'Time Range',
+                            status: 'success',
+                            message: `Query history spans ${daysDiff} days (${minTime.toLocaleDateString()} to ${maxTime.toLocaleDateString()})`
+                        });
+                    }
+
+                    // Test 6: Sample data
+                    results.push({
+                        test: 'Sample Query Data',
+                        status: 'success',
+                        message: `<pre>${JSON.stringify(sample, null, 2)}</pre>`
+                    });
+
+                    // Test 7: User aggregation (simulate frontend logic)
+                    const userStats = data.query_stats.reduce((acc, query) => {
+                        const user = query.user_email || 'Unknown';
+                        if (!acc[user]) {
+                            acc[user] = {
+                                queryCount: 0,
+                                totalBytesScanned: 0,
+                                totalSlotMilliseconds: 0,
+                                cacheHits: 0,
+                            };
+                        }
+                        acc[user].queryCount++;
+                        acc[user].totalBytesScanned += query.bytes_scanned || 0;
+                        acc[user].totalSlotMilliseconds += query.slot_milliseconds || 0;
+                        if (query.cache_hit) acc[user].cacheHits++;
+                        return acc;
+                    }, {});
+
+                    const userList = Object.entries(userStats).map(([email, stats]) => ({
+                        email,
+                        ...stats,
+                        cacheHitRate: stats.queryCount > 0 ? (stats.cacheHits / stats.queryCount * 100).toFixed(1) : '0.0'
+                    }));
+
+                    results.push({
+                        test: 'User Aggregation',
+                        status: 'success',
+                        message: `Successfully aggregated data for ${userList.length} users:<br><pre>${JSON.stringify(userList, null, 2)}</pre>`
+                    });
+                }
+
+            } catch (error) {
+                results.push({
+                    test: 'Fetch Assessment Report',
+                    status: 'error',
+                    message: error.message
+                });
+            }
+
+            // Display results
+            resultsDiv.innerHTML = results.map(r => `
+                <div class="test-result ${r.status}">
+                    <strong>${r.test}:</strong> ${r.message}
+                </div>
+            `).join('');
+        }
+
+        // Auto-run on load
+        window.addEventListener('load', () => {
+            setTimeout(runTests, 500);
+        });
+    </script>
+</body>
+</html>

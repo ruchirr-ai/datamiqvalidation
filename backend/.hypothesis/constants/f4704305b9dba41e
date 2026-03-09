@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\repositories\user_repository.py
+# hypothesis_version: 6.151.9
+
+['attempts', 'created_at', 'id', 'is_locked', 'last_login', 'locked_until', 'password_hash', 'role', 'updated_at', 'user', 'user_id', 'username']

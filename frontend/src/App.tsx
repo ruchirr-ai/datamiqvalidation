@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { MainLayout } from './components/layout/MainLayout';
+import { ChatAgent } from './components/ChatAgent/ChatAgent';
 import { LoginScreen } from './pages/LoginScreen';
 import { DashboardPage } from './pages/DashboardPage';
 import { ConnectionsPage } from './pages/ConnectionsPage';
@@ -21,6 +22,8 @@ import { BQRedshiftMigrationsPage } from './pages/migrations/BQRedshiftMigration
 import { CreateMigrationWizard } from './components/migrations/CreateMigrationWizard';
 import { PathwayATestPage } from './pages/PathwayATestPage';
 import { BQExportTestPage } from './pages/BQExportTestPage';
+import { StandaloneConverterPage } from './pages/StandaloneConverterPage';
+import { BatchConverterPage } from './pages/BatchConverterPage';
 import { CopyHistoryPage } from './pages/CopyHistoryPage';
 import { TaskHistoryPage } from './pages/TaskHistoryPage';
 import './styles/global.css';
@@ -61,6 +64,19 @@ const navigationItems = [
       </svg>
     ),
     path: '/migrations',
+    requiredRole: 'member'
+  },
+  {
+    id: 'converter',
+    label: 'Code Converter',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M7 5L3 10L7 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M13 5L17 10L13 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M12 3L8 17" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+      </svg>
+    ),
+    path: '/converter',
     requiredRole: 'member'
   },
   {
@@ -115,73 +131,96 @@ const AppContent: React.FC = () => {
     navigate('/login');
   };
 
+  // Determine current page context for ChatAgent
+  const getCurrentPageContext = () => {
+    const path = location.pathname;
+    if (path.includes('/assessments')) return 'assessments';
+    if (path.includes('/connections')) return 'connections';
+    if (path.includes('/migrations')) return 'migrations';
+    if (path.includes('/jobs')) return 'jobs';
+    if (path.includes('/dashboard')) return 'dashboard';
+    return 'dashboard';
+  };
+
   return (
-    <Routes>
-      <Route path="/login" element={<LoginScreen />} />
-      
-      <Route
-        path="/*"
-        element={
-          <ProtectedRoute>
-            <MainLayout
-              navigationItems={navigationItems}
-              currentPath={location.pathname}
-              user={user ? {
-                username: user.username,
-                role: user.role,
-                avatar: undefined
-              } : undefined}
-              onNavigate={handleNavigate}
-              onLogout={handleLogout}
-            >
-              <Routes>
-                <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/connections" element={<ConnectionsPage />} />
-                <Route path="/assessments" element={<AssessmentsPage />} />
-                <Route path="/assessments/:assessmentId/report" element={<AssessmentReportPage />} />
-                <Route path="/assessments/schema-analysis" element={<SchemaAnalysisPage />} />
-                <Route path="/assessments/compatibility" element={<CompatibilityCheckPage />} />
-                <Route path="/assessments/reports" element={<AssessmentReportsPage />} />
-                <Route path="/assessments/data-profiling" element={<DataProfilingPage />} />
-                <Route path="/migrations" element={<MigrationsPage />} />
-                <Route path="/migrations/bq-redshift" element={<BQRedshiftMigrationsPage />} />
-                <Route path="/migrations/create" element={<CreateMigrationWizard />} />
-                <Route path="/migrations/pathway-a-test" element={<PathwayATestPage />} />
-                <Route path="/migrations/bq-export-test" element={<BQExportTestPage />} />
-                <Route path="/monitoring/copy-history" element={<CopyHistoryPage />} />
-                <Route path="/monitoring/task-history" element={<TaskHistoryPage />} />
-                <Route path="/jobs" element={<JobsPage />} />
-                <Route
-                  path="/administration"
-                  element={
-                    <ProtectedRoute requiredRole="admin">
-                      <AdministrationPage />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/admin"
-                  element={
-                    <ProtectedRoute requiredRole="admin">
-                      <AdminPage />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
-                  path="/admin/data-connections/sources"
-                  element={
-                    <ProtectedRoute requiredRole="admin">
-                      <DatabaseFieldConfigPage />
-                    </ProtectedRoute>
-                  }
-                />
-              </Routes>
-            </MainLayout>
-          </ProtectedRoute>
-        }
-      />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/login" element={<LoginScreen />} />
+        
+        <Route
+          path="/*"
+          element={
+            <ProtectedRoute>
+              <MainLayout
+                navigationItems={navigationItems}
+                currentPath={location.pathname}
+                user={user ? {
+                  username: user.username,
+                  role: user.role,
+                  avatar: undefined
+                } : undefined}
+                onNavigate={handleNavigate}
+                onLogout={handleLogout}
+              >
+                <Routes>
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/dashboard" element={<DashboardPage />} />
+                  <Route path="/connections" element={<ConnectionsPage />} />
+                  <Route path="/assessments" element={<AssessmentsPage />} />
+                  <Route path="/assessments/:assessmentId/report" element={<AssessmentReportPage />} />
+                  <Route path="/assessments/schema-analysis" element={<SchemaAnalysisPage />} />
+                  <Route path="/assessments/compatibility" element={<CompatibilityCheckPage />} />
+                  <Route path="/assessments/reports" element={<AssessmentReportsPage />} />
+                  <Route path="/assessments/data-profiling" element={<DataProfilingPage />} />
+                  <Route path="/migrations" element={<MigrationsPage />} />
+                  <Route path="/migrations/bq-redshift" element={<BQRedshiftMigrationsPage />} />
+                  <Route path="/migrations/create" element={<CreateMigrationWizard />} />
+                  <Route path="/migrations/pathway-a-test" element={<PathwayATestPage />} />
+                  <Route path="/migrations/bq-export-test" element={<BQExportTestPage />} />
+                  <Route path="/converter" element={<StandaloneConverterPage />} />
+                  <Route path="/converter/batch" element={<BatchConverterPage />} />
+                  <Route path="/monitoring/copy-history" element={<CopyHistoryPage />} />
+                  <Route path="/monitoring/task-history" element={<TaskHistoryPage />} />
+                  <Route path="/jobs" element={<JobsPage />} />
+                  <Route
+                    path="/administration"
+                    element={
+                      <ProtectedRoute requiredRole="admin">
+                        <AdministrationPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin"
+                    element={
+                      <ProtectedRoute requiredRole="admin">
+                        <AdminPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/admin/data-connections/sources"
+                    element={
+                      <ProtectedRoute requiredRole="admin">
+                        <DatabaseFieldConfigPage />
+                      </ProtectedRoute>
+                    }
+                  />
+                </Routes>
+              </MainLayout>
+            </ProtectedRoute>
+          }
+        />
+      </Routes>
+
+      {/* ChatAgent - Show on all authenticated pages except login */}
+      {user && location.pathname !== '/login' && (
+        <ChatAgent 
+          currentPage={getCurrentPageContext()}
+          hasAssessments={true}
+        />
+      )}
+    </>
   );
 };
 

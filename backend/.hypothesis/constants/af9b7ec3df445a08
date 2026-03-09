@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\bq_redshift_migration\checkpoint_manager.py
+# hypothesis_version: 6.151.9
+
+[0.0, 100, 'completed', 'completed_shards', 'data', 'error', 'export', 'export_completed', 'export_status', 'failed', 'failed_shards', 'file_size_bytes', 'gcs_uri', 'load', 'load_completed', 'load_status', 'migration_id', 'paused', 'pending', 'progress_percentage', 'reset_count', 'row_count', 'running', 's3_uri', 'shard_id', 'stage', 'timestamp', 'total_shards', 'transfer', 'transfer_completed', 'transfer_status']

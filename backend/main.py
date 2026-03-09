@@ -19,12 +19,21 @@ from routers.bq_export_test_router import router as bq_export_test_router
 from routers.assessment_router import router as assessment_router
 from routers.copy_history_router import router as copy_history_router
 from routers.task_history_router import router as task_history_router
+from routers.chatagent_router import router as chatagent_router
+from routers.conversion_router import router as conversion_router
 from database import db_instance
 
 # Import all models to ensure they're registered with SQLAlchemy
 from models.assessment import Assessment
 from models.assessment_log import AssessmentLog
 from models.connection import Connection
+from models.copy_history import CopyHistory
+from models.task_history import TaskHistory
+from models.datasync_agent import DataSyncAgent
+try:
+    from models.conversion_job_db import ConversionJob, ConversionBatch, ConversionLog
+except ImportError:
+    pass  # Conversion feature models may not exist in all branches
 
 # Load environment variables
 load_dotenv()
@@ -165,6 +174,8 @@ app.include_router(bq_export_test_router)
 app.include_router(assessment_router)
 app.include_router(copy_history_router)
 app.include_router(task_history_router)
+app.include_router(chatagent_router)
+app.include_router(conversion_router)
 
 # Health check endpoint
 @app.get("/health")

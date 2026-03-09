@@ -181,6 +181,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ]
     },
     {
+      id: 'converter',
+      label: 'Code Converter',
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M7 5L3 10l4 5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M13 5l4 5-4 5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M11 3L9 17" strokeLinecap="round" />
+        </svg>
+      ),
+      path: '/converter',
+      children: [
+        { id: 'conv-1', label: 'Quick Convert', icon: null, path: '/converter' },
+        { id: 'conv-2', label: 'Batch', icon: null, path: '/converter/batch' }
+      ]
+    },
+    {
       id: 'admin',
       label: 'Admin',
       icon: (

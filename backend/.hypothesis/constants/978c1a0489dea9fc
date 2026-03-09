@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\models\conversion_batch.py
+# hypothesis_version: 6.151.9
+
+[255, 1024, 'ConversionJob', 'Z', 'aws_region', 'batch', 'bedrock_model', 'completed_assets', 'connections.id', 'conversion_batches', 'created_at', 'created_by', 'failed_assets', 'id', 'max_retries', 'migration_project_id', 'pending', 'prompt_template_path', 'source_connection_id', 'status', 'target_connection_id', 'total_assets', 'updated_at', 'use_sqlglot', 'workspace_id']

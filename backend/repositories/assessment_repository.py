@@ -415,9 +415,12 @@ class AssessmentRepository:
         ).all()
     
     def get_tables(self, assessment_id: int):
-        """Get all tables for an assessment"""
+        """Get all tables for an assessment, eagerly loading columns."""
         from models.assessment import AssessmentTable
-        return self.db.query(AssessmentTable).filter(
+        from sqlalchemy.orm import joinedload
+        return self.db.query(AssessmentTable).options(
+            joinedload(AssessmentTable.columns)
+        ).filter(
             AssessmentTable.assessment_id == assessment_id
         ).all()
     

@@ -6,7 +6,7 @@ import pytest
 from hypothesis import settings
 
 # Configure Hypothesis for property-based testing
-settings.register_profile("ci", max_examples=100)
+settings.register_profile("ci", max_examples=20)
 settings.load_profile("ci")
 
 

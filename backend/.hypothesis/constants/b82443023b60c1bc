@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\models\conversion_job.py
+# hypothesis_version: 6.151.9
+
+[255, 1024, 'SET NULL', 'Z', 'asset_name', 'asset_type', 'aws_region', 'batch_id', 'bedrock_model', 'conversion_jobs', 'created_at', 'created_by', 'error_message', 'id', 'pending', 'prompt_template_path', 'retry_count', 'source_code', 'source_dialect', 'sqlglot_success', 'status', 'target_code', 'target_dialect', 'updated_at', 'use_sqlglot', 'workspace_id']

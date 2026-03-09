@@ -519,6 +519,74 @@ async def get_assessment_logs(assessment_id: int, db: Session = Depends(get_db))
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{assessment_id}/assets")
+async def get_assessment_assets(assessment_id: int, db: Session = Depends(get_db)):
+    """
+    Get convertible assets (tables, views, routines) from a completed assessment.
+    Returns assets in the format expected by the batch converter's AssetSelector.
+    """
+    try:
+        assessment_repo = AssessmentRepository(db)
+
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        assets = []
+
+        # Tables — source_code is a CREATE TABLE stub from column metadata
+        tables = assessment_repo.get_tables(assessment_id)
+        for t in tables:
+            source_code = ""
+            if hasattr(t, 'columns') and t.columns:
+                cols = ", ".join(
+                    f"{c.column_name} {c.data_type}"
+                    for c in sorted(t.columns, key=lambda c: c.ordinal_position or 0)
+                )
+                source_code = f"CREATE TABLE {t.dataset_name}.{t.table_name} ({cols});"
+            else:
+                source_code = f"-- Table: {t.dataset_name}.{t.table_name} (schema not available)"
+
+            assets.append({
+                "asset_type": "TABLE_DDL",
+                "asset_name": f"{t.dataset_name}.{t.table_name}" if t.dataset_name else t.table_name,
+                "source_code": source_code,
+            })
+
+        # Views — source_code is the view definition
+        views = assessment_repo.get_views(assessment_id)
+        for v in views:
+            source_code = v.view_definition or f"-- View: {v.view_name} (definition not available)"
+            assets.append({
+                "asset_type": "VIEW" if v.view_type != "MATERIALIZED_VIEW" else "MATERIALIZED_VIEW",
+                "asset_name": v.view_name,
+                "source_code": source_code,
+            })
+
+        # Routines → STORED_PROCEDURE / FUNCTION
+        routines = assessment_repo.get_routines(assessment_id)
+        for r in routines:
+            rtype = "STORED_PROCEDURE" if r.routine_type == "PROCEDURE" else "FUNCTION"
+            source_code = r.definition or f"-- {rtype}: {r.routine_name} (definition not available)"
+            assets.append({
+                "asset_type": rtype,
+                "asset_name": r.routine_name,
+                "source_code": source_code,
+            })
+
+        return {
+            "assessment_id": assessment.id,
+            "assessment_name": assessment.name,
+            "total": len(assets),
+            "assets": assets,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting assessment assets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{assessment_id}/report")
 async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db)):
     """
@@ -662,7 +730,8 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                     "table_name": s.table_name,
                     "policy_name": s.policy_name,
                     "filter_predicate": s.filter_predicate,
-                    "grantees": s.grantees or []
+                    "grantees": s.grantees or [],
+                    "security_metadata": s.security_metadata or {}
                 }
                 for s in security_policies
             ],
@@ -849,6 +918,145 @@ async def get_assessment_tco(
         raise
     except Exception as e:
         print(f"Error calculating TCO: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/query-insights")
+async def get_query_insights(
+    assessment_id: int,
+    timeframe: str = "all",  # all, 24h, 7d, 30d
+    db: Session = Depends(get_db)
+):
+    """
+    Get query insights with aggregated statistics and filtering
+    
+    Timeframe options:
+    - all: All time
+    - 24h: Last 24 hours
+    - 7d: Last 7 days
+    - 30d: Last 30 days
+    """
+    try:
+        assessment_repo = AssessmentRepository(db)
+        
+        # Get assessment
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+        
+        # Get all query stats
+        all_query_stats = assessment_repo.get_query_stats(assessment_id)
+        
+        # Filter by timeframe
+        from datetime import datetime, timedelta
+        import re
+        now = datetime.utcnow()
+        
+        if timeframe == "24h":
+            cutoff = now - timedelta(hours=24)
+            query_stats = [q for q in all_query_stats if q.execution_time and q.execution_time >= cutoff]
+        elif timeframe == "7d":
+            cutoff = now - timedelta(days=7)
+            query_stats = [q for q in all_query_stats if q.execution_time and q.execution_time >= cutoff]
+        elif timeframe == "30d":
+            cutoff = now - timedelta(days=30)
+            query_stats = [q for q in all_query_stats if q.execution_time and q.execution_time >= cutoff]
+        else:  # all
+            query_stats = all_query_stats
+        
+        # Calculate aggregated metrics
+        total_queries = len(query_stats)
+        total_bytes_scanned = sum(q.bytes_scanned or 0 for q in query_stats)
+        total_slot_ms = sum(q.slot_milliseconds or 0 for q in query_stats)
+        cache_hits = sum(1 for q in query_stats if q.cache_hit)
+        cache_hit_rate = (cache_hits / total_queries * 100) if total_queries > 0 else 0
+        
+        avg_execution_time_ms = (total_slot_ms / total_queries) if total_queries > 0 else 0
+        avg_execution_time_seconds = avg_execution_time_ms / 1000
+        
+        unique_users = set(q.user_email for q in query_stats if q.user_email)
+        active_users_count = len(unique_users)
+        
+        read_count = 0
+        write_count = 0
+        for q in query_stats:
+            if q.query_text:
+                query_upper = q.query_text.strip().upper()
+                if re.match(r'^\s*(INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE)', query_upper):
+                    write_count += 1
+                else:
+                    read_count += 1
+            else:
+                read_count += 1
+        
+        concurrent_queries_hourly = {}
+        concurrent_queries_daily = {}
+        concurrent_queries_weekly = {}
+        
+        for q in query_stats:
+            if q.execution_time:
+                hour_key = q.execution_time.strftime('%Y-%m-%d %H:00')
+                concurrent_queries_hourly[hour_key] = concurrent_queries_hourly.get(hour_key, 0) + 1
+                day_key = q.execution_time.strftime('%Y-%m-%d')
+                concurrent_queries_daily[day_key] = concurrent_queries_daily.get(day_key, 0) + 1
+                week_key = q.execution_time.strftime('%Y-W%W')
+                concurrent_queries_weekly[week_key] = concurrent_queries_weekly.get(week_key, 0) + 1
+        
+        hourly_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_hourly.items())]
+        daily_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_daily.items())]
+        weekly_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_weekly.items())]
+        
+        queries = [
+            {
+                "job_id": q.job_id,
+                "execution_time": q.execution_time.isoformat() if q.execution_time else None,
+                "query_text": q.query_text,
+                "bytes_scanned": q.bytes_scanned or 0,
+                "bytes_billed": q.bytes_scanned or 0,
+                "slot_milliseconds": q.slot_milliseconds or 0,
+                "cache_hit": q.cache_hit or False,
+                "cache_hit_status": "Hit" if q.cache_hit else "Miss",
+                "referenced_tables": q.referenced_tables or [],
+                "user_email": q.user_email or "Unknown"
+            }
+            for q in query_stats
+        ]
+        
+        return {
+            "assessment_id": assessment_id,
+            "timeframe": timeframe,
+            "summary": {
+                "total_query_count": total_queries,
+                "active_users_count": active_users_count,
+                "avg_execution_time_seconds": round(avg_execution_time_seconds, 3),
+                "total_bytes_scanned": total_bytes_scanned,
+                "total_bytes_billed": total_bytes_scanned,
+                "total_slot_milliseconds": total_slot_ms,
+                "cache_hit_rate": round(cache_hit_rate, 2),
+                "cache_hits": cache_hits,
+                "cache_misses": total_queries - cache_hits,
+                "read_queries": read_count,
+                "write_queries": write_count
+            },
+            "charts": {
+                "read_write_distribution": {
+                    "read": read_count,
+                    "write": write_count
+                },
+                "concurrent_queries": {
+                    "hourly": hourly_data,
+                    "daily": daily_data,
+                    "weekly": weekly_data
+                }
+            },
+            "queries": queries
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting query insights: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

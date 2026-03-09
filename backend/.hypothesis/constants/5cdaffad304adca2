@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\models\conversion_schemas.py
+# hypothesis_version: 6.151.9
+
+[255, 50000, 'Assets to convert', 'BigQuery', 'Bigquery', 'FUNCTION', 'MATERIALIZED_VIEW', 'Migration project ID', 'Optional asset name', 'QUERY', 'Redshift', 'SCHEDULED_QUERY', 'SQL Server', 'STORED_PROCEDURE', 'Source connection ID', 'TABLE_DDL', 'Target connection ID', 'VIEW', 'additional_context', 'completed', 'failed', 'from_attributes', 'in_progress', 'pending']

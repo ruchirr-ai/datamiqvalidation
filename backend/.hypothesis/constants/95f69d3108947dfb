@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\bq_redshift_migration\gcs_to_s3_transfer.py
+# hypothesis_version: 6.151.9
+
+[1024.0, 100, 3600, '/', '/:', '=', 'B', 'FAILED', 'GB', 'KB', 'MB', 'PARTIAL_SUCCESS', 'SUCCESS', 'TB', 'bytes_transferred', 'completed_at', 'duration_seconds', 'error', 'failed_files', 'file', 'files_failed', 'files_found', 'files_transferred', 'gs:', 'gs://', 'gs:://', 's3', 's3://', 'status', 'success_rate_percent', '✓ TRANSFER COMPLETE', '✗ TRANSFER FAILED']

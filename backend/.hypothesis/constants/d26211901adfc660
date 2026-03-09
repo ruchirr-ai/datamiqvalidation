@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\shared\middleware\auth_middleware.py
+# hypothesis_version: 6.151.9
+
+['0.0.0.0', 'Authentication error', 'Bearer', 'Bearer ', 'Token is blacklisted', 'Token is empty', 'User not found', 'WWW-Authenticate', 'X-Workspace-ID', 'admin', 'admin_endpoint', 'endpoint', 'id', 'is_active', 'organization_id', 'role', 'username']
