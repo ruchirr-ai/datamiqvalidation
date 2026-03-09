@@ -513,6 +513,56 @@ async def test_connection(request: TestConnectionRequest):
         )
 
 
+@router.post("/{connection_id}/test", response_model=ConnectionResponse)
+async def test_connection_by_id(connection_id: int, db: Session = Depends(get_db)):
+    """
+    Test an existing database connection by ID.
+
+    Decrypts stored credentials server-side and runs the appropriate
+    connectivity check.  Updates the connection status and last_tested_at
+    in the database so the UI reflects the result on next fetch.
+    """
+    connection = db.query(Connection).filter(
+        Connection.id == connection_id,
+        Connection.is_active == True,
+    ).first()
+
+    if not connection:
+        raise HTTPException(status_code=404, detail=f"Connection {connection_id} not found")
+
+    # Get decrypted params
+    params = get_decrypted_connection_params(connection)
+    database_type = connection.database.lower()
+
+    logger.info(f"Testing existing connection {connection_id} ({database_type})")
+
+    # Route to the right test function
+    if database_type == 'bigquery':
+        result = test_bigquery_connection(params)
+    elif database_type in ('mongodb', 'documentdb'):
+        result = test_mongodb_connection(params)
+    elif database_type == 'postgresql':
+        result = test_postgresql_connection(params)
+    elif database_type == 'mysql':
+        result = test_mysql_connection(params)
+    elif database_type == 'redshift':
+        result = test_postgresql_connection(params)
+    else:
+        result = ConnectionResponse(success=False, message=f"Unsupported database type: {database_type}")
+
+    # Persist the new status
+    try:
+        connection.status = 'connected' if result.success else 'disconnected'
+        connection.last_tested_at = datetime.utcnow()
+        connection.updated_at = datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        logger.error(f"Failed to update connection status after test: {e}")
+        db.rollback()
+
+    return result
+
+
 @router.get("/health")
 async def health_check():
     """Health check endpoint"""
