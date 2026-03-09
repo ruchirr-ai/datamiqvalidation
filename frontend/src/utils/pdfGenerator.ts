@@ -46,6 +46,21 @@ const fmtDate = (d: string | null): string => {
   try { return new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }); } catch { return d; }
 };
 
+// Sanitize text: replace non-ASCII chars that jsPDF helvetica can't render
+const sanitize = (s: string | null | undefined): string => {
+  if (!s) return '';
+  // Replace common unicode with ASCII equivalents, strip the rest
+  return s
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2014/g, ' -- ')
+    .replace(/\u2013/g, ' - ')
+    .replace(/\u2026/g, '...')
+    .replace(/\u00D7/g, 'x')
+    .replace(/\u2022/g, '*')
+    .replace(/[^\x00-\x7F]/g, '?');  // replace any remaining non-ASCII
+};
+
 export function generatePDF(opts: PDFGeneratorOptions): void {
   const { report, selectedSections, recommendations, tcoData } = opts;
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
@@ -273,16 +288,31 @@ export function generatePDF(opts: PDFGeneratorOptions): void {
     doc.addPage(); y = margin;
     sectionHeading(`Query Insights (${report.query_stats.length} total, top 50)`);
     const top = report.query_stats.slice(0, 50);
-    drawTable(
-      ['User', 'Query Preview', 'Bytes Scanned', 'Slot Time', 'Cache'],
-      top.map(q => [
+    checkPage(20);
+    autoTable(doc, {
+      startY: y,
+      margin: { left: margin, right: margin },
+      head: [['User', 'Query Preview', 'Bytes Scanned', 'Slot Time', 'Cache']],
+      body: top.map(q => [
         q.user_email || 'N/A',
-        q.query_text ? q.query_text.substring(0, 60) : 'N/A',
+        sanitize(q.query_text ? q.query_text.substring(0, 100) : 'N/A'),
         q.bytes_scanned ? fmtSize(q.bytes_scanned / (1024 * 1024)) : 'N/A',
         q.slot_milliseconds ? (q.slot_milliseconds / 1000).toFixed(1) + 's' : 'N/A',
         q.cache_hit ? 'Yes' : 'No',
-      ])
-    );
+      ]),
+      theme: 'grid',
+      styles: { fontSize: 7, cellPadding: 2, textColor: [71, 85, 105], lineColor: [...BORDER], lineWidth: 0.2, overflow: 'linebreak' },
+      headStyles: { fillColor: [...TH_BG], textColor: [51, 65, 85], fontStyle: 'bold', fontSize: 7 },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        0: { cellWidth: 55 },
+        1: { cellWidth: 110 },
+        2: { cellWidth: 28 },
+        3: { cellWidth: 22 },
+        4: { cellWidth: 16 },
+      },
+    });
+    y = (doc as any).lastAutoTable.finalY + 6;
   }
 
   // ===== USER INSIGHTS =====
@@ -327,12 +357,12 @@ export function generatePDF(opts: PDFGeneratorOptions): void {
     if (cfg) {
       const recType = cfg.recommended === 'provisioned' ? 'Redshift Provisioned' : 'Redshift Serverless';
       drawCard(
-        [`Recommended: ${recType}`, ...cfg.reasons.map(r => `• ${r}`)],
+        [`Recommended: ${recType}`, ...cfg.reasons.map(r => sanitize(`• ${r}`))],
         'Configuration Recommendation'
       );
       if (cfg.provisioned) {
         drawCard([
-          `Node: ${cfg.provisioned.node_type} × ${cfg.provisioned.num_nodes}`,
+          `Node: ${cfg.provisioned.node_type} x ${cfg.provisioned.num_nodes}`,
           `vCPU: ${cfg.provisioned.vcpu_total} | Memory: ${cfg.provisioned.memory_gb_total} GB | Storage: ${cfg.provisioned.storage_type}`,
         ], 'Provisioned Configuration');
       }
@@ -348,7 +378,7 @@ export function generatePDF(opts: PDFGeneratorOptions): void {
       drawTable(
         ['Table', 'Dist Key', 'Sort Key', 'Reasoning'],
         recommendations.dist_sort_keys.map(d => [
-          d.table_name, d.distkey, d.sortkey, d.reasoning?.join('; ') || '',
+          d.table_name, d.distkey, d.sortkey, sanitize(d.reasoning?.join('; ') || ''),
         ])
       );
     }
@@ -361,7 +391,7 @@ export function generatePDF(opts: PDFGeneratorOptions): void {
       doc.text('Architecture Strategies', margin, y + 4);
       y += 8;
       recommendations.architecture.strategies.forEach(s => {
-        drawCard(s.points.map(p => `• ${p}`), s.title);
+        drawCard(s.points.map(p => sanitize(`• ${p}`)), sanitize(s.title));
       });
     }
   }
@@ -410,13 +440,12 @@ export function generatePDF(opts: PDFGeneratorOptions): void {
       );
       drawCard([
         `Best Option: ${comp.best_option}`,
-        `Savings: $${comp.savings_amount?.toLocaleString() || '0'} (${comp.savings_pct?.toFixed(1) || '0'}%)`,
       ], '3-Year TCO Comparison Result');
     }
 
     if (tcoData.provisioned_costs?.node_type) {
       drawCard([
-        `${tcoData.provisioned_costs.node_type} × ${tcoData.provisioned_costs.num_nodes} nodes`,
+        `${tcoData.provisioned_costs.node_type} x ${tcoData.provisioned_costs.num_nodes} nodes`,
       ], 'Recommended Provisioned Setup');
     }
   }
