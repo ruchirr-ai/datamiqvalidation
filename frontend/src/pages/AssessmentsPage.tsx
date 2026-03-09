@@ -125,6 +125,11 @@ export const AssessmentsPage: React.FC = () => {
     navigate(`/assessments/${assessmentId}/report`);
   };
 
+  const handleDownloadReport = (assessment: Assessment) => {
+    // Navigate to report page with download query param to auto-open modal
+    navigate(`/assessments/${assessment.id}/report?download=true`);
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {
       case 'completed':
@@ -367,6 +372,19 @@ export const AssessmentsPage: React.FC = () => {
                               <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7M9 2l4 4M9 2v4h4" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                             View Report
+                          </button>
+                          <button
+                            className="dropdown-menu-item"
+                            onClick={() => {
+                              handleDownloadReport(assessment);
+                              setOpenMenuId(null);
+                            }}
+                            disabled={assessment.status !== 'completed'}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                              <path d="M8 2v8M5 7l3 3 3-3M3 12h10" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                            Download Report
                           </button>
                           <button
                             className="dropdown-menu-item"

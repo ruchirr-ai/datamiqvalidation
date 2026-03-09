@@ -5,11 +5,11 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   FileSearch, ArrowLeft, Database, Table as TableIcon, Eye, Code, 
   Brain, Activity, Shield, Users, TrendingUp, Lock, DollarSign,
-  Zap, Info, CheckCircle, Server
+  Zap, Info, CheckCircle, Server, Download
 } from 'lucide-react';
 import { Button, Badge } from '../components/ui';
 import { 
@@ -19,30 +19,40 @@ import {
   getTCORegions, AWSRegion
 } from '../services/assessmentsApi';
 import QueryInsightsSection from '../components/assessments/QueryInsightsSection';
+import { DownloadReportModal } from '../components/assessments/DownloadReportModal';
+import { generatePDF } from '../utils/pdfGenerator';
 import './AssessmentReportPage.css';
 
 export const AssessmentReportPage: React.FC = () => {
   const { assessmentId } = useParams<{ assessmentId: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [report, setReport] = useState<AssessmentFullReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('summary');
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const hasFetchedRef = useRef(false);
 
   useEffect(() => {
-    // Prevent duplicate fetches in React.StrictMode
     if (assessmentId && !hasFetchedRef.current) {
       hasFetchedRef.current = true;
       fetchAssessmentReport();
     }
   }, [assessmentId]);
 
+  useEffect(() => {
+    if (searchParams.get('download') === 'true' && report && !loading) {
+      setShowDownloadModal(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, [report, loading, searchParams]);
+
   const fetchAssessmentReport = async () => {
     try {
       setLoading(true);
       setError(null);
-
       const data = await getAssessmentReport(parseInt(assessmentId!));
       setReport(data);
     } catch (err: any) {
@@ -57,49 +67,57 @@ export const AssessmentReportPage: React.FC = () => {
     if (sizeMb < 1024) return `${sizeMb.toFixed(2)} MB`;
     const sizeGb = sizeMb / 1024;
     if (sizeGb < 1024) return `${sizeGb.toFixed(2)} GB`;
-    const sizeTb = sizeGb / 1024;
-    return `${sizeTb.toFixed(2)} TB`;
+    return `${(sizeGb / 1024).toFixed(2)} TB`;
   };
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'N/A';
-    try {
-      return new Date(dateString).toLocaleString();
-    } catch {
-      return dateString;
-    }
+    try { return new Date(dateString).toLocaleString(); } catch { return dateString; }
   };
 
-  const formatNumber = (num: number) => {
-    return num.toLocaleString();
-  };
+  const formatNumber = (num: number) => num.toLocaleString();
 
-  // Get unique users from query stats
-  const getUniqueUsers = () => {
-    if (!report) return [];
-    const users = new Set(report.query_stats.map(q => q.user_email).filter(Boolean));
-    return Array.from(users);
-  };
-
-  // Separate stored procedures and functions
-  const getStoredProcedures = () => {
-    if (!report) return [];
-    return report.routines.filter(r => r.routine_type === 'PROCEDURE');
-  };
-
-  const getFunctions = () => {
-    if (!report) return [];
-    return report.routines.filter(r => r.routine_type === 'FUNCTION');
-  };
-
-  // Detect Spark models from routines
+  const getStoredProcedures = () => report ? report.routines.filter(r => r.routine_type === 'PROCEDURE') : [];
+  const getFunctions = () => report ? report.routines.filter(r => r.routine_type === 'FUNCTION') : [];
   const getSparkModels = () => {
     if (!report) return [];
-    return report.routines.filter(r => 
-      r.external_language === 'PYTHON' && 
-      r.definition && 
+    return report.routines.filter(r =>
+      r.external_language === 'PYTHON' &&
+      r.definition &&
       (r.definition.includes('pyspark') || r.definition.includes('spark.'))
     );
+  };
+
+  const handleDownloadPDF = async (selectedSections: string[]) => {
+    if (!report) return;
+    setDownloading(true);
+
+    try {
+      // Fetch recommendations and TCO data if selected
+      let recommendations = null;
+      let tcoData = null;
+
+      if (selectedSections.includes('recommendations')) {
+        try { recommendations = await getAssessmentRecommendations(parseInt(assessmentId!)); } catch (e) { console.warn('Could not fetch recommendations:', e); }
+      }
+      if (selectedSections.includes('tco')) {
+        try { tcoData = await getAssessmentTCO(parseInt(assessmentId!)); } catch (e) { console.warn('Could not fetch TCO:', e); }
+      }
+
+      generatePDF({
+        report,
+        selectedSections,
+        assessmentId: parseInt(assessmentId!),
+        recommendations,
+        tcoData,
+      });
+    } catch (err) {
+      console.error('PDF generation failed:', err);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setDownloading(false);
+      setShowDownloadModal(false);
+    }
   };
 
   if (loading) {
@@ -118,9 +136,7 @@ export const AssessmentReportPage: React.FC = () => {
       <div className="assessment-report-page">
         <div style={{ padding: '40px', textAlign: 'center' }}>
           <p style={{ color: 'var(--color-error)', marginBottom: '16px' }}>{error || 'Assessment not found'}</p>
-          <Button variant="primary" onClick={() => navigate('/assessments')}>
-            Back
-          </Button>
+          <Button variant="primary" onClick={() => navigate('/assessments')}>Back</Button>
         </div>
       </div>
     );
@@ -143,13 +159,11 @@ export const AssessmentReportPage: React.FC = () => {
 
   return (
     <div className="assessment-report-page">
-      {/* Header */}
       <div className="report-header">
         <Button variant="outline" onClick={() => navigate('/assessments')}>
           <ArrowLeft size={16} />
           Back
         </Button>
-        
         <div className="report-title-section">
           <h1 className="report-title">
             <FileSearch size={24} />
@@ -159,9 +173,12 @@ export const AssessmentReportPage: React.FC = () => {
             {report.assessment.status}
           </Badge>
         </div>
+        <Button variant="outline" onClick={() => setShowDownloadModal(true)}>
+          <Download size={16} />
+          Download Report
+        </Button>
       </div>
 
-      {/* Tabs */}
       <div className="report-tabs">
         {tabs.map(tab => {
           const Icon = tab.icon;
@@ -178,7 +195,6 @@ export const AssessmentReportPage: React.FC = () => {
         })}
       </div>
 
-      {/* Tab Content */}
       <div className="report-content">
         {activeTab === 'summary' && (
           <SummarySection report={report} formatSize={formatSize} formatDate={formatDate} formatNumber={formatNumber} getSparkModels={getSparkModels} setActiveTab={setActiveTab} />
@@ -208,8 +224,8 @@ export const AssessmentReportPage: React.FC = () => {
           <UserInsightsSection queryStats={report.query_stats} />
         )}
         {activeTab === 'security' && (
-          <SecuritySection 
-            securityPolicies={report.security_policies} 
+          <SecuritySection
+            securityPolicies={report.security_policies}
             columns={report.columns}
             tables={report.tables}
           />
@@ -221,9 +237,17 @@ export const AssessmentReportPage: React.FC = () => {
           <TCOAnalysisSection assessmentId={parseInt(assessmentId!)} />
         )}
       </div>
+
+      <DownloadReportModal
+        isOpen={showDownloadModal}
+        onClose={() => setShowDownloadModal(false)}
+        assessmentName={report.assessment.name}
+        onDownload={handleDownloadPDF}
+        downloading={downloading}
+      />
     </div>
   );
-};
+}
 
 // Summary Section Component
 const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatNumber, getSparkModels, setActiveTab }) => (
