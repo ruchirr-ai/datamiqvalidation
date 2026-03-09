@@ -37,14 +37,21 @@ echo "✓ Database migrations applied"
 
 # 4. Rebuild frontend
 echo ""
-echo "[4/5] Building frontend..."
+echo "[4/6] Installing frontend dependencies..."
+cd "$APP_DIR/frontend"
+npm install --quiet 2>&1 | tail -3
+echo "✓ Frontend dependencies up to date"
+
+# 5. Build frontend
+echo ""
+echo "[5/6] Building frontend..."
 cd "$APP_DIR/frontend"
 npx vite build 2>&1 | tail -5
 echo "✓ Frontend built"
 
-# 5. Restart services
+# 6. Restart services
 echo ""
-echo "[5/5] Restarting services..."
+echo "[6/6] Restarting services..."
 systemctl restart datamiq-backend
 systemctl restart nginx
 sleep 3
