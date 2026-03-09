@@ -119,11 +119,18 @@ class ConversionJobResponse(BaseModel):
     use_sqlglot: bool
     sqlglot_success: Optional[bool] = None
     retry_count: int
-    created_by: str
+    created_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator('created_by', mode='before')
+    @classmethod
+    def coerce_created_by(cls, v):
+        if v is not None:
+            return str(v)
+        return v
 
 
 class ConversionBatchResponse(BaseModel):
@@ -142,11 +149,18 @@ class ConversionBatchResponse(BaseModel):
     aws_region: str
     use_sqlglot: bool
     max_retries: int
-    created_by: str
+    created_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator('created_by', mode='before')
+    @classmethod
+    def coerce_created_by(cls, v):
+        if v is not None:
+            return str(v)
+        return v
 
 
 class PaginatedJobsResponse(BaseModel):
