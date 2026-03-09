@@ -1,7 +1,7 @@
 """create chat tables
 
-Revision ID: 018
-Revises: 017
+Revision ID: 026
+Revises: 025
 Create Date: 2026-03-02 10:00:00.000000
 
 """
@@ -11,8 +11,8 @@ from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
-revision = '018'
-down_revision = '017'
+revision = '026'
+down_revision = '025'
 branch_labels = None
 depends_on = None
 
@@ -20,13 +20,6 @@ depends_on = None
 def upgrade():
     """
     Create conversations, messages, and attachments tables for ChatAgent feature.
-    
-    This migration adds:
-    - conversations: Store chat conversation metadata
-    - messages: Store individual chat messages (user and assistant)
-    - attachments: Store file attachments for messages
-    
-    All tables enforce workspace isolation for multi-tenant security.
     """
     
     # Create conversations table
@@ -43,12 +36,9 @@ def upgrade():
         sa.ForeignKeyConstraint(['workspace_id'], ['workspaces.id'], name='fk_conversations_workspace', ondelete='CASCADE')
     )
     
-    # Create indexes for conversations
-    op.create_index('idx_conversations_workspace_user', 'conversations', ['workspace_id', 'user_id', 'updated_at'], unique=False, postgresql_ops={'updated_at': 'DESC'})
-    op.create_index('idx_conversations_user', 'conversations', ['user_id', 'updated_at'], unique=False, postgresql_ops={'updated_at': 'DESC'})
-    op.create_index('idx_conversations_workspace', 'conversations', ['workspace_id', 'updated_at'], unique=False, postgresql_ops={'updated_at': 'DESC'})
-    
-    print("✓ Created conversations table with indexes")
+    op.create_index('idx_conversations_workspace_user', 'conversations', ['workspace_id', 'user_id', 'updated_at'], unique=False)
+    op.create_index('idx_conversations_user', 'conversations', ['user_id', 'updated_at'], unique=False)
+    op.create_index('idx_conversations_workspace', 'conversations', ['workspace_id', 'updated_at'], unique=False)
     
     # Create messages table
     op.create_table(
@@ -65,14 +55,9 @@ def upgrade():
         sa.CheckConstraint("role IN ('user', 'assistant')", name='chk_messages_role')
     )
     
-    # Create indexes for messages
     op.create_index('idx_messages_conversation_created', 'messages', ['conversation_id', 'created_at'], unique=False)
-    op.create_index('idx_messages_created', 'messages', ['created_at'], unique=False, postgresql_ops={'created_at': 'DESC'})
-    
-    # Create full-text search index on messages.content
+    op.create_index('idx_messages_created', 'messages', ['created_at'], unique=False)
     op.execute("CREATE INDEX idx_messages_content_fts ON messages USING gin(to_tsvector('english', content))")
-    
-    print("✓ Created messages table with indexes and full-text search")
     
     # Create attachments table
     op.create_table(
@@ -98,35 +83,11 @@ def upgrade():
         )
     )
     
-    # Create indexes for attachments
     op.create_index('idx_attachments_message', 'attachments', ['message_id'], unique=False)
-    op.create_index('idx_attachments_workspace_user', 'attachments', ['workspace_id', 'user_id', 'created_at'], unique=False, postgresql_ops={'created_at': 'DESC'})
-    
-    print("✓ Created attachments table with indexes")
-    print("")
-    print("ChatAgent tables created successfully!")
-    print("- conversations: Store chat conversation metadata")
-    print("- messages: Store chat messages with full-text search")
-    print("- attachments: Store file attachments (max 5MB)")
-    print("")
-    print("All tables enforce workspace isolation for multi-tenant security.")
+    op.create_index('idx_attachments_workspace_user', 'attachments', ['workspace_id', 'user_id', 'created_at'], unique=False)
 
 
 def downgrade():
-    """
-    Remove ChatAgent tables.
-    
-    WARNING: This will delete all chat conversations, messages, and attachments!
-    """
-    # Drop tables in reverse order (respecting foreign keys)
     op.drop_table('attachments')
-    print("✗ Dropped attachments table")
-    
     op.drop_table('messages')
-    print("✗ Dropped messages table")
-    
     op.drop_table('conversations')
-    print("✗ Dropped conversations table")
-    
-    print("")
-    print("⚠️  WARNING: All ChatAgent data has been removed!")

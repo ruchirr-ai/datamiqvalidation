@@ -6,7 +6,7 @@
 set -e
 
 APP_DIR="/opt/datamiq"
-BRANCH="shivansh-dev"
+BRANCH="datamiq-dev"
 
 echo "=========================================="
 echo "  DataMIQ Deploy - $(date)"
