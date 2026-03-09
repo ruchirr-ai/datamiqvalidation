@@ -65,7 +65,8 @@ class SQLGlotParser:
         'mysql',
         'snowflake',
         'oracle',
-        'mssql'
+        'mssql',
+        'tsql',
     ]
     
     def __init__(self):
@@ -306,3 +307,116 @@ class SQLGlotParser:
         except Exception as e:
             self.logger.error(f"Failed to parse SQL: {str(e)}")
             return None
+
+
+# ---------------------------------------------------------------------------
+# Dialect mapping and unsupported dialect constants
+# ---------------------------------------------------------------------------
+
+# Maps user-facing dialect names (case-insensitive keys) to sqlglot dialect identifiers.
+DIALECT_MAP: Dict[str, str] = {
+    "bigquery": "bigquery",
+    "redshift": "redshift",
+    "postgres": "postgres",
+    "postgresql": "postgres",
+    "mysql": "mysql",
+    "snowflake": "snowflake",
+    "oracle": "oracle",
+    "tsql": "tsql",
+    "mssql": "tsql",
+    "sqlserver": "tsql",
+}
+
+# Dialects that sqlglot cannot handle (NoSQL / non-SQL engines).
+UNSUPPORTED_DIALECTS: set[str] = {
+    "mongodb",
+    "documentdb",
+    "dynamodb",
+    "cassandra",
+    "couchdb",
+    "neo4j",
+}
+
+
+# ---------------------------------------------------------------------------
+# Compatibility aliases for prajwal-dev service layer
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass
+
+
+@dataclass
+class SqlGlotResult:
+    """Result of a sqlglot parse and transpile operation.
+
+    Attributes:
+        transpiled_code: The transpiled SQL if successful, None otherwise.
+        success: Whether the parse and transpile succeeded.
+        warning: A descriptive warning message if the operation failed.
+    """
+    transpiled_code: Optional[str]
+    success: bool
+    warning: Optional[str]
+
+
+class SqlGlotParser:
+    """Compatibility wrapper that uses DIALECT_MAP for dialect resolution.
+
+    Exposes the same ``parse_and_transpile`` interface but returns
+    :class:`SqlGlotResult` (with a ``warning`` attribute) instead of
+    :class:`TranspileResult` (which uses ``error_message``).
+    """
+
+    def __init__(self) -> None:
+        self._inner = SQLGlotParser()
+
+    def parse_and_transpile(
+        self,
+        source_code: str,
+        source_dialect: str,
+        target_dialect: str,
+        pretty: bool = True,
+    ) -> SqlGlotResult:
+        src = source_dialect.strip().lower()
+        tgt = target_dialect.strip().lower()
+
+        # Check for unsupported dialects first
+        if src in UNSUPPORTED_DIALECTS:
+            return SqlGlotResult(
+                transpiled_code=None,
+                success=False,
+                warning=f"Source dialect '{source_dialect}' ({src}) is not supported by sqlglot",
+            )
+        if tgt in UNSUPPORTED_DIALECTS:
+            return SqlGlotResult(
+                transpiled_code=None,
+                success=False,
+                warning=f"Target dialect '{source_dialect}' ({tgt}) is not supported by sqlglot",
+            )
+
+        # Resolve via DIALECT_MAP
+        resolved_src = DIALECT_MAP.get(src)
+        resolved_tgt = DIALECT_MAP.get(tgt)
+
+        if resolved_src is None:
+            return SqlGlotResult(
+                transpiled_code=None,
+                success=False,
+                warning=f"Source dialect '{source_dialect}' ({src}) is not supported. Supported: {', '.join(sorted(DIALECT_MAP.keys()))}",
+            )
+        if resolved_tgt is None:
+            return SqlGlotResult(
+                transpiled_code=None,
+                success=False,
+                warning=f"Target dialect '{target_dialect}' ({tgt}) is not supported. Supported: {', '.join(sorted(DIALECT_MAP.keys()))}",
+            )
+
+        # Delegate to the inner parser using resolved dialect names
+        result = self._inner.parse_and_transpile(
+            source_code, resolved_src, resolved_tgt, pretty
+        )
+        return SqlGlotResult(
+            transpiled_code=result.transpiled_code,
+            success=result.success,
+            warning=result.error_message,
+        )

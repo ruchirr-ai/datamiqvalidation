@@ -267,6 +267,7 @@ class TestListJobs:
             status="completed",
             asset_type="TABLE_DDL",
             source_dialect="bigquery",
+            standalone_only=False,
         )
 
     @patch("routers.conversion_router._build_service")
@@ -355,6 +356,7 @@ def _make_batch(workspace_id=1, **overrides):
     defaults = dict(
         id=1,
         workspace_id=workspace_id,
+        batch_name=None,
         migration_project_id=1,
         source_connection_id=10,
         target_connection_id=20,

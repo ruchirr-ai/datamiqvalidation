@@ -33,6 +33,7 @@ export interface BatchConversionRequest {
   migration_project_id: number;
   source_connection_id: number;
   target_connection_id: number;
+  batch_name?: string;
   assets: AssetSelection[];
   source_dialect: string;
   target_dialect: string;
@@ -88,6 +89,7 @@ export interface PaginatedJobsResponse {
 export interface ConversionBatch {
   id: number;
   workspace_id: number;
+  batch_name: string | null;
   migration_project_id: number | null;
   source_connection_id: number;
   target_connection_id: number;

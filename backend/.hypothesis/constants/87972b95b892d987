@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\sqlglot_parser.py
+# hypothesis_version: 6.151.9
+
+[';\n', 'bigquery', 'col', 'error_line', 'error_message', 'error_position', 'errors', 'line', 'mssql', 'mysql', 'oracle', 'postgres', 'redshift', 'snowflake', 'source_dialect', 'success', 'target_dialect', 'transpiled_code']

@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\conversion_service.py
+# hypothesis_version: 6.151.9
+
+[0.5, 1.0, 1000, 50000, 'ERROR', 'INFO', 'WARNING', 'attempt', 'attempts', 'batch_id', 'completed', 'completed_assets', 'conversion_batch', 'conversion_job', 'create', 'delete', 'duration_ms', 'error', 'failed', 'failed_assets', 'in_progress', 'job_id', 'jobs', 'log_level', 'max_retries', 'message', 'page', 'page_size', 'pending', 'retries', 'status', 'step_name', 'total', 'total_assets', 'value', 'warning', 'workspace_id']

@@ -508,6 +508,74 @@ async def get_assessment_logs(assessment_id: int, db: Session = Depends(get_db))
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{assessment_id}/assets")
+async def get_assessment_assets(assessment_id: int, db: Session = Depends(get_db)):
+    """
+    Get convertible assets (tables, views, routines) from a completed assessment.
+    Returns assets in the format expected by the batch converter's AssetSelector.
+    """
+    try:
+        assessment_repo = AssessmentRepository(db)
+
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        assets = []
+
+        # Tables — source_code is a CREATE TABLE stub from column metadata
+        tables = assessment_repo.get_tables(assessment_id)
+        for t in tables:
+            source_code = ""
+            if hasattr(t, 'columns') and t.columns:
+                cols = ", ".join(
+                    f"{c.column_name} {c.data_type}"
+                    for c in sorted(t.columns, key=lambda c: c.ordinal_position or 0)
+                )
+                source_code = f"CREATE TABLE {t.dataset_name}.{t.table_name} ({cols});"
+            else:
+                source_code = f"-- Table: {t.dataset_name}.{t.table_name} (schema not available)"
+
+            assets.append({
+                "asset_type": "TABLE_DDL",
+                "asset_name": f"{t.dataset_name}.{t.table_name}" if t.dataset_name else t.table_name,
+                "source_code": source_code,
+            })
+
+        # Views — source_code is the view definition
+        views = assessment_repo.get_views(assessment_id)
+        for v in views:
+            source_code = v.view_definition or f"-- View: {v.view_name} (definition not available)"
+            assets.append({
+                "asset_type": "VIEW" if v.view_type != "MATERIALIZED_VIEW" else "MATERIALIZED_VIEW",
+                "asset_name": v.view_name,
+                "source_code": source_code,
+            })
+
+        # Routines → STORED_PROCEDURE / FUNCTION
+        routines = assessment_repo.get_routines(assessment_id)
+        for r in routines:
+            rtype = "STORED_PROCEDURE" if r.routine_type == "PROCEDURE" else "FUNCTION"
+            source_code = r.definition or f"-- {rtype}: {r.routine_name} (definition not available)"
+            assets.append({
+                "asset_type": rtype,
+                "asset_name": r.routine_name,
+                "source_code": source_code,
+            })
+
+        return {
+            "assessment_id": assessment.id,
+            "assessment_name": assessment.name,
+            "total": len(assets),
+            "assets": assets,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting assessment assets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{assessment_id}/report")
 async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db)):
     """

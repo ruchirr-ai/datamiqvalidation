@@ -446,12 +446,13 @@ export const BatchHistoryTable: React.FC<BatchHistoryTableProps> = ({
               <tr>
                 {selectionMode && <th scope="col" className="batch-history__checkbox-col"></th>}
                 <th scope="col">Batch ID</th>
-                <th scope="col">Project</th>
+                <th scope="col">Name</th>
                 <th scope="col">Status</th>
                 <th scope="col">Total</th>
                 <th scope="col">Completed</th>
                 <th scope="col">Failed</th>
                 <th scope="col">Created</th>
+                <th scope="col">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -485,7 +486,11 @@ export const BatchHistoryTable: React.FC<BatchHistoryTableProps> = ({
                       <span className="batch-history__batch-id">#{batch.id}</span>
                     </td>
                     <td>
-                      {batch.migration_project_id ? (
+                      {batch.batch_name ? (
+                        <span className="batch-history__project">
+                          {batch.batch_name}
+                        </span>
+                      ) : batch.migration_project_id ? (
                         <span className="batch-history__project">
                           Project #{batch.migration_project_id}
                         </span>
@@ -518,12 +523,37 @@ export const BatchHistoryTable: React.FC<BatchHistoryTableProps> = ({
                         {formatDate(batch.created_at)}
                       </span>
                     </td>
+                    <td>
+                      <button
+                        className="batch-history__view-logs-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRowClick(batch);
+                        }}
+                        type="button"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '4px 10px',
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          color: '#2A6BDB',
+                          background: 'transparent',
+                          border: '1px solid #2A6BDB',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        View Logs
+                      </button>
+                    </td>
                   </tr>
 
                   {/* Expanded job detail view */}
                   {expandedBatchId === batch.id && (
                     <tr className="batch-history__detail-row">
-                      <td colSpan={selectionMode ? 9 : 8}>
+                      <td colSpan={selectionMode ? 10 : 9}>
                         <div className="batch-history__jobs">
                           <h4 className="batch-history__jobs-title">Jobs in Batch #{batch.id}</h4>
                           {jobsLoading && (

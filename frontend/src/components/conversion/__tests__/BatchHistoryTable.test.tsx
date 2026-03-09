@@ -26,6 +26,7 @@ const mockGetJobLogs = vi.mocked(getJobLogs);
 const makeBatch = (overrides: Partial<ConversionBatch> = {}): ConversionBatch => ({
   id: 1,
   workspace_id: 1,
+  batch_name: null,
   migration_project_id: 10,
   source_connection_id: 1,
   target_connection_id: 2,
@@ -274,9 +275,10 @@ describe('BatchHistoryTable', () => {
       expect(screen.getByText('Alpha Query')).toBeInTheDocument();
     });
 
-    // Click View Logs on first job
-    const viewLogsBtns = screen.getAllByText('View Logs');
-    await userEvent.click(viewLogsBtns[0]);
+    // Click View Logs on first job (skip batch-level View Logs buttons)
+    const jobsTable = screen.getByLabelText('Jobs in batch 1');
+    const jobViewLogsBtns = within(jobsTable).getAllByText('View Logs');
+    await userEvent.click(jobViewLogsBtns[0]);
 
     // ConversionLogsPanel should open
     await waitFor(() => {

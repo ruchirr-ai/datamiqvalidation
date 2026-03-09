@@ -234,13 +234,27 @@ export const ConversionHistoryTable: React.FC<ConversionHistoryTableProps> = ({
             <span className="conversion-history__count">({total})</span>
           )}
         </h2>
-        <div className="conversion-history__actions">
+        <div className="conversion-history__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {selectionMode && (
             <button
               className="conversion-history__delete-btn"
               onClick={handleDeleteSelected}
               disabled={selectedIds.size === 0}
               type="button"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '6px 14px',
+                fontSize: '12px',
+                fontWeight: 500,
+                color: '#DC2626',
+                background: '#fff',
+                border: '1px solid #DC2626',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap' as const,
+              }}
             >
               Delete Selected
             </button>
@@ -249,6 +263,20 @@ export const ConversionHistoryTable: React.FC<ConversionHistoryTableProps> = ({
             className="conversion-history__manage-btn"
             onClick={toggleSelectionMode}
             type="button"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '6px 14px',
+              fontSize: '12px',
+              fontWeight: 500,
+              color: '#1F2937',
+              background: '#fff',
+              border: '1px solid #E5E7EB',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap' as const,
+            }}
           >
             {selectionMode ? 'Cancel' : 'Manage History'}
           </button>
@@ -257,6 +285,20 @@ export const ConversionHistoryTable: React.FC<ConversionHistoryTableProps> = ({
             onClick={() => fetchHistory(page)}
             type="button"
             aria-label="Refresh conversion history"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '6px 12px',
+              fontSize: '12px',
+              fontWeight: 500,
+              color: '#66748C',
+              background: '#fff',
+              border: '1px solid #E5E7EB',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap' as const,
+            }}
           >
             <svg
               width="14"

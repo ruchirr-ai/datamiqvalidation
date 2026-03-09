@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\jwt_service.py
+# hypothesis_version: 6.151.9
+
+['HS256', 'JWT_SECRET_KEY', 'Token has expired', 'exp', 'iat', 'role', 'user_id', 'username']

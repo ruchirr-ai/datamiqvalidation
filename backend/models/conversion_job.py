@@ -1,83 +1,82 @@
 """
-Conversion Job Models
+ConversionJob Model
 
-Pydantic models for SQL code conversion jobs.
+Database model for individual code conversion jobs (standalone or batch items).
 """
 
 from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, Field, validator
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Index
+from database import Base
 
 
-class ConversionJobBase(BaseModel):
-    """Base model for conversion job"""
-    source_code: str = Field(..., description="Source SQL code to convert")
-    source_dialect: str = Field(..., description="Source database dialect")
-    target_dialect: str = Field(..., description="Target database dialect")
-    asset_type: str = Field(..., description="Type of asset (view, stored_procedure, function, trigger, table_ddl)")
-    asset_name: Optional[str] = Field(None, description="Name of the asset")
-    bedrock_model: Optional[str] = Field(None, description="AWS Bedrock model ID")
-    use_sqlglot: bool = Field(True, description="Whether to attempt SQLGlot first")
-    prompt_template_path: Optional[str] = Field(None, description="Custom prompt template path")
-    
-    @validator('asset_type')
-    def validate_asset_type(cls, v):
-        """Validate asset type"""
-        valid_types = ['view', 'stored_procedure', 'function', 'trigger', 'table_ddl', 'other']
-        if v not in valid_types:
-            raise ValueError(f"asset_type must be one of {valid_types}")
-        return v
-    
-    @validator('source_dialect', 'target_dialect')
-    def validate_dialect(cls, v):
-        """Validate dialect"""
-        valid_dialects = ['bigquery', 'redshift', 'postgres', 'mysql', 'snowflake', 'oracle', 'mssql']
-        if v.lower() not in valid_dialects:
-            raise ValueError(f"dialect must be one of {valid_dialects}")
-        return v.lower()
+class ConversionJob(Base):
+    """
+    Individual conversion job record.
 
+    Represents a single code conversion request. Standalone conversions have
+    batch_id=None; batch items reference a parent ConversionBatch.
+    """
+    __tablename__ = 'conversion_jobs'
 
-class ConversionJobCreate(ConversionJobBase):
-    """Model for creating a conversion job"""
-    workspace_id: int
-    batch_id: Optional[int] = None
-    created_by: Optional[int] = None
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workspace_id = Column(Integer, nullable=False)
+    batch_id = Column(
+        Integer,
+        ForeignKey('conversion_batches.id', ondelete='SET NULL'),
+        nullable=True,
+    )
+    source_code = Column(Text, nullable=False)
+    target_code = Column(Text, nullable=True)
+    source_dialect = Column(String(50), nullable=False)
+    target_dialect = Column(String(50), nullable=False)
+    asset_type = Column(String(50), nullable=False)
+    asset_name = Column(String(255), nullable=True)
+    bedrock_model = Column(String(255), nullable=False)
+    aws_region = Column(String(50), nullable=False)
+    prompt_template_path = Column(String(1024), nullable=False)
+    use_sqlglot = Column(Boolean, nullable=False, default=False)
+    sqlglot_success = Column(Boolean, nullable=True)
+    status = Column(String(50), nullable=False, default='pending')
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    created_by = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    __table_args__ = (
+        Index('idx_conversion_jobs_workspace', 'workspace_id'),
+        Index('idx_conversion_jobs_batch', 'batch_id'),
+        Index('idx_conversion_jobs_status', 'status'),
+        Index('idx_conversion_jobs_asset_type', 'asset_type'),
+    )
 
-class ConversionJob(ConversionJobBase):
-    """Model for conversion job with database fields"""
-    id: int
-    workspace_id: int
-    batch_id: Optional[int] = None
-    target_code: Optional[str] = None
-    aws_region: Optional[str] = None
-    sqlglot_success: Optional[bool] = None
-    status: str = 'pending'
-    error_message: Optional[str] = None
-    retry_count: int = 0
-    created_by: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
-    
-    class Config:
-        from_attributes = True
+    def __repr__(self):
+        return (
+            f"<ConversionJob(id={self.id}, workspace_id={self.workspace_id}, "
+            f"status='{self.status}', asset_type='{self.asset_type}')>"
+        )
 
-
-class ConversionJobResponse(BaseModel):
-    """API response model for conversion job"""
-    job_id: int
-    status: str
-    target_code: Optional[str] = None
-    sqlglot_success: Optional[bool] = None
-    error_message: Optional[str] = None
-    created_at: datetime
-
-
-class ConversionJobDetailResponse(ConversionJob):
-    """Detailed API response for conversion job"""
-    pass
-
-
-class StandaloneConversionRequest(ConversionJobBase):
-    """Request model for standalone conversion"""
-    pass
+    def to_dict(self):
+        """Convert model to dictionary."""
+        return {
+            'id': self.id,
+            'workspace_id': self.workspace_id,
+            'batch_id': self.batch_id,
+            'source_code': self.source_code,
+            'target_code': self.target_code,
+            'source_dialect': self.source_dialect,
+            'target_dialect': self.target_dialect,
+            'asset_type': self.asset_type,
+            'asset_name': self.asset_name,
+            'bedrock_model': self.bedrock_model,
+            'aws_region': self.aws_region,
+            'prompt_template_path': self.prompt_template_path,
+            'use_sqlglot': self.use_sqlglot,
+            'sqlglot_success': self.sqlglot_success,
+            'status': self.status,
+            'error_message': self.error_message,
+            'retry_count': self.retry_count,
+            'created_by': self.created_by,
+            'created_at': (self.created_at.isoformat() + 'Z') if self.created_at else None,
+            'updated_at': (self.updated_at.isoformat() + 'Z') if self.updated_at else None,
+        }

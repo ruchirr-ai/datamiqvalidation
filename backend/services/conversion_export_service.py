@@ -1,252 +1,142 @@
 """
-Conversion Export Service
+Export Service
 
-Service for exporting conversion results to SQL files or ZIP archives.
+Handles .sql file generation and S3 upload for conversion results.
+Supports single job export, batch export (combined .sql), and S3 export
+with files organized by asset_type subdirectories.
 """
 
-import logging
-import os
 import io
-import zipfile
-from typing import Optional, Dict, Any
+import logging
+from typing import Optional
+
 import boto3
-from botocore.exceptions import ClientError
+
+from models.conversion_job import ConversionJob
 
 logger = logging.getLogger(__name__)
 
 
-class ExportResult:
-    """Result of export operation"""
-    
-    def __init__(
-        self,
-        success: bool,
-        file_path: Optional[str] = None,
-        s3_url: Optional[str] = None,
-        file_content: Optional[bytes] = None,
-        error_message: Optional[str] = None
-    ):
-        self.success = success
-        self.file_path = file_path
-        self.s3_url = s3_url
-        self.file_content = file_content
-        self.error_message = error_message
+class ExportService:
+    """Generates .sql files and exports conversion results to S3."""
 
+    def generate_single_sql(self, job: ConversionJob) -> tuple[bytes, str]:
+        """Generate a downloadable .sql file for a single conversion job.
 
-class ConversionExportService:
-    """
-    Service for exporting conversion results to SQL files or ZIP archives.
-    Supports local file generation and S3 upload.
-    """
-    
-    def __init__(self):
-        """Initialize export service"""
-        self.logger = logger
-        self.s3_enabled = os.getenv('AWS_S3_EXPORT_ENABLED', 'false').lower() == 'true'
-        self.s3_bucket = os.getenv('AWS_S3_EXPORT_BUCKET')
-        
-        if self.s3_enabled and self.s3_bucket:
-            self.s3_client = boto3.client('s3')
-        else:
-            self.s3_client = None
-    
-    async def export_single_job(
-        self,
-        job: Any,
-        workspace_id: int
-    ) -> ExportResult:
-        """
-        Export single conversion job to SQL file.
-        
         Args:
-            job: Conversion job to export
-            workspace_id: Workspace identifier
-            
+            job: A completed ConversionJob with target_code.
+
         Returns:
-            ExportResult with file content or S3 URL
+            Tuple of (file_bytes, filename).
+
+        Raises:
+            ValueError: If the job has no target_code.
         """
-        try:
+        if not job.target_code:
+            raise ValueError(f"Job {job.id} has no converted code to export")
+
+        asset_name = job.asset_name or f"job_{job.id}"
+        filename = f"{asset_name}_{job.target_dialect}.sql"
+        content = job.target_code.encode("utf-8")
+
+        logger.info(
+            "Generated single .sql export",
+            extra={"job_id": job.id, "filename": filename},
+        )
+        return content, filename
+
+    def generate_batch_sql(self, jobs: list[ConversionJob]) -> bytes:
+        """Combine all successfully converted jobs into a single .sql file.
+
+        Each asset is separated by a comment header identifying the asset
+        name and type. Jobs without target_code are skipped.
+
+        Args:
+            jobs: List of ConversionJob instances from a batch.
+
+        Returns:
+            Combined .sql content as bytes.
+        """
+        buf = io.StringIO()
+        included = 0
+
+        for job in jobs:
             if not job.target_code:
-                return ExportResult(
-                    success=False,
-                    error_message="No target code available for export"
-                )
-            
-            # Generate filename
-            filename = self._generate_filename(job)
-            
-            # Create file content
-            file_content = job.target_code.encode('utf-8')
-            
-            # Upload to S3 if enabled
-            if self.s3_enabled and self.s3_client:
-                s3_url = await self.upload_to_s3(
-                    file_content, workspace_id, filename
-                )
-                return ExportResult(
-                    success=True,
-                    s3_url=s3_url,
-                    file_content=file_content
-                )
-            
-            # Return file content for download
-            return ExportResult(
-                success=True,
-                file_path=filename,
-                file_content=file_content
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Export failed: {str(e)}")
-            return ExportResult(
-                success=False,
-                error_message=str(e)
-            )
-    
-    async def export_batch(
-        self,
-        batch: Any,
-        jobs: list,
-        workspace_id: int
-    ) -> ExportResult:
-        """
-        Export batch conversion to ZIP archive.
-        
-        Args:
-            batch: Conversion batch
-            jobs: List of conversion jobs
-            workspace_id: Workspace identifier
-            
-        Returns:
-            ExportResult with ZIP file content or S3 URL
-        """
-        try:
-            # Create ZIP archive in memory
-            zip_buffer = io.BytesIO()
-            
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                # Organize by asset type
-                for job in jobs:
-                    if job.target_code and job.status == 'completed':
-                        # Create subdirectory by asset type
-                        filename = self._generate_filename(job)
-                        zip_path = f"{job.asset_type}/{filename}"
-                        
-                        zip_file.writestr(zip_path, job.target_code)
-            
-            zip_buffer.seek(0)
-            file_content = zip_buffer.read()
-            
-            # Generate ZIP filename
-            zip_filename = f"batch_{batch.id}_conversions.zip"
-            
-            # Upload to S3 if enabled
-            if self.s3_enabled and self.s3_client:
-                s3_url = await self.upload_to_s3(
-                    file_content, workspace_id, zip_filename
-                )
-                return ExportResult(
-                    success=True,
-                    s3_url=s3_url,
-                    file_content=file_content
-                )
-            
-            # Return ZIP content for download
-            return ExportResult(
-                success=True,
-                file_path=zip_filename,
-                file_content=file_content
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Batch export failed: {str(e)}")
-            return ExportResult(
-                success=False,
-                error_message=str(e)
-            )
-    
-    async def upload_to_s3(
-        self,
-        file_content: bytes,
-        workspace_id: int,
-        file_name: str
-    ) -> str:
-        """
-        Upload file to S3 with workspace-scoped prefix.
-        
-        Args:
-            file_content: File content bytes
-            workspace_id: Workspace identifier
-            file_name: Destination file name
-            
-        Returns:
-            S3 URL
-        """
-        try:
-            # Workspace-scoped prefix
-            s3_key = f"workspace_{workspace_id}/conversions/{file_name}"
-            
-            # Upload to S3
-            self.s3_client.put_object(
-                Bucket=self.s3_bucket,
-                Key=s3_key,
-                Body=file_content,
-                ContentType='application/octet-stream'
-            )
-            
-            # Generate S3 URL
-            s3_url = f"s3://{self.s3_bucket}/{s3_key}"
-            
-            self.logger.info(f"Uploaded to S3: {s3_url}")
-            
-            return s3_url
-            
-        except ClientError as e:
-            self.logger.error(f"S3 upload failed: {str(e)}")
-            raise
-    
-    def _generate_filename(self, job: Any) -> str:
-        """Generate filename for conversion job"""
-        # Use asset name if available
-        if job.asset_name:
-            base_name = job.asset_name
-        else:
-            base_name = f"conversion_{job.id}"
-        
-        # Add appropriate extension
-        extension = self._get_file_extension(job.target_dialect)
-        
-        return f"{base_name}.{extension}"
-    
-    def _get_file_extension(self, dialect: str) -> str:
-        """Get file extension for dialect"""
-        extensions = {
-            'postgres': 'sql',
-            'mysql': 'sql',
-            'redshift': 'sql',
-            'bigquery': 'sql',
-            'snowflake': 'sql',
-            'oracle': 'sql',
-            'mssql': 'sql'
-        }
-        return extensions.get(dialect.lower(), 'sql')
+                continue
 
-    def _generate_filename(self, job: Any) -> str:
-        """Generate filename for conversion job"""
-        # Use asset name if available
-        if job.asset_name:
-            base_name = job.asset_name.replace(' ', '_').replace('/', '_')
-        else:
-            base_name = f"conversion_{job.id}"
-        
-        # Add dialect suffix
-        base_name = f"{base_name}_{job.target_dialect}"
-        
-        # Add appropriate extension
-        extension = self._get_file_extension(job.target_dialect)
-        
-        return f"{base_name}.{extension}"
-    
-    def _get_file_extension(self, dialect: str) -> str:
-        """Get file extension for dialect"""
-        return 'sql'
+            asset_name = job.asset_name or f"job_{job.id}"
+            if included > 0:
+                buf.write("\n\n")
+            buf.write(f"-- Asset: {asset_name} ({job.asset_type})\n")
+            buf.write(job.target_code)
+            included += 1
+
+        logger.info(
+            "Generated batch .sql export",
+            extra={"included_assets": included, "total_jobs": len(jobs)},
+        )
+        return buf.getvalue().encode("utf-8")
+
+    def export_to_s3(
+        self,
+        jobs: list[ConversionJob],
+        s3_path: str,
+        region: str,
+    ) -> None:
+        """Write individual .sql files to S3 organized by asset_type.
+
+        Files are stored as: {s3_path}/{asset_type}/{asset_name}.sql
+        Jobs without target_code are skipped.
+
+        Args:
+            jobs: List of ConversionJob instances to export.
+            s3_path: S3 destination in the form s3://bucket/prefix.
+            region: AWS region for the S3 client.
+
+        Raises:
+            ValueError: If s3_path format is invalid.
+        """
+        bucket, prefix = self._parse_s3_path(s3_path)
+        s3_client = boto3.client("s3", region_name=region)
+        exported = 0
+
+        for job in jobs:
+            if not job.target_code:
+                continue
+
+            asset_name = job.asset_name or f"job_{job.id}"
+            key = f"{prefix}/{job.asset_type}/{asset_name}.sql" if prefix else f"{job.asset_type}/{asset_name}.sql"
+
+            s3_client.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=job.target_code.encode("utf-8"),
+                ContentType="application/sql",
+            )
+            exported += 1
+
+        logger.info(
+            "Exported batch to S3",
+            extra={
+                "bucket": bucket,
+                "prefix": prefix,
+                "exported_assets": exported,
+                "total_jobs": len(jobs),
+            },
+        )
+
+    @staticmethod
+    def _parse_s3_path(s3_path: str) -> tuple[str, str]:
+        """Parse an s3://bucket/prefix path into (bucket, prefix).
+
+        Raises:
+            ValueError: If the path does not start with s3://.
+        """
+        if not s3_path.startswith("s3://"):
+            raise ValueError(f"Invalid S3 path: {s3_path}. Must start with s3://")
+
+        path = s3_path[5:]  # strip "s3://"
+        parts = path.split("/", 1)
+        bucket = parts[0]
+        prefix = parts[1].rstrip("/") if len(parts) > 1 else ""
+        return bucket, prefix

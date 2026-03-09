@@ -118,6 +118,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [maxRetries, setMaxRetries] = useState(3);
   const [useSqlglot, setUseSqlglot] = useState(false);
+  const [batchName, setBatchName] = useState('');
 
   // --- Step 3→4: Submission ---
   const [submitting, setSubmitting] = useState(false);
@@ -413,6 +414,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
         migration_project_id: migrationProjectId ?? 1,
         source_connection_id: sourceConnId,
         target_connection_id: targetConnId,
+        batch_name: batchName.trim() || undefined,
         assets: selectedAssets,
         source_dialect: sourceDialect,
         target_dialect: targetDialect,
@@ -530,6 +532,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
     setShowCustomInput(false);
     setMaxRetries(3);
     setUseSqlglot(false);
+    setBatchName('');
     setSubmitting(false);
     setSubmitError(null);
     setBatchId(null);
@@ -686,6 +689,24 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
   // --- Step 2: Configuration ---
   const renderConfiguration = () => (
     <div className="batch-config-form">
+      {/* Batch Name */}
+      <div className="batch-config-row">
+        <div className="batch-config-field" style={{ flex: 1 }}>
+          <label className="batch-config-label" htmlFor="batch-name">
+            Batch Name
+          </label>
+          <input
+            id="batch-name"
+            className="batch-config-input"
+            type="text"
+            value={batchName}
+            onChange={(e) => setBatchName(e.target.value)}
+            placeholder="e.g. Customer Tables Migration"
+            maxLength={255}
+          />
+        </div>
+      </div>
+
       {/* Row 1: Source / Target connections */}
       <div className="batch-config-row">
         <div className="batch-config-field">

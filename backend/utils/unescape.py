@@ -2,10 +2,34 @@
 Code Unescape Utility
 
 Extracts code from markdown code blocks returned by AI models.
+Also provides literal escape-sequence replacement for Bedrock output.
 """
 
 import re
 from typing import Optional
+
+
+def unescape_code_output(text: str) -> str:
+    """Replace literal escaped sequences with actual characters.
+
+    Handles the two-character sequences (backslash followed by n/t/r),
+    NOT actual escape characters. This fixes Bedrock model responses
+    that return literal ``\\n`` instead of real newlines.
+
+    Args:
+        text: The raw text potentially containing literal escape sequences.
+
+    Returns:
+        Text with literal ``\\n``, ``\\t``, and ``\\r`` replaced by
+        actual newline, tab, and carriage-return characters.
+    """
+    if not text:
+        return text
+
+    result = text.replace("\\n", "\n")
+    result = result.replace("\\t", "\t")
+    result = result.replace("\\r", "\r")
+    return result
 
 
 def extract_code_from_markdown(text: str) -> str:

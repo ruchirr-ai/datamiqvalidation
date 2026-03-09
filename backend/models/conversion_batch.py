@@ -1,79 +1,78 @@
 """
-Conversion Batch Models
+ConversionBatch Model
 
-Pydantic models for batch SQL code conversions.
+Database model for batch conversion operations grouping multiple ConversionJobs
+under a single migration project batch.
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Index
+from sqlalchemy.orm import relationship
+from database import Base
 
 
-class ConversionBatchBase(BaseModel):
-    """Base model for conversion batch"""
-    source_connection_id: int = Field(..., description="Source database connection ID")
-    target_connection_id: int = Field(..., description="Target database connection ID")
-    bedrock_model: Optional[str] = Field(None, description="AWS Bedrock model ID")
-    use_sqlglot: bool = Field(True, description="Whether to attempt SQLGlot first")
-    max_retries: int = Field(3, description="Maximum retry attempts per job")
-    prompt_template_path: Optional[str] = Field(None, description="Custom prompt template path")
+class ConversionBatch(Base):
+    """
+    Batch conversion record grouping multiple ConversionJobs.
 
+    Tied to a migration project with source/target connections,
+    tracks overall batch progress and configuration.
+    """
+    __tablename__ = 'conversion_batches'
 
-class ConversionBatchCreate(ConversionBatchBase):
-    """Model for creating a conversion batch"""
-    workspace_id: int
-    migration_project_id: Optional[int] = None
-    asset_list: List[Dict[str, Any]] = Field(..., description="List of assets to convert")
-    created_by: Optional[int] = None
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    workspace_id = Column(Integer, nullable=False)
+    batch_name = Column(String(255), nullable=True)
+    migration_project_id = Column(Integer, nullable=True)
+    source_connection_id = Column(Integer, ForeignKey('connections.id'), nullable=False)
+    target_connection_id = Column(Integer, ForeignKey('connections.id'), nullable=False)
+    bedrock_model = Column(String(255), nullable=False)
+    aws_region = Column(String(50), nullable=False)
+    prompt_template_path = Column(String(1024), nullable=False)
+    use_sqlglot = Column(Boolean, nullable=False, default=False)
+    max_retries = Column(Integer, nullable=False, default=3)
+    status = Column(String(50), nullable=False, default='pending')
+    total_assets = Column(Integer, nullable=False, default=0)
+    completed_assets = Column(Integer, nullable=False, default=0)
+    failed_assets = Column(Integer, nullable=False, default=0)
+    created_by = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Relationships
+    jobs = relationship("ConversionJob", backref="batch", passive_deletes=True)
 
-class ConversionBatch(ConversionBatchBase):
-    """Model for conversion batch with database fields"""
-    id: int
-    workspace_id: int
-    migration_project_id: Optional[int] = None
-    aws_region: Optional[str] = None
-    status: str = 'pending'
-    total_assets: int = 0
-    completed_assets: int = 0
-    failed_assets: int = 0
-    created_by: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
-    
-    class Config:
-        from_attributes = True
+    __table_args__ = (
+        Index('idx_conversion_batches_workspace', 'workspace_id'),
+        Index('idx_conversion_batches_status', 'status'),
+        Index('idx_conversion_batches_project', 'migration_project_id'),
+    )
 
+    def __repr__(self):
+        return (
+            f"<ConversionBatch(id={self.id}, workspace_id={self.workspace_id}, "
+            f"status='{self.status}', total={self.total_assets})>"
+        )
 
-class ConversionBatchResponse(BaseModel):
-    """API response model for conversion batch"""
-    batch_id: int
-    status: str
-    total_assets: int
-    completed_assets: int
-    failed_assets: int
-    created_at: datetime
-
-
-class ConversionBatchDetailResponse(ConversionBatch):
-    """Detailed API response for conversion batch"""
-    pass
-
-
-class BatchConversionRequest(BaseModel):
-    """Request model for batch conversion"""
-    source_connection_id: int
-    target_connection_id: int
-    asset_list: List[Dict[str, Any]] = Field(..., description="List of assets with asset_type, asset_name, source_code")
-    bedrock_model: Optional[str] = None
-    use_sqlglot: bool = True
-    max_retries: int = 3
-    prompt_template_path: Optional[str] = None
-
-
-class ConversionJobListResponse(BaseModel):
-    """Response model for paginated job list"""
-    jobs: List[Any]  # Will be ConversionJob
-    total: int
-    page: int
-    page_size: int
+    def to_dict(self):
+        """Convert model to dictionary."""
+        return {
+            'id': self.id,
+            'workspace_id': self.workspace_id,
+            'batch_name': self.batch_name,
+            'migration_project_id': self.migration_project_id,
+            'source_connection_id': self.source_connection_id,
+            'target_connection_id': self.target_connection_id,
+            'bedrock_model': self.bedrock_model,
+            'aws_region': self.aws_region,
+            'prompt_template_path': self.prompt_template_path,
+            'use_sqlglot': self.use_sqlglot,
+            'max_retries': self.max_retries,
+            'status': self.status,
+            'total_assets': self.total_assets,
+            'completed_assets': self.completed_assets,
+            'failed_assets': self.failed_assets,
+            'created_by': self.created_by,
+            'created_at': (self.created_at.isoformat() + 'Z') if self.created_at else None,
+            'updated_at': (self.updated_at.isoformat() + 'Z') if self.updated_at else None,
+        }

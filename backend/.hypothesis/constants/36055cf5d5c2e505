@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\kms_encryption_service.py
+# hypothesis_version: 6.151.9
+
+['AWS_REGION', 'CiphertextBlob', 'Code', 'DecryptionFailure', 'DisabledException', 'Error', 'KMS key is disabled', 'KeyId', 'NotFoundException', 'Plaintext', 'SecretString', 'datamiq', 'encrypt', 'kms', 'kms_key_id', 'operation', 'secretsmanager', 'service', 'us-east-1', 'utf-8']

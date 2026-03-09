@@ -190,7 +190,7 @@ class TestConversionBatchModel:
         d = batch.to_dict()
 
         expected_keys = {
-            "id", "workspace_id", "migration_project_id",
+            "id", "workspace_id", "batch_name", "migration_project_id",
             "source_connection_id", "target_connection_id",
             "bedrock_model", "aws_region", "prompt_template_path",
             "use_sqlglot", "max_retries", "status",
@@ -342,10 +342,10 @@ class TestAssetSelection:
         with pytest.raises(ValidationError):
             AssetSelection(asset_type="VIEW", asset_name="", source_code="SELECT 1")
 
-    def test_empty_source_code_raises(self):
-        """Empty source_code violates min_length=1."""
-        with pytest.raises(ValidationError):
-            AssetSelection(asset_type="VIEW", asset_name="v1", source_code="")
+    def test_empty_source_code_allowed(self):
+        """Empty source_code is allowed for discovery-based assets."""
+        asset = AssetSelection(asset_type="VIEW", asset_name="v1", source_code="")
+        assert asset.source_code == ""
 
     def test_asset_name_max_length(self):
         """asset_name exceeding 255 chars raises ValidationError."""

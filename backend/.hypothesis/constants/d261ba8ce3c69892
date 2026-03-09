@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\bq_redshift_migration\bigquery_exporter.py
+# hypothesis_version: 6.151.9
+
+[100, 1024, '.deflate', '.gz', '.snappy', '.zst', '/', '/:', '403', '404', 'AVRO', 'CSV', 'DEFLATE', 'GZIP', 'Invalid', 'JSON', 'NONE', 'NULLABLE', 'Not found', 'PARQUET', 'Permission denied', 'Quota exceeded', 'SNAPPY', 'ZSTD', 'avro', 'bucket', 'compression', 'created', 'csv', 'dataset_id', 'deflate', 'description', 'destination_uris', 'error', 'error_type', 'format', 'gs:', 'gs://', 'gs:://', 'gzip', 'job_id', 'json', 'mode', 'modified', 'name', 'num_bytes', 'num_files', 'num_rows', 'parquet', 'project_id', 'quota', 'schema', 'snappy', 'success', 'table', 'table_id', 'table_type', 'type', 'zstd']

@@ -272,13 +272,15 @@ class TestBulkDeleteRequest:
 class TestDialectConstants:
     """Test ALLOWED_SOURCE_DIALECTS and ALLOWED_TARGET_DIALECTS constants."""
 
-    def test_source_dialects_correct_values(self):
-        """ALLOWED_SOURCE_DIALECTS contains exactly the expected values."""
-        assert ALLOWED_SOURCE_DIALECTS == {"Bigquery", "SQL Server", "Redshift"}
+    def test_source_dialects_contains_expected_values(self):
+        """ALLOWED_SOURCE_DIALECTS contains the expected canonical values."""
+        for dialect in ("Bigquery", "SQL Server", "Redshift"):
+            assert dialect in ALLOWED_SOURCE_DIALECTS
 
-    def test_target_dialects_correct_values(self):
-        """ALLOWED_TARGET_DIALECTS contains exactly the expected values."""
-        assert ALLOWED_TARGET_DIALECTS == {"Redshift", "SQL Server", "BigQuery"}
+    def test_target_dialects_contains_expected_values(self):
+        """ALLOWED_TARGET_DIALECTS contains the expected canonical values."""
+        for dialect in ("Redshift", "SQL Server", "BigQuery"):
+            assert dialect in ALLOWED_TARGET_DIALECTS
 
     def test_source_dialects_is_set(self):
         """ALLOWED_SOURCE_DIALECTS is a set for O(1) lookup."""
@@ -288,10 +290,12 @@ class TestDialectConstants:
         """ALLOWED_TARGET_DIALECTS is a set for O(1) lookup."""
         assert isinstance(ALLOWED_TARGET_DIALECTS, set)
 
-    def test_source_has_three_entries(self):
-        """Source dialects set has exactly 3 entries."""
-        assert len(ALLOWED_SOURCE_DIALECTS) == 3
+    def test_source_dialects_includes_lowercase_variants(self):
+        """Source dialects set includes lowercase variants for backward compat."""
+        for dialect in ("bigquery", "redshift", "sql server"):
+            assert dialect in ALLOWED_SOURCE_DIALECTS
 
-    def test_target_has_three_entries(self):
-        """Target dialects set has exactly 3 entries."""
-        assert len(ALLOWED_TARGET_DIALECTS) == 3
+    def test_target_dialects_includes_lowercase_variants(self):
+        """Target dialects set includes lowercase variants for backward compat."""
+        for dialect in ("bigquery", "redshift", "sql server"):
+            assert dialect in ALLOWED_TARGET_DIALECTS

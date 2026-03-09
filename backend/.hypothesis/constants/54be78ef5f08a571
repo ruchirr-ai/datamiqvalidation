@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\bq_redshift_migration\manifest_handler.py
+# hypothesis_version: 6.151.9
+
+['/', '1.0', 'Body', 'application/json', 'created_at', 'entries', 'gcs_uri', 'gs://', 'incomplete_count', 'mandatory', 'md5', 'metadata', 'migration_id', 'row_count', 's3', 's3://', 'shard_index', 'shards', 'sizeBytes', 'size_bytes', 'source', 'stage', 'status', 'total_entries', 'total_rows', 'total_shards', 'total_size_bytes', 'updated_at', 'uri', 'url', 'utf-8', 'version']

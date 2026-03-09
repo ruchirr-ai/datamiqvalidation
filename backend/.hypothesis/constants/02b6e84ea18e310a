@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\sqlglot_parser.py
+# hypothesis_version: 6.151.9
+
+[';\n', 'bigquery', 'cassandra', 'clickhouse', 'couchdb', 'databricks', 'documentdb', 'doris', 'duckdb', 'dynamodb', 'hive', 'mongodb', 'mssql', 'mysql', 'neo4j', 'oracle', 'postgres', 'postgresql', 'presto', 'redis', 'redshift', 'snowflake', 'source_dialect', 'spark', 'sqlite', 'sqlserver', 'starrocks', 'target_dialect', 'teradata', 'trino', 'tsql']

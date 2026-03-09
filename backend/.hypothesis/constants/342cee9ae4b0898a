@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\conversion_cache.py
+# hypothesis_version: 6.151.9
+
+[120, 900, '0', '5', '50', '6379', 'REDIS_DB', 'REDIS_ENABLED', 'REDIS_HOST', 'REDIS_PASSWORD', 'REDIS_PORT', 'REDIS_SOCKET_TIMEOUT', 'localhost', 'true']

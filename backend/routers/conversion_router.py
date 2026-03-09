@@ -1,351 +1,582 @@
 """
 Conversion Router
 
-API endpoints for SQL code conversion operations.
+Handles API endpoints for code conversion operations:
+- Standalone (single-snippet) conversion
+- Conversion job listing, retrieval, and deletion
+- Batch conversion
+- Bedrock model listing
+- Prompt template listing
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy.orm import Session
-from typing import Optional
 import logging
+from typing import Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
 from database import get_db
-from models.conversion_job import (
-    StandaloneConversionRequest,
-    ConversionJobResponse,
-    ConversionJobDetailResponse
-)
-from models.conversion_batch import (
+from models.connection import Connection
+from models.conversion_schemas import (
     BatchConversionRequest,
+    BedrockModelResponse,
+    BulkDeleteRequest,
     ConversionBatchResponse,
-    ConversionBatchDetailResponse,
-    ConversionJobListResponse
+    ConversionJobResponse,
+    ConversionLogResponse,
+    DeployRequest,
+    PaginatedJobsResponse,
+    S3ExportRequest,
+    StandaloneConversionRequest,
 )
-from models.conversion_log import ConversionLogListResponse
+from services.conversion_cache import ConversionCache
+from services.conversion_deploy_service import DeployService
+from services.conversion_export_service import ExportService
 from services.conversion_service import ConversionService
-from services.conversion_export_service import ConversionExportService
-from services.conversion_deploy_service import ConversionDeployService
-from shared.middleware.auth_middleware import get_current_user, get_workspace_id
+from services.audit_logger import AuditLogger
+from shared.middleware.auth_middleware import CurrentUser, get_current_user
 
 logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/conversions", tags=["conversions"])
 
 
-def get_conversion_service(db: Session = Depends(get_db)) -> ConversionService:
-    """Dependency for ConversionService"""
-    # TODO: Add Redis client
-    return ConversionService(db=db, redis_client=None)
+def get_workspace_id(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+) -> int:
+    """Extract workspace ID from X-Workspace-ID header or default to 1."""
+    workspace_id = request.headers.get("X-Workspace-ID")
+    if workspace_id:
+        return int(workspace_id)
+    return 1
 
 
-def get_export_service() -> ConversionExportService:
-    """Dependency for ConversionExportService"""
-    return ConversionExportService()
+def _build_service(db: Session) -> ConversionService:
+    """Instantiate ConversionService with its dependencies."""
+    cache = ConversionCache()
+    return ConversionService(db=db, cache=cache)
 
 
-def get_deploy_service(db: Session = Depends(get_db)) -> ConversionDeployService:
-    """Dependency for ConversionDeployService"""
-    # TODO: Add KMS service
-    return ConversionDeployService(db=db, kms_service=None)
+# ---------------------------------------------------------------------------
+# Standalone conversion
+# ---------------------------------------------------------------------------
 
 
-@router.post("/standalone", response_model=ConversionJobResponse)
+@router.post(
+    "/standalone",
+    response_model=ConversionJobResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_standalone_conversion(
     request: StandaloneConversionRequest,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     workspace_id: int = Depends(get_workspace_id),
-    conversion_service: ConversionService = Depends(get_conversion_service)
 ):
-    """
-    Create standalone SQL code conversion.
-    
-    Request Body:
-    {
-        "source_code": "SELECT * FROM table",
-        "source_dialect": "bigquery",
-        "target_dialect": "redshift",
-        "asset_type": "view",
-        "bedrock_model": "anthropic.claude-v2",
-        "use_sqlglot": true
-    }
-    """
+    """Create a standalone (single-snippet) code conversion."""
     try:
-        result = await conversion_service.convert_standalone(
+        service = _build_service(db)
+        job = service.create_standalone_conversion(
+            request=request,
             workspace_id=workspace_id,
-            user_id=current_user.user_id,
-            source_code=request.source_code,
-            source_dialect=request.source_dialect,
-            target_dialect=request.target_dialect,
-            asset_type=request.asset_type,
-            bedrock_model=request.bedrock_model,
-            use_sqlglot=request.use_sqlglot,
-            prompt_template_path=request.prompt_template_path,
-            asset_name=request.asset_name
+            user_id=str(current_user.user_id),
         )
-        
-        return ConversionJobResponse(**result)
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Conversion failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Conversion failed")
+        return ConversionJobResponse.model_validate(job)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.error(
+            "Standalone conversion failed",
+            extra={"workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while processing the conversion",
+        )
 
 
-@router.post("/batch", response_model=ConversionBatchResponse)
-async def create_batch_conversion(
-    request: BatchConversionRequest,
+# ---------------------------------------------------------------------------
+# Job listing / retrieval / deletion
+# ---------------------------------------------------------------------------
+
+
+@router.get("/jobs", response_model=PaginatedJobsResponse)
+async def list_jobs(
+    page: int = 1,
+    page_size: int = 20,
+    status_filter: Optional[str] = None,
+    asset_type: Optional[str] = None,
+    source_dialect: Optional[str] = None,
+    standalone_only: bool = False,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user),
+    current_user: CurrentUser = Depends(get_current_user),
     workspace_id: int = Depends(get_workspace_id),
-    conversion_service: ConversionService = Depends(get_conversion_service)
 ):
-    """
-    Create batch SQL code conversion.
-    
-    Request Body:
-    {
-        "source_connection_id": 1,
-        "target_connection_id": 2,
-        "asset_list": [
-            {"asset_type": "view", "asset_name": "customer_view", "source_code": "..."}
-        ],
-        "bedrock_model": "anthropic.claude-v2",
-        "use_sqlglot": true,
-        "max_retries": 3
-    }
-    """
+    """List conversion jobs with pagination and optional filters."""
     try:
-        result = await conversion_service.convert_batch(
+        service = _build_service(db)
+        result = service.list_jobs(
             workspace_id=workspace_id,
-            user_id=current_user.user_id,
-            source_connection_id=request.source_connection_id,
-            target_connection_id=request.target_connection_id,
-            asset_list=request.asset_list,
-            bedrock_model=request.bedrock_model,
-            use_sqlglot=request.use_sqlglot,
-            max_retries=request.max_retries
+            page=page,
+            page_size=page_size,
+            status=status_filter,
+            asset_type=asset_type,
+            source_dialect=source_dialect,
+            standalone_only=standalone_only,
         )
-        
-        return ConversionBatchResponse(**result)
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Batch conversion failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Batch conversion failed")
+        return PaginatedJobsResponse(
+            jobs=[ConversionJobResponse.model_validate(j) for j in result["jobs"]],
+            total=result["total"],
+            page=result["page"],
+            page_size=result["page_size"],
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Failed to list conversion jobs",
+            extra={"workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while listing conversion jobs",
+        )
 
 
-@router.get("/jobs/{job_id}", response_model=ConversionJobDetailResponse)
-async def get_conversion_job(
-    job_id: int,
+@router.delete("/jobs/bulk")
+async def bulk_delete_jobs(
+    request: BulkDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
     workspace_id: int = Depends(get_workspace_id),
-    conversion_service: ConversionService = Depends(get_conversion_service)
 ):
-    """Get conversion job details"""
-    job = conversion_service.get_job(job_id, workspace_id)
-    
+    """Bulk delete conversion jobs by a list of IDs."""
+    try:
+        service = _build_service(db)
+        deleted_count = service.bulk_delete_jobs(
+            job_ids=request.job_ids,
+            workspace_id=workspace_id,
+        )
+        return {"deleted_count": deleted_count}
+    except Exception as exc:
+        logger.error(
+            "Bulk delete jobs failed",
+            extra={"workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while deleting conversion jobs",
+        )
+
+
+@router.get("/jobs/{job_id}", response_model=ConversionJobResponse)
+async def get_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """Retrieve a single conversion job by ID."""
+    service = _build_service(db)
+    job = service.get_job(job_id=job_id, workspace_id=workspace_id)
     if not job:
         raise HTTPException(
-            status_code=404,
-            detail="Conversion job not found or access denied"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversion job {job_id} not found",
         )
-    
-    return ConversionJobDetailResponse(**job)
+    return ConversionJobResponse.model_validate(job)
 
 
-@router.get("/batches/{batch_id}", response_model=ConversionBatchDetailResponse)
-async def get_conversion_batch(
-    batch_id: int,
+@router.delete("/jobs/{job_id}")
+async def delete_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
     workspace_id: int = Depends(get_workspace_id),
-    conversion_service: ConversionService = Depends(get_conversion_service)
 ):
-    """Get conversion batch details with progress"""
-    batch = conversion_service.get_batch(batch_id, workspace_id)
-    
-    if not batch:
+    """Delete a conversion job by ID."""
+    service = _build_service(db)
+    deleted = service.delete_job(job_id=job_id, workspace_id=workspace_id, user_id=str(current_user.user_id))
+    if not deleted:
         raise HTTPException(
-            status_code=404,
-            detail="Conversion batch not found or access denied"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversion job {job_id} not found",
         )
-    
-    return ConversionBatchDetailResponse(**batch)
+    return {"message": f"Conversion job {job_id} deleted successfully"}
 
 
-@router.get("/batches/{batch_id}/jobs")
-async def get_batch_jobs(
-    batch_id: int,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
-    workspace_id: int = Depends(get_workspace_id),
-    db: Session = Depends(get_db)
-):
-    """Get paginated list of jobs for batch"""
-    from models.conversion_job_db import ConversionJob as ConversionJobModel
-    from models.conversion_job_db import ConversionBatch as ConversionBatchModel
-    from sqlalchemy import and_
-    
-    # Verify batch belongs to workspace
-    batch = db.query(ConversionBatchModel).filter(
-        and_(
-            ConversionBatchModel.id == batch_id,
-            ConversionBatchModel.workspace_id == workspace_id
-        )
-    ).first()
-    
-    if not batch:
-        raise HTTPException(status_code=404, detail="Batch not found or access denied")
-    
-    # Get jobs
-    query = db.query(ConversionJobModel).filter(
-        and_(
-            ConversionJobModel.batch_id == batch_id,
-            ConversionJobModel.workspace_id == workspace_id
-        )
-    )
-    
-    total = query.count()
-    jobs = query.offset((page - 1) * page_size).limit(page_size).all()
-    
-    return {
-        'jobs': jobs,
-        'total': total,
-        'page': page,
-        'page_size': page_size
-    }
-
-
-@router.get("/jobs/{job_id}/logs")
+@router.get("/jobs/{job_id}/logs", response_model=list[ConversionLogResponse])
 async def get_job_logs(
     job_id: int,
-    workspace_id: int = Depends(get_workspace_id),
-    db: Session = Depends(get_db)
-):
-    """Get conversion logs for debugging"""
-    from models.conversion_job_db import ConversionLog as ConversionLogModel
-    from sqlalchemy import and_
-    
-    logs = db.query(ConversionLogModel).filter(
-        and_(
-            ConversionLogModel.job_id == job_id,
-            ConversionLogModel.workspace_id == workspace_id
-        )
-    ).order_by(ConversionLogModel.timestamp).all()
-    
-    return {
-        'logs': logs,
-        'total': len(logs)
-    }
-
-
-@router.post("/jobs/{job_id}/export")
-async def export_conversion(
-    job_id: int,
-    export_format: str = Query("sql", pattern="^(sql|zip)$"),
-    workspace_id: int = Depends(get_workspace_id),
     db: Session = Depends(get_db),
-    export_service: ConversionExportService = Depends(get_export_service)
-):
-    """Export conversion job to file"""
-    from models.conversion_job_db import ConversionJob as ConversionJobModel
-    from sqlalchemy import and_
-    
-    # Get job
-    job = db.query(ConversionJobModel).filter(
-        and_(
-            ConversionJobModel.id == job_id,
-            ConversionJobModel.workspace_id == workspace_id
-        )
-    ).first()
-    
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found or access denied")
-    
-    # Export
-    result = await export_service.export_single_job(job, workspace_id)
-    
-    if not result.success:
-        raise HTTPException(status_code=500, detail=result.error_message)
-    
-    # Return file content
-    if result.file_content:
-        return Response(
-            content=result.file_content,
-            media_type='application/octet-stream',
-            headers={
-                'Content-Disposition': f'attachment; filename="{result.file_path}"'
-            }
-        )
-    
-    return {'s3_url': result.s3_url}
-
-
-@router.post("/jobs/{job_id}/deploy")
-async def deploy_conversion(
-    job_id: int,
-    target_connection_id: int,
-    dry_run: bool = Query(False),
+    current_user: CurrentUser = Depends(get_current_user),
     workspace_id: int = Depends(get_workspace_id),
+):
+    """Retrieve conversion logs for a job."""
+    service = _build_service(db)
+    job = service.get_job(job_id=job_id, workspace_id=workspace_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversion job {job_id} not found",
+        )
+    logs = service.get_job_logs(job_id=job_id, workspace_id=workspace_id)
+    return [ConversionLogResponse.model_validate(log) for log in logs]
+
+
+# ---------------------------------------------------------------------------
+# Batch conversion
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/batch",
+    response_model=ConversionBatchResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_batch_conversion(
+    request: BatchConversionRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    deploy_service: ConversionDeployService = Depends(get_deploy_service)
-):
-    """Deploy converted code to target database"""
-    from models.conversion_job_db import ConversionJob as ConversionJobModel
-    from sqlalchemy import and_
-    
-    # Get job
-    job = db.query(ConversionJobModel).filter(
-        and_(
-            ConversionJobModel.id == job_id,
-            ConversionJobModel.workspace_id == workspace_id
-        )
-    ).first()
-    
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found or access denied")
-    
-    # Deploy
-    result = await deploy_service.deploy_to_target(
-        job, target_connection_id, workspace_id, dry_run
-    )
-    
-    if not result.success:
-        raise HTTPException(status_code=500, detail=result.error_message)
-    
-    return result.to_dict()
-
-
-@router.get("/jobs")
-async def list_conversion_jobs(
-    status: Optional[str] = None,
-    asset_type: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    current_user: CurrentUser = Depends(get_current_user),
     workspace_id: int = Depends(get_workspace_id),
-    db: Session = Depends(get_db)
 ):
-    """List conversion jobs with filters"""
-    from models.conversion_job_db import ConversionJob as ConversionJobModel
-    from sqlalchemy import and_
-    
-    query = db.query(ConversionJobModel).filter(
-        ConversionJobModel.workspace_id == workspace_id
+    """Create a batch conversion for multiple assets."""
+    try:
+        service = _build_service(db)
+        batch = service.create_batch_conversion(
+            request=request,
+            workspace_id=workspace_id,
+            user_id=str(current_user.user_id),
+        )
+        background_tasks.add_task(
+            service.run_batch_background,
+            batch_id=batch.id,
+            workspace_id=workspace_id,
+        )
+        return ConversionBatchResponse.model_validate(batch)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.error(
+            "Batch conversion creation failed",
+            extra={"workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while creating the batch conversion",
+        )
+
+
+@router.get("/batches")
+async def list_batches(
+    page: int = 1,
+    page_size: int = 20,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """List all conversion batches for the current workspace."""
+    try:
+        service = _build_service(db)
+        batches, total = service.list_batches(
+            workspace_id=workspace_id,
+            page=page,
+            page_size=page_size,
+        )
+        return {
+            "batches": [
+                ConversionBatchResponse.model_validate(b)
+                for b in batches
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+    except Exception as exc:
+        logger.error(
+            "Failed to list conversion batches",
+            extra={"workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while listing conversion batches",
+        )
+
+
+@router.delete("/batches/{batch_id}")
+async def delete_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """Delete a batch and its associated jobs."""
+    service = _build_service(db)
+    deleted = service.delete_batch(batch_id=batch_id, workspace_id=workspace_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversion batch {batch_id} not found",
+        )
+    return {"message": f"Conversion batch {batch_id} deleted successfully"}
+
+
+@router.get("/batch/{batch_id}", response_model=ConversionBatchResponse)
+async def get_batch(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """Retrieve batch conversion status and progress."""
+    service = _build_service(db)
+    batch = service.get_batch(batch_id=batch_id, workspace_id=workspace_id)
+    if not batch:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversion batch {batch_id} not found",
+        )
+    return ConversionBatchResponse.model_validate(batch)
+
+
+@router.get("/batch/{batch_id}/jobs", response_model=list[ConversionJobResponse])
+async def list_batch_jobs(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """List all conversion jobs within a batch."""
+    service = _build_service(db)
+    batch = service.get_batch(batch_id=batch_id, workspace_id=workspace_id)
+    if not batch:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversion batch {batch_id} not found",
+        )
+    jobs = service.list_batch_jobs(batch_id=batch_id, workspace_id=workspace_id)
+    return [ConversionJobResponse.model_validate(j) for j in jobs]
+
+
+@router.post("/batch/{batch_id}/export/sql")
+async def export_batch_sql(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """Export batch conversion results as a downloadable .sql file."""
+    service = _build_service(db)
+    batch = service.get_batch(batch_id=batch_id, workspace_id=workspace_id)
+    if not batch:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversion batch {batch_id} not found",
+        )
+    jobs = service.list_batch_jobs(batch_id=batch_id, workspace_id=workspace_id)
+    export_service = ExportService()
+    sql_bytes = export_service.generate_batch_sql(jobs)
+
+    import io
+
+    audit_logger = AuditLogger(db)
+    audit_logger.log_data_modification(
+        user_id=current_user.user_id,
+        username=current_user.username,
+        workspace_id=workspace_id,
+        resource_type="conversion_batch",
+        resource_id=batch_id,
+        action="export",
     )
-    
-    if status:
-        query = query.filter(ConversionJobModel.status == status)
-    
-    if asset_type:
-        query = query.filter(ConversionJobModel.asset_type == asset_type)
-    
-    total = query.count()
-    jobs = query.order_by(ConversionJobModel.created_at.desc()).offset(
-        (page - 1) * page_size
-    ).limit(page_size).all()
-    
-    return {
-        'jobs': jobs,
-        'total': total,
-        'page': page,
-        'page_size': page_size
-    }
+
+    return StreamingResponse(
+        io.BytesIO(sql_bytes),
+        media_type="application/sql",
+        headers={
+            "Content-Disposition": f"attachment; filename=batch_{batch_id}_export.sql"
+        },
+    )
+
+
+@router.post("/batch/{batch_id}/export/s3")
+async def export_batch_s3(
+    batch_id: int,
+    request: S3ExportRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """Export batch conversion results to an S3 path."""
+    service = _build_service(db)
+    batch = service.get_batch(batch_id=batch_id, workspace_id=workspace_id)
+    if not batch:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversion batch {batch_id} not found",
+        )
+    jobs = service.list_batch_jobs(batch_id=batch_id, workspace_id=workspace_id)
+    try:
+        export_service = ExportService()
+        export_service.export_to_s3(
+            jobs=jobs,
+            s3_path=request.s3_path,
+            region=request.region,
+        )
+        audit_logger = AuditLogger(db)
+        audit_logger.log_data_modification(
+            user_id=current_user.user_id,
+            username=current_user.username,
+            workspace_id=workspace_id,
+            resource_type="conversion_batch",
+            resource_id=batch_id,
+            action="export",
+        )
+        return {"message": f"Batch {batch_id} exported to {request.s3_path}"}
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        logger.error(
+            "S3 export failed",
+            extra={"batch_id": batch_id, "workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while exporting to S3",
+        )
+
+
+@router.post("/batch/{batch_id}/deploy")
+async def deploy_batch(
+    batch_id: int,
+    request: DeployRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """Deploy converted assets from a batch to the target database."""
+    service = _build_service(db)
+    batch = service.get_batch(batch_id=batch_id, workspace_id=workspace_id)
+    if not batch:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Conversion batch {batch_id} not found",
+        )
+
+    target_connection = db.query(Connection).filter(
+        Connection.id == request.target_connection_id,
+    ).first()
+    if not target_connection:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Target connection {request.target_connection_id} not found",
+        )
+
+    jobs = service.list_batch_jobs(batch_id=batch_id, workspace_id=workspace_id)
+    try:
+        deploy_service = DeployService()
+        result = deploy_service.deploy_batch(
+            batch=batch,
+            jobs=jobs,
+            target_connection=target_connection,
+        )
+        audit_logger = AuditLogger(db)
+        audit_logger.log_data_modification(
+            user_id=current_user.user_id,
+            username=current_user.username,
+            workspace_id=workspace_id,
+            resource_type="conversion_batch",
+            resource_id=batch_id,
+            action="deploy",
+        )
+        return {
+            "success": result.success,
+            "deployed_assets": result.deployed_assets,
+            "failed_asset": result.failed_asset,
+            "error_message": result.error_message,
+        }
+    except Exception as exc:
+        logger.error(
+            "Batch deployment failed",
+            extra={"batch_id": batch_id, "workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while deploying the batch",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Bedrock models listing
+# ---------------------------------------------------------------------------
+
+
+@router.get("/models", response_model=list[BedrockModelResponse])
+async def list_bedrock_models(
+    region: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """List available Bedrock foundation models for a given AWS region."""
+    try:
+        service = _build_service(db)
+        models = service.list_bedrock_models(region=region)
+        return [
+            BedrockModelResponse(
+                model_id=m.model_id,
+                model_name=m.model_name,
+                provider=m.provider,
+            )
+            for m in models
+        ]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Failed to list Bedrock models",
+            extra={"workspace_id": workspace_id, "region": region, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while listing Bedrock models",
+        )
+
+
+@router.get("/templates")
+async def list_prompt_templates(
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """List available local prompt templates."""
+    try:
+        from services.bedrock_client import BedrockClient
+
+        templates = BedrockClient.list_local_templates()
+        return templates
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Failed to list prompt templates",
+            extra={"workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while listing prompt templates",
+        )

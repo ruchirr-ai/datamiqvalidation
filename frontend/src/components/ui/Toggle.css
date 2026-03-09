@@ -14,17 +14,18 @@
   position: relative;
   width: 48px;
   height: 24px;
-  background: var(--color-gray-300);
+  background: #C4C9D2;
   border-radius: 9999px;
-  border: none;
+  border: 2px solid #A0A7B4;
   cursor: pointer;
-  transition: background 0.3s ease;
+  transition: background 0.3s ease, border-color 0.3s ease;
   padding: 0;
   outline: none;
 }
 
 .toggle-switch:hover:not(.disabled) {
-  background: var(--color-gray-400);
+  background: #A0A7B4;
+  border-color: #8B93A0;
 }
 
 .toggle-switch:focus-visible {
@@ -33,11 +34,13 @@
 }
 
 .toggle-switch.enabled {
-  background: var(--color-blue-600);
+  background: #2A6BDB;
+  border-color: #1E4FA0;
 }
 
 .toggle-switch.enabled:hover:not(.disabled) {
-  background: var(--color-blue-700);
+  background: #1E4FA0;
+  border-color: #163D80;
 }
 
 .toggle-switch.disabled {
@@ -47,14 +50,14 @@
 
 .toggle-switch-handle {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
+  top: 1px;
+  left: 1px;
+  width: 18px;
+  height: 18px;
   background: white;
   border-radius: 50%;
   transition: transform 0.3s ease;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 .toggle-switch.enabled .toggle-switch-handle {

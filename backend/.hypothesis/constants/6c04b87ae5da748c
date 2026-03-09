@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\conversion_deploy_service.py
+# hypothesis_version: 6.151.9
+
+[5432, 'FUNCTION', 'MATERIALIZED_VIEW', 'SCHEDULED_QUERY', 'STORED_PROCEDURE', 'TABLE_DDL', 'VIEW', 'asset_name', 'asset_type', 'batch_id', 'database', 'deployed_count', 'host', 'localhost', 'password', 'port', 'postgresql', 'redshift', 'username']

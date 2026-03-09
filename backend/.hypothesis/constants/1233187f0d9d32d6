@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\conversion_export_service.py
+# hypothesis_version: 6.151.9
+
+['/', 'Exported batch to S3', 'application/sql', 'bucket', 'exported_assets', 'filename', 'included_assets', 'job_id', 'prefix', 's3', 's3://', 'total_jobs', 'utf-8']

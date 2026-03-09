@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\encryption_service.py
+# hypothesis_version: 6.151.9
+
+[b'datamiq-salt-2026', 100000, 'ENCRYPTION_KEY', 'ENCRYPTION_PASSWORD']

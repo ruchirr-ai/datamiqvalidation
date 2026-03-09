@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\models\connection.py
+# hypothesis_version: 6.151.9
+
+[100, 255, 'connection_params', 'connections', 'created_at', 'created_by', 'database', 'disconnected', 'id', 'is_active', 'last_tested_at', 'name', 'status', 'system', 'type', 'updated_at']

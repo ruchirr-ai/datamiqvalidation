@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\routers\conversion_router.py
+# hypothesis_version: 6.151.9
+
+['/api/conversions', '/batch', '/batch/{batch_id}', '/batches', '/batches/{batch_id}', '/jobs', '/jobs/bulk', '/jobs/{job_id}', '/jobs/{job_id}/logs', '/models', '/standalone', '/templates', 'Content-Disposition', 'S3 export failed', 'X-Workspace-ID', 'application/sql', 'batch_id', 'batches', 'conversion_batch', 'conversions', 'deleted_count', 'deploy', 'deployed_assets', 'error', 'error_message', 'export', 'failed_asset', 'jobs', 'message', 'page', 'page_size', 'region', 'success', 'total', 'workspace_id']

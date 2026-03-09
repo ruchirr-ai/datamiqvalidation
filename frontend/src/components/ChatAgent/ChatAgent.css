@@ -9,8 +9,8 @@
 }
 
 .chat-agent-button {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   background: var(--color-primary, #2A6BDB);
   border: none;

@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\models\conversion_log.py
+# hypothesis_version: 6.151.9
+
+[100, 'CASCADE', 'INFO', 'conversion_completed', 'conversion_failed', 'conversion_jobs.id', 'conversion_logs', 'job_id', 'retry_attempted', 'sqlglot_parse_failed', 'template_loaded', 'workspace_id']

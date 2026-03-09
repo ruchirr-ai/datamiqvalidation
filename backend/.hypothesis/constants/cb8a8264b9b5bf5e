@@ -1,0 +1,4 @@
+# file: C:\Users\Admin\Documents\DataMiQ\datamiq\backend\services\audit_logger.py
+# hypothesis_version: 6.151.9
+
+['...', 'account_locked', 'action', 'data_modification', 'details', 'endpoint', 'event_type', 'failed_attempts', 'ip_address', 'login_attempt', 'logout', 'permission_denied', 'reason', 'required_permission', 'resource_id', 'resource_type', 'success', 'token_preview', 'user_id', 'username', 'workspace_access', 'workspace_id']
