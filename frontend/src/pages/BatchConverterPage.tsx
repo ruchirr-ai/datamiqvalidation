@@ -1174,15 +1174,6 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
             >
               {exportingSQL ? 'Downloading…' : 'Download .sql'}
             </Button>
-
-            {/* Deploy to target */}
-            <Button
-              variant="primary"
-              onClick={handleDeploy}
-              disabled={deploying || completed === 0}
-            >
-              {deploying ? 'Deploying…' : 'Deploy to Target DB'}
-            </Button>
           </div>
 
           {/* S3 export form */}
@@ -1218,30 +1209,6 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
             )}
           </div>
         </div>
-
-        {/* Deploy result */}
-        {deployResult && (
-          <div className="summary-section">
-            <h4 className="summary-section-title">Deployment Result</h4>
-            <Alert variant={deployResult.success ? 'success' : 'error'}>
-              {deployResult.success
-                ? `Successfully deployed ${deployResult.deployed_assets.length} asset(s).`
-                : deployResult.error_message || 'Deployment failed.'}
-            </Alert>
-            {deployResult.deployed_assets.length > 0 && (
-              <div className="deploy-assets-list">
-                {deployResult.deployed_assets.map((name) => (
-                  <Badge key={name} variant="success" size="sm">{name}</Badge>
-                ))}
-              </div>
-            )}
-            {deployResult.failed_asset && (
-              <p className="deploy-failed-asset">
-                Failed at: <strong>{deployResult.failed_asset}</strong>
-              </p>
-            )}
-          </div>
-        )}
 
         {/* Batch Preview Window (Req 11.1) */}
         {(status === 'completed' || status === 'completed_with_errors') && batchJobs.length > 0 && (

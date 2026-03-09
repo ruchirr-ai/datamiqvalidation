@@ -250,10 +250,9 @@ export const deleteBatch = async (batchId: number): Promise<{ message: string }>
  * Export batch conversion results as a .sql file download
  */
 export const exportBatchSql = async (batchId: number): Promise<void> => {
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
   const token = localStorage.getItem('auth_token');
 
-  const response = await fetch(`${API_BASE_URL}/api/conversions/batch/${batchId}/export/sql`, {
+  const response = await fetch(`/api/conversions/batch/${batchId}/export/sql`, {
     method: 'POST',
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
