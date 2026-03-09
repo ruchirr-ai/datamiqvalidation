@@ -24,6 +24,7 @@ import { PathwayATestPage } from './pages/PathwayATestPage';
 import { BQExportTestPage } from './pages/BQExportTestPage';
 import { StandaloneConverterPage } from './pages/StandaloneConverterPage';
 import { BatchConverterPage } from './pages/BatchConverterPage';
+import { WorkspacesPage } from './pages/WorkspacesPage';
 import { CopyHistoryPage } from './pages/CopyHistoryPage';
 import { TaskHistoryPage } from './pages/TaskHistoryPage';
 import './styles/global.css';
@@ -165,6 +166,7 @@ const AppContent: React.FC = () => {
                 <Routes>
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/dashboard" element={<DashboardPage />} />
+                  <Route path="/workspaces" element={<WorkspacesPage />} />
                   <Route path="/connections" element={<ConnectionsPage />} />
                   <Route path="/assessments" element={<AssessmentsPage />} />
                   <Route path="/assessments/:assessmentId/report" element={<AssessmentReportPage />} />

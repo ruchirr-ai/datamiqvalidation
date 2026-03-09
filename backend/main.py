@@ -21,6 +21,8 @@ from routers.copy_history_router import router as copy_history_router
 from routers.task_history_router import router as task_history_router
 from routers.chatagent_router import router as chatagent_router
 from routers.conversion_router import router as conversion_router
+from routers.dashboard_router import router as dashboard_router
+from routers.workspace_router import router as workspace_router
 from database import db_instance
 
 # Import all models to ensure they're registered with SQLAlchemy
@@ -176,6 +178,8 @@ app.include_router(copy_history_router)
 app.include_router(task_history_router)
 app.include_router(chatagent_router)
 app.include_router(conversion_router)
+app.include_router(dashboard_router)
+app.include_router(workspace_router)
 
 # Health check endpoint
 @app.get("/health")

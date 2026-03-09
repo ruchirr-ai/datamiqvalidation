@@ -1,0 +1,208 @@
+.workspaces-page {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding-top: 24px;
+}
+
+.workspaces-header {
+  margin-bottom: 24px;
+}
+
+.workspaces-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.workspaces-subtitle {
+  font-size: 14px;
+  color: #6B7280;
+  margin: 0;
+}
+
+/* Workspace Cards */
+.workspaces-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 16px;
+}
+
+.workspace-card {
+  background: #fff;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 24px;
+  transition: box-shadow 0.15s ease;
+}
+
+.workspace-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.workspace-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.workspace-card-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.workspace-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: #EFF6FF;
+  color: #2563EB;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.workspace-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.workspace-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 2px 0;
+}
+
+.workspace-slug {
+  font-size: 12px;
+  color: #9CA3AF;
+}
+
+.workspace-role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.workspace-role-badge.owner {
+  background: #FFF7ED;
+  color: #EA580C;
+}
+
+.workspace-role-badge.admin {
+  background: #F3E8FF;
+  color: #7C3AED;
+}
+
+.workspace-role-badge.member {
+  background: #EFF6FF;
+  color: #2563EB;
+}
+
+.workspace-description {
+  font-size: 13px;
+  color: #6B7280;
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+/* Stats Row */
+.workspace-stats {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid #F3F4F6;
+}
+
+.workspace-stat {
+  text-align: center;
+}
+
+.workspace-stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.workspace-stat-label {
+  font-size: 11px;
+  color: #9CA3AF;
+  margin-top: 2px;
+}
+
+/* Footer */
+.workspace-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #F3F4F6;
+}
+
+.workspace-created {
+  font-size: 12px;
+  color: #9CA3AF;
+}
+
+.workspace-active-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #059669;
+}
+
+.workspace-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #059669;
+}
+
+/* Loading */
+.workspaces-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 0;
+  color: #6B7280;
+  font-size: 14px;
+  gap: 8px;
+}
+
+.ws-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #E5E7EB;
+  border-top-color: #2563EB;
+  border-radius: 50%;
+  animation: ws-spin 0.6s linear infinite;
+}
+
+@keyframes ws-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 640px) {
+  .workspaces-grid {
+    grid-template-columns: 1fr;
+  }
+  .workspace-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
