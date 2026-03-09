@@ -1176,38 +1176,6 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
             </Button>
           </div>
 
-          {/* S3 export form */}
-          <div className="s3-export-form">
-            <span className="s3-export-label">Export to S3</span>
-            <div className="s3-export-row">
-              <input
-                className="batch-config-input s3-export-input"
-                type="text"
-                placeholder="s3://bucket/path/"
-                value={s3ExportPath}
-                onChange={(e) => setS3ExportPath(e.target.value)}
-                aria-label="S3 export path"
-              />
-              <input
-                className="batch-config-input s3-export-region"
-                type="text"
-                placeholder="us-east-1"
-                value={s3ExportRegion}
-                onChange={(e) => setS3ExportRegion(e.target.value)}
-                aria-label="S3 export region"
-              />
-              <Button
-                variant="secondary"
-                onClick={handleExportS3}
-                disabled={s3Exporting || !s3ExportPath.trim() || completed === 0}
-              >
-                {s3Exporting ? 'Exporting…' : 'Export'}
-              </Button>
-            </div>
-            {s3ExportMsg && (
-              <Alert variant="info" className="s3-export-alert">{s3ExportMsg}</Alert>
-            )}
-          </div>
         </div>
 
         {/* Batch Preview Window (Req 11.1) */}
