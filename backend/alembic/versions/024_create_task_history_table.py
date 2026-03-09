@@ -14,6 +14,14 @@ depends_on = None
 
 
 def upgrade():
+    # Table may already exist from a previous branch migration — skip if so
+    conn = op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT tablename FROM pg_tables WHERE tablename='task_history'"
+    ))
+    if result.fetchone() is not None:
+        return
+
     op.create_table(
         'task_history',
         sa.Column('id', sa.Integer(), primary_key=True),

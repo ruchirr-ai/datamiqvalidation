@@ -21,6 +21,13 @@ def upgrade():
     """
     Create conversations, messages, and attachments tables for ChatAgent feature.
     """
+    # Tables may already exist from a previous branch migration — skip if so
+    conn = op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT tablename FROM pg_tables WHERE tablename='conversations'"
+    ))
+    if result.fetchone() is not None:
+        return
     
     # Create conversations table
     op.create_table(

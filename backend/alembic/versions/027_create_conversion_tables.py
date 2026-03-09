@@ -17,6 +17,14 @@ depends_on = None
 
 
 def upgrade():
+    # Tables may already exist from a previous branch migration — skip if so
+    conn = op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT tablename FROM pg_tables WHERE tablename='conversion_batches'"
+    ))
+    if result.fetchone() is not None:
+        return
+
     # Create conversion_batches table
     op.create_table(
         'conversion_batches',

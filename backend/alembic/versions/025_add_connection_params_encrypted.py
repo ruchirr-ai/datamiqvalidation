@@ -14,7 +14,14 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column('connections', sa.Column('connection_params_encrypted', sa.String(), nullable=True))
+    # Check if column already exists (may have been created by a previous branch migration)
+    conn = op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name='connections' AND column_name='connection_params_encrypted'"
+    ))
+    if result.fetchone() is None:
+        op.add_column('connections', sa.Column('connection_params_encrypted', sa.String(), nullable=True))
 
 
 def downgrade() -> None:
