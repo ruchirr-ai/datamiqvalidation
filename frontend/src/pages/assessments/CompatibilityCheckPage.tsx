@@ -51,6 +51,11 @@ export const CompatibilityCheckPage: React.FC = () => {
       setError(null);
       setReport(null);
       const result = await runCompatibilityCheck(selectedAssessmentId as number);
+      // Ensure all required fields exist with defaults
+      if (result && result.summary) {
+        result.summary.total_security_policies = result.summary.total_security_policies ?? 0;
+        result.summary.total_sharded_tables = result.summary.total_sharded_tables ?? 0;
+      }
       setReport(result);
     } catch (err: any) {
       setError(err.detail || err.message || 'Compatibility check failed');
@@ -147,20 +152,20 @@ export const CompatibilityCheckPage: React.FC = () => {
             {/* Score Overview */}
             <div className="compat-score-overview">
               <div className="compat-score-main">
-                <div className="compat-score-circle" style={{ borderColor: getScoreColor(report.overall_score) }}>
-                  <span className="compat-score-value" style={{ color: getScoreColor(report.overall_score) }}>
-                    {report.overall_score}
+                <div className="compat-score-circle" style={{ borderColor: getScoreColor(report.overall_score || 0) }}>
+                  <span className="compat-score-value" style={{ color: getScoreColor(report.overall_score || 0) }}>
+                    {report.overall_score ?? 0}
                   </span>
                   <span className="compat-score-label">/ 100</span>
                 </div>
                 <div className="compat-score-info">
                   <h2>Overall Compatibility Score</h2>
-                  <p className="compat-assessment-name">{report.assessment_name}</p>
+                  <p className="compat-assessment-name">{report.assessment_name || ''}</p>
                   <div className="compat-score-bars">
                     {[
-                      { label: 'Data Types', score: report.score_breakdown.data_types, icon: <Database size={14} /> },
-                      { label: 'Feature Gaps', score: report.score_breakdown.feature_gaps, icon: <Shield size={14} /> },
-                      { label: 'SQL Syntax', score: report.score_breakdown.sql_syntax, icon: <Code size={14} /> },
+                      { label: 'Data Types', score: report.score_breakdown?.data_types ?? 0, icon: <Database size={14} /> },
+                      { label: 'Feature Gaps', score: report.score_breakdown?.feature_gaps ?? 0, icon: <Shield size={14} /> },
+                      { label: 'SQL Syntax', score: report.score_breakdown?.sql_syntax ?? 0, icon: <Code size={14} /> },
                     ].map(item => (
                       <div key={item.label} className="compat-score-bar-row">
                         <div className="compat-score-bar-label">{item.icon} {item.label}</div>
@@ -178,12 +183,12 @@ export const CompatibilityCheckPage: React.FC = () => {
               </div>
               <div className="compat-summary-stats">
                 {[
-                  { label: 'Tables', value: report.summary.total_tables },
-                  { label: 'Columns', value: report.summary.total_columns },
-                  { label: 'Views', value: report.summary.total_views },
-                  { label: 'Routines', value: report.summary.total_routines },
-                  { label: 'ML Models', value: report.summary.total_ml_models },
-                  { label: 'Security Policies', value: report.summary.total_security_policies },
+                  { label: 'Tables', value: report.summary?.total_tables ?? 0 },
+                  { label: 'Columns', value: report.summary?.total_columns ?? 0 },
+                  { label: 'Views', value: report.summary?.total_views ?? 0 },
+                  { label: 'Routines', value: report.summary?.total_routines ?? 0 },
+                  { label: 'ML Models', value: report.summary?.total_ml_models ?? 0 },
+                  { label: 'Security Policies', value: report.summary?.total_security_policies ?? 0 },
                 ].map(s => (
                   <div key={s.label} className="compat-stat-card">
                     <span className="compat-stat-value">{s.value}</span>
@@ -198,17 +203,17 @@ export const CompatibilityCheckPage: React.FC = () => {
               <button className="compat-section-header" onClick={() => toggleSection('dataTypes')}>
                 <div className="compat-section-title">
                   <Database size={18} /> Data Type Mappings
-                  <span className="compat-section-count">{report.data_type_analysis.total_columns} columns</span>
+                  <span className="compat-section-count">{report.data_type_analysis?.total_columns ?? 0} columns</span>
                 </div>
                 {expandedSections.dataTypes ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
               </button>
               {expandedSections.dataTypes && (
                 <div className="compat-section-body">
                   <div className="compat-type-stats">
-                    {Object.entries(report.data_type_analysis.stats).map(([key, count]) => (
-                      count > 0 && (
+                    {Object.entries(report.data_type_analysis?.stats || {}).map(([key, count]) => (
+                      (count as number) > 0 && (
                         <div key={key} className="compat-type-stat">
-                          {getCompatBadge(key)} <span>{count} column{count !== 1 ? 's' : ''}</span>
+                        {getCompatBadge(key)} <span>{count as number} column{(count as number) !== 1 ? 's' : ''}</span>
                         </div>
                       )
                     ))}
@@ -227,7 +232,7 @@ export const CompatibilityCheckPage: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {report.data_type_analysis.mappings
+                        {(report.data_type_analysis?.mappings || [])
                           .filter(m => m.compatibility !== 'full')
                           .slice(0, 100)
                           .map((m, i) => (
@@ -243,14 +248,14 @@ export const CompatibilityCheckPage: React.FC = () => {
                           ))}
                       </tbody>
                     </table>
-                    {report.data_type_analysis.mappings.filter(m => m.compatibility !== 'full').length === 0 && (
+                    {(report.data_type_analysis?.mappings || []).filter(m => m.compatibility !== 'full').length === 0 && (
                       <div className="compat-all-good">
                         <CheckCircle size={20} /> All columns have full compatibility
                       </div>
                     )}
-                    {report.data_type_analysis.stats.full > 0 && (
+                    {(report.data_type_analysis?.stats?.full ?? 0) > 0 && (
                       <div className="compat-full-note">
-                        <Info size={14} /> {report.data_type_analysis.stats.full} fully compatible column(s) hidden
+                        <Info size={14} /> {report.data_type_analysis?.stats?.full ?? 0} fully compatible column(s) hidden
                       </div>
                     )}
                   </div>
@@ -331,17 +336,17 @@ export const CompatibilityCheckPage: React.FC = () => {
               <button className="compat-section-header" onClick={() => toggleSection('featureGaps')}>
                 <div className="compat-section-title">
                   <Shield size={18} /> Feature Gaps
-                  <span className="compat-section-count">{report.feature_gaps.length} issue{report.feature_gaps.length !== 1 ? 's' : ''}</span>
+                  <span className="compat-section-count">{(report.feature_gaps || []).length} issue{(report.feature_gaps || []).length !== 1 ? 's' : ''}</span>
                 </div>
                 {expandedSections.featureGaps ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
               </button>
               {expandedSections.featureGaps && (
                 <div className="compat-section-body">
-                  {report.feature_gaps.length === 0 ? (
+                  {(report.feature_gaps || []).length === 0 ? (
                     <div className="compat-all-good"><CheckCircle size={20} /> No feature gaps detected</div>
                   ) : (
                     <div className="compat-gaps-list">
-                      {report.feature_gaps.map((gap, i) => (
+                      {(report.feature_gaps || []).map((gap, i) => (
                         <div key={i} className={`compat-gap-card severity-${gap.severity}`}>
                           <div className="compat-gap-header">
                             <span className="compat-gap-category">{gap.category}</span>
@@ -373,13 +378,13 @@ export const CompatibilityCheckPage: React.FC = () => {
               <button className="compat-section-header" onClick={() => toggleSection('sqlSyntax')}>
                 <div className="compat-section-title">
                   <Code size={18} /> SQL Syntax Issues
-                  <span className="compat-section-count">{report.sql_syntax_issues.length} pattern{report.sql_syntax_issues.length !== 1 ? 's' : ''}</span>
+                  <span className="compat-section-count">{(report.sql_syntax_issues || []).length} pattern{(report.sql_syntax_issues || []).length !== 1 ? 's' : ''}</span>
                 </div>
                 {expandedSections.sqlSyntax ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
               </button>
               {expandedSections.sqlSyntax && (
                 <div className="compat-section-body">
-                  {report.sql_syntax_issues.length === 0 ? (
+                  {(report.sql_syntax_issues || []).length === 0 ? (
                     <div className="compat-all-good"><CheckCircle size={20} /> No SQL syntax issues detected</div>
                   ) : (
                     <div className="compat-table-wrapper">
@@ -394,7 +399,7 @@ export const CompatibilityCheckPage: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {report.sql_syntax_issues.map((issue, i) => (
+                          {(report.sql_syntax_issues || []).map((issue, i) => (
                             <tr key={i}>
                               <td><code className="compat-code">{issue.pattern}</code></td>
                               <td>{getSeverityBadge(issue.severity)}</td>

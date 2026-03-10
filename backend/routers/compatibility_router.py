@@ -9,8 +9,6 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
 import logging
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 
 from database import get_db
 from services.compatibility_engine import CompatibilityEngine
@@ -19,8 +17,6 @@ from repositories.assessment_repository import AssessmentRepository
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/compatibility", tags=["compatibility"])
-
-_executor = ThreadPoolExecutor(max_workers=2)
 
 
 class CompatibilityCheckRequest(BaseModel):
@@ -50,14 +46,7 @@ async def run_compatibility_check(
             )
 
         engine = CompatibilityEngine()
-        loop = asyncio.get_event_loop()
-        try:
-            report = await asyncio.wait_for(
-                loop.run_in_executor(_executor, engine.run_compatibility_check, request.assessment_id, db),
-                timeout=90  # 90 second timeout
-            )
-        except asyncio.TimeoutError:
-            raise HTTPException(status_code=504, detail="Compatibility check timed out. Try again.")
+        report = engine.run_compatibility_check(request.assessment_id, db)
         return report
 
     except HTTPException:
