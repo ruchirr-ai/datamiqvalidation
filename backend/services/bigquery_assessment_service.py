@@ -893,76 +893,59 @@ class BigQueryAssessmentService:
         """Placeholder — detailed version used instead."""
         return []
 
-    # ─── Step 8: Security Policies ──────────────────────────────────────
+    # ─── Step 8: Security Policies (REST API — catches both RLS and CLS) ───
 
     async def collect_security_policies_detailed(self) -> List[Dict]:
-        """Collect RLS policies. Tries INFORMATION_SCHEMA with correct region."""
+        """Collect security policies using REST API to detect both RLS and CLS (policy tags)."""
         security_policies = []
-        region = self._detect_region()
 
-        # Method 1: Project-level with region qualifier
-        try:
-            rls_query = f"""
-            SELECT
-                table_catalog,
-                table_schema,
-                table_name,
-                policy_name,
-                filter_predicate,
-                grantee_list,
-                ddl AS creation_ddl
-            FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
-            """
-            query_job = self.client.query(rls_query)
-            results = query_job.result()
+        for dataset in self.client.list_datasets():
+            for table in self.client.list_tables(dataset.dataset_id):
+                key = f"{dataset.dataset_id}.{table.table_id}"
+                table_ref = self._cached_table_refs.get(key)
+                if not table_ref:
+                    table_ref = self.client.get_table(
+                        f"{self.project_id}.{dataset.dataset_id}.{table.table_id}")
+                    self._cached_table_refs[key] = table_ref
 
-            for row in results:
-                security_policies.append({
-                    'security_type': 'RLS',
-                    'table_name': f"{row.table_schema}.{row.table_name}",
-                    'policy_name': row.policy_name,
-                    'filter_predicate': row.filter_predicate,
-                    'grantees': row.grantee_list.split(',') if row.grantee_list else [],
-                    'creation_time': None,
-                    'security_metadata': {
-                        'ddl': row.creation_ddl if hasattr(row, 'creation_ddl') else None
-                    }
-                })
-            print(f"  ✓ Collected {len(security_policies)} RLS policies via INFORMATION_SCHEMA")
-            return security_policies
-        except Exception as e:
-            print(f"  RLS query failed: {e}")
+                # Check CLS — column-level security via policy tags
+                for field in table_ref.schema:
+                    if field.policy_tags and field.policy_tags.names:
+                        for tag in field.policy_tags.names:
+                            security_policies.append({
+                                'security_type': 'CLS',
+                                'table_name': f"{dataset.dataset_id}.{table.table_id}",
+                                'policy_name': f"policy_tag_{field.name}",
+                                'filter_predicate': None,
+                                'grantees': [],
+                                'creation_time': None,
+                                'security_metadata': {
+                                    'column_name': field.name,
+                                    'policy_tag': tag
+                                }
+                            })
 
-        # Method 2: Per-dataset queries
-        try:
-            for dataset in self.client.list_datasets():
-                try:
-                    rls_query = f"""
-                    SELECT table_schema, table_name, policy_name, filter_predicate, grantee_list
-                    FROM `{self.project_id}.{dataset.dataset_id}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
-                    """
-                    query_job = self.client.query(rls_query)
-                    for row in query_job.result():
-                        security_policies.append({
-                            'security_type': 'RLS',
-                            'table_name': f"{row.table_schema}.{row.table_name}",
-                            'policy_name': row.policy_name,
-                            'filter_predicate': row.filter_predicate,
-                            'grantees': row.grantee_list.split(',') if row.grantee_list else [],
-                            'creation_time': None,
-                            'security_metadata': {}
-                        })
-                except Exception:
-                    continue
+            # Check RLS — row-level security per dataset
+            try:
+                rls_query = f"""
+                SELECT table_schema, table_name, policy_name, filter_predicate, grantee_list
+                FROM `{self.project_id}.{dataset.dataset_id}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
+                """
+                query_job = self.client.query(rls_query)
+                for row in query_job.result():
+                    security_policies.append({
+                        'security_type': 'RLS',
+                        'table_name': f"{row.table_schema}.{row.table_name}",
+                        'policy_name': row.policy_name,
+                        'filter_predicate': row.filter_predicate,
+                        'grantees': row.grantee_list.split(',') if row.grantee_list else [],
+                        'creation_time': None,
+                        'security_metadata': {}
+                    })
+            except Exception:
+                pass  # No RLS policies in this dataset or insufficient permissions
 
-            if security_policies:
-                print(f"  ✓ Collected {len(security_policies)} RLS policies via per-dataset queries")
-        except Exception as e:
-            print(f"  Per-dataset RLS query failed: {e}")
-
-        if not security_policies:
-            print("  ⚠️  No RLS policies found (may not exist or insufficient permissions)")
-
+        print(f"  ✓ Collected {len(security_policies)} security policies (CLS + RLS) via REST API")
         return security_policies
 
     # ─── Step 9: Sharded Tables (derived from cached data) ──────────────
