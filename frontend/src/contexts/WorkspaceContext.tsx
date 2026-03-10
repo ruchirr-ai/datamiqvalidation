@@ -35,6 +35,9 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   });
 
   const fetchWorkspaces = useCallback(async () => {
+    // Only fetch if user is authenticated
+    const token = localStorage.getItem('auth_token');
+    if (!token) return;
     try {
       const data = await api.get<any[]>('/api/workspaces/');
       setWorkspaces(data.map(w => ({ id: w.id, name: w.name, slug: w.slug })));

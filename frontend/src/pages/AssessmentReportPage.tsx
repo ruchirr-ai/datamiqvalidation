@@ -9,7 +9,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   FileSearch, ArrowLeft, Database, Table as TableIcon, Eye, Code, 
   Brain, Activity, Shield, Users, TrendingUp, Lock, DollarSign,
-  Zap, Info, CheckCircle, Server, Download
+  Zap, Info, Server, Download
 } from 'lucide-react';
 import { Button, Badge } from '../components/ui';
 import { 
@@ -19,9 +19,113 @@ import {
   getTCORegions, AWSRegion
 } from '../services/assessmentsApi';
 import QueryInsightsSection from '../components/assessments/QueryInsightsSection';
+import { SQLServerTablesSection } from '../components/assessments/SQLServerTablesSection';
+import { SQLServerViewsSection } from '../components/assessments/SQLServerViewsSection';
+import { SQLServerRoutinesSection } from '../components/assessments/SQLServerRoutinesSection';
+import { SQLServerSecuritySection } from '../components/assessments/SQLServerSecuritySection';
 import { DownloadReportModal } from '../components/assessments/DownloadReportModal';
 import { generatePDF } from '../utils/pdfReport';
 import './AssessmentReportPage.css';
+
+// Transform security policies data for SQL Server Security Section
+const transformSecurityDataForSQLServer = (securityPolicies: any[]) => {
+  if (!securityPolicies || securityPolicies.length === 0) {
+    return { users: [], permissions: [], roles: [], schemas: [], policies: [], logins: [], encryption: [] };
+  }
+
+  const users: any[] = [];
+  const permissions: any[] = [];
+  const roles: any[] = [];
+  const schemas: any[] = [];
+  const policies: any[] = [];
+  const logins: any[] = [];
+  const encryption: any[] = [];
+
+  securityPolicies.forEach((policy: any) => {
+    const metadata = policy.security_metadata || {};
+    switch (policy.security_type) {
+      case 'USER':
+        users.push({
+          user_name: metadata.user_name || policy.policy_name,
+          user_type: metadata.user_type || 'SQL_USER',
+          authentication_type: metadata.authentication_type || 'SQL Server Authentication',
+          default_schema: metadata.default_schema || 'dbo',
+          roles: metadata.roles || 'None',
+          create_date: metadata.create_date,
+          last_login: metadata.last_login,
+          is_disabled: metadata.is_disabled || false,
+          is_locked: metadata.is_locked || false,
+          password_policy: metadata.password_policy
+        });
+        break;
+      case 'LOGIN':
+        logins.push({
+          login_name: metadata.login_name || policy.policy_name,
+          login_type: metadata.login_type || 'SQL_LOGIN',
+          is_disabled: metadata.is_disabled || false,
+          is_locked: metadata.is_locked || false,
+          password_policy_enforced: metadata.password_policy_enforced || false,
+          password_expiration_enforced: metadata.password_expiration_enforced || false,
+          failed_login_attempts: metadata.failed_login_attempts || 0,
+          last_successful_login: metadata.last_successful_login,
+          server_roles: metadata.server_roles || []
+        });
+        break;
+      case 'ROLE':
+        roles.push({
+          role_name: metadata.role_name || policy.policy_name,
+          role_category: metadata.role_category || 'User Defined',
+          is_fixed_role: metadata.is_fixed_role || false,
+          members_count: metadata.members_count || 0,
+          description: metadata.description
+        });
+        break;
+      case 'PERMISSION':
+        permissions.push({
+          schema_name: metadata.schema_name || 'dbo',
+          object_name: metadata.object_name || '',
+          object_type: metadata.object_type || 'TABLE',
+          user_or_role: metadata.user_or_role || policy.policy_name,
+          permission_name: metadata.permission_name || 'SELECT',
+          permission_state: metadata.permission_state || 'GRANT',
+          grantor: metadata.grantor || 'dbo',
+          is_grantable: metadata.is_grantable || false
+        });
+        break;
+      case 'SCHEMA':
+        schemas.push({
+          schema_name: metadata.schema_name || policy.policy_name,
+          owner_name: metadata.owner_name || 'dbo',
+          owner_type: metadata.owner_type || 'SQL_USER',
+          created_date: metadata.created_date
+        });
+        break;
+      case 'SECURITY_POLICY':
+        policies.push({
+          policy_name: metadata.policy_name || policy.policy_name,
+          policy_type: metadata.policy_type || 'SECURITY',
+          table_schema: metadata.table_schema || 'dbo',
+          table_name: metadata.table_name || '',
+          filter_predicate: metadata.filter_predicate || policy.filter_predicate,
+          is_enabled: metadata.is_enabled !== undefined ? metadata.is_enabled : true,
+          created_date: metadata.created_date
+        });
+        break;
+      case 'ENCRYPTION':
+        encryption.push({
+          encryption_type: metadata.encryption_type || 'DATABASE_ENCRYPTION',
+          key_name: metadata.key_name || policy.policy_name,
+          algorithm: metadata.algorithm || 'AES',
+          key_length: metadata.key_length || 256,
+          encrypted_objects_count: metadata.encrypted_objects_count || 0,
+          created_date: metadata.created_date
+        });
+        break;
+    }
+  });
+
+  return { users, permissions, roles, schemas, policies, logins, encryption };
+};
 
 export const AssessmentReportPage: React.FC = () => {
   const { assessmentId } = useParams<{ assessmentId: string }>();
@@ -79,6 +183,7 @@ export const AssessmentReportPage: React.FC = () => {
 
   const getStoredProcedures = () => report ? report.routines.filter(r => r.routine_type === 'PROCEDURE') : [];
   const getFunctions = () => report ? report.routines.filter(r => r.routine_type === 'FUNCTION') : [];
+  const getTriggers = () => report ? report.routines.filter(r => r.routine_type === 'TRIGGER') : [];
   const getSparkModels = () => {
     if (!report) return [];
     return report.routines.filter(r =>
@@ -142,6 +247,10 @@ export const AssessmentReportPage: React.FC = () => {
     );
   }
 
+  // Determine database type
+  const isSQLServer = report?.assessment?.source_db_type?.toLowerCase() === 'sqlserver';
+  const isBigQuery = !isSQLServer;
+
   const tabs = [
     { id: 'summary', label: 'Summary', icon: FileSearch },
     { id: 'datasets', label: 'Datasets', icon: Database },
@@ -149,7 +258,8 @@ export const AssessmentReportPage: React.FC = () => {
     { id: 'views', label: 'Views', icon: Eye },
     { id: 'procedures', label: 'Stored Procedures', icon: Code },
     { id: 'functions', label: 'Functions', icon: Code },
-    { id: 'ml-models', label: 'ML & Spark Models', icon: Brain },
+    ...(isSQLServer ? [{ id: 'triggers', label: 'Triggers', icon: Zap }] : []),
+    ...(isBigQuery ? [{ id: 'ml-models', label: 'ML & Spark Models', icon: Brain }] : []),
     { id: 'query-insights', label: 'Query Insights', icon: Activity },
     { id: 'user-insights', label: 'User Insights', icon: Users },
     { id: 'security', label: 'Security', icon: Shield },
@@ -203,18 +313,49 @@ export const AssessmentReportPage: React.FC = () => {
           <DatasetsSection datasets={report.datasets} formatSize={formatSize} formatDate={formatDate} />
         )}
         {activeTab === 'tables' && (
-          <TablesSection tables={report.tables} columns={report.columns} formatSize={formatSize} formatDate={formatDate} formatNumber={formatNumber} />
+          isSQLServer ? (
+            <SQLServerTablesSection
+              tables={report.tables || []}
+              columns={report.columns || []}
+              indexes={report.indexes || []}
+              formatSize={formatSize}
+              formatDate={formatDate}
+              formatNumber={formatNumber}
+            />
+          ) : (
+            <TablesSection tables={report.tables} columns={report.columns} formatSize={formatSize} formatDate={formatDate} formatNumber={formatNumber} />
+          )
         )}
         {activeTab === 'views' && (
-          <ViewsSection views={report.views} formatDate={formatDate} />
+          isSQLServer ? (
+            <SQLServerViewsSection
+              views={report.views || []}
+              indexes={report.indexes || []}
+              formatDate={formatDate}
+              formatSize={formatSize}
+            />
+          ) : (
+            <ViewsSection views={report.views} formatDate={formatDate} />
+          )
         )}
         {activeTab === 'procedures' && (
-          <RoutinesSection routines={getStoredProcedures()} title="Stored Procedures" formatDate={formatDate} />
+          isSQLServer ? (
+            <SQLServerRoutinesSection routines={getStoredProcedures()} title="Stored Procedures" formatDate={formatDate} />
+          ) : (
+            <RoutinesSection routines={getStoredProcedures()} title="Stored Procedures" formatDate={formatDate} />
+          )
         )}
         {activeTab === 'functions' && (
-          <RoutinesSection routines={getFunctions()} title="Functions" formatDate={formatDate} />
+          isSQLServer ? (
+            <SQLServerRoutinesSection routines={getFunctions()} title="Functions" formatDate={formatDate} />
+          ) : (
+            <RoutinesSection routines={getFunctions()} title="Functions" formatDate={formatDate} />
+          )
         )}
-        {activeTab === 'ml-models' && (
+        {activeTab === 'triggers' && isSQLServer && (
+          <SQLServerRoutinesSection routines={getTriggers()} title="Triggers" formatDate={formatDate} />
+        )}
+        {activeTab === 'ml-models' && isBigQuery && (
           <MLModelsSection mlModels={report.ml_models} sparkModels={getSparkModels()} formatDate={formatDate} />
         )}
         {activeTab === 'query-insights' && (
@@ -224,11 +365,18 @@ export const AssessmentReportPage: React.FC = () => {
           <UserInsightsSection queryStats={report.query_stats} />
         )}
         {activeTab === 'security' && (
-          <SecuritySection
-            securityPolicies={report.security_policies}
-            columns={report.columns}
-            tables={report.tables}
-          />
+          isSQLServer ? (
+            <SQLServerSecuritySection
+              security={transformSecurityDataForSQLServer(report.security_policies)}
+              formatDate={formatDate}
+            />
+          ) : (
+            <SecuritySection
+              securityPolicies={report.security_policies}
+              columns={report.columns}
+              tables={report.tables}
+            />
+          )
         )}
         {activeTab === 'recommendations' && (
           <RecommendationsSection assessmentId={parseInt(assessmentId!)} />

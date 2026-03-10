@@ -16,6 +16,7 @@ from datetime import datetime
 
 from database import get_db
 from services.bigquery_assessment_service import BigQueryAssessmentService
+from services.sqlserver_assessment_service import SQLServerAssessmentService
 from services.recommendation_engine import RecommendationEngine
 from services.tco_engine import TCOEngine
 from repositories.assessment_repository import AssessmentRepository
@@ -168,21 +169,24 @@ def run_assessment_background(
     target_connection_id: int
 ):
     """
-    Background task to run the assessment
-    
-    This collects all metadata from BigQuery and analyzes compatibility with Redshift
+    Background task to run the assessment.
+
+    Detects the source database type (BigQuery or SQL Server) and runs
+    the appropriate assessment service. BigQuery path is unchanged;
+    SQL Server path uses SQLServerAssessmentService.
     """
     from database import db_instance
     import traceback
     import asyncio
-    
+
     db = db_instance.SessionLocal()
     try:
-        print(f"[BACKGROUND TASK] Starting assessment {assessment_id}")
-        print(f"[BACKGROUND TASK] Source connection: {source_connection_id}, Target connection: {target_connection_id}")
+        print(f"[BACKGROUND TASK] Starting assessment {assessment_id}", flush=True)
+        print(f"[BACKGROUND TASK] Source connection: {source_connection_id}, Target connection: {target_connection_id}", flush=True)
+
         assessment_repo = AssessmentRepository(db)
         connection_repo = ConnectionRepository(db)
-        
+
         # Log: Assessment started
         assessment_repo.create_log(
             assessment_id=assessment_id,
@@ -190,10 +194,12 @@ def run_assessment_background(
             message='Assessment execution started',
             stage='initialization'
         )
-        
+        db.commit()
+
         # Update status to 'running'
         assessment_repo.update_status(assessment_id, 'running')
-        
+        db.commit()
+
         # Log: Status updated
         assessment_repo.create_log(
             assessment_id=assessment_id,
@@ -201,12 +207,12 @@ def run_assessment_background(
             message='Assessment status updated to running',
             stage='initialization'
         )
-        
+        db.commit()
+
         # Get source and target connections
         source_conn = connection_repo.get_by_id(source_connection_id)
         target_conn = connection_repo.get_by_id(target_connection_id)
-        
-        # Log: Connections retrieved
+
         assessment_repo.create_log(
             assessment_id=assessment_id,
             log_level='INFO',
@@ -214,7 +220,8 @@ def run_assessment_background(
             stage='initialization',
             log_metadata={'connection_id': source_connection_id, 'connection_name': source_conn.name}
         )
-        
+        db.commit()
+
         assessment_repo.create_log(
             assessment_id=assessment_id,
             log_level='INFO',
@@ -222,42 +229,53 @@ def run_assessment_background(
             stage='initialization',
             log_metadata={'connection_id': target_connection_id, 'connection_name': target_conn.name}
         )
-        
-        # Initialize BigQuery assessment service
+        db.commit()
+
+        # Determine source database type (the 'database' field holds the engine name,
+        # e.g. 'bigquery', 'sqlserver'; the 'type' field is 'source'/'target')
+        source_db_type = getattr(source_conn, 'database', 'bigquery').lower()
+        print(f"[BACKGROUND TASK] Source DB Type: '{source_db_type}'", flush=True)
+
         assessment_repo.create_log(
             assessment_id=assessment_id,
             log_level='INFO',
-            message='Initializing BigQuery assessment service',
+            message=f'Initializing {source_db_type} assessment service',
             stage='initialization'
         )
-        
-        print(f"[BACKGROUND TASK] Creating BigQuery service with connection params")
-        bq_service = BigQueryAssessmentService(source_conn.connection_params)
-        
+        db.commit()
+
+        # Initialize the appropriate assessment service based on database type
+        if source_db_type == 'sqlserver':
+            assessment_service = SQLServerAssessmentService(source_conn.connection_params)
+        else:
+            # Default to BigQuery (preserves existing behavior)
+            assessment_service = BigQueryAssessmentService(source_conn.connection_params)
+
         # Log: Starting metadata collection
         assessment_repo.create_log(
             assessment_id=assessment_id,
             log_level='INFO',
-            message='Starting metadata collection from BigQuery',
+            message=f'Starting metadata collection from {source_db_type}',
             stage='metadata_collection'
         )
-        
-        print(f"[BACKGROUND TASK] Starting full assessment execution")
+        db.commit()
+
+        print(f"[BACKGROUND TASK] Starting full assessment execution", flush=True)
+
         # Run the assessment (this collects all metadata)
-        # Use asyncio.run to execute the async function
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(bq_service.run_full_assessment(assessment_id, db))
+            loop.run_until_complete(assessment_service.run_full_assessment(assessment_id, db))
         finally:
             loop.close()
-        
+
         # Log: Metadata collection completed
         assessment = assessment_repo.get_by_id(assessment_id)
         assessment_repo.create_log(
             assessment_id=assessment_id,
             log_level='INFO',
-            message=f'Metadata collection completed successfully',
+            message='Metadata collection completed successfully',
             stage='metadata_collection',
             log_metadata={
                 'total_datasets': assessment.total_datasets,
@@ -268,10 +286,10 @@ def run_assessment_background(
                 'total_size_mb': assessment.total_size_mb
             }
         )
-        
+
         # Update status to 'completed'
         assessment_repo.update_status(assessment_id, 'completed')
-        
+
         # Log: Assessment completed
         assessment_repo.create_log(
             assessment_id=assessment_id,
@@ -279,16 +297,16 @@ def run_assessment_background(
             message=f'Assessment completed successfully. Collected {assessment.total_datasets} datasets, {assessment.total_tables} tables, {assessment.total_views} views',
             stage='completion'
         )
-        
+
         print(f"Assessment {assessment_id} completed successfully")
-        
+
     except Exception as e:
         error_msg = str(e)
         stack = traceback.format_exc()
-        
+
         print(f"Error running assessment {assessment_id}: {error_msg}")
         print(f"Stack trace: {stack}")
-        
+
         # Log: Error occurred
         assessment_repo.create_log(
             assessment_id=assessment_id,
@@ -297,15 +315,16 @@ def run_assessment_background(
             stage='error',
             stack_trace=stack
         )
-        
+
         # Update status to 'failed' with error message
         assessment_repo.update_status(
-            assessment_id, 
+            assessment_id,
             'failed',
             error_message=error_msg
         )
     finally:
         db.close()
+
 
 
 @router.get("/", response_model=AssessmentListResponse)
@@ -610,6 +629,19 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
         query_stats = assessment_repo.get_query_stats(assessment_id)
         security_policies = assessment_repo.get_security_policies(assessment_id)
         sharded_tables = assessment_repo.get_sharded_tables(assessment_id)
+        indexes = assessment_repo.get_indexes(assessment_id)
+        
+        # Determine source database type from connection
+        source_db_type = 'bigquery'  # default
+        try:
+            from models.connection import Connection
+            source_conn = db.query(Connection).filter(
+                Connection.id == assessment.source_connection_id
+            ).first()
+            if source_conn:
+                source_db_type = getattr(source_conn, 'database', 'bigquery').lower()
+        except Exception:
+            pass
         
         # Build comprehensive report
         report = {
@@ -625,7 +657,8 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                 "total_views": assessment.total_views,
                 "total_routines": assessment.total_routines,
                 "total_ml_models": assessment.total_ml_models,
-                "total_size_mb": assessment.total_size_mb
+                "total_size_mb": assessment.total_size_mb,
+                "source_db_type": source_db_type
             },
             "datasets": [
                 {
@@ -652,7 +685,8 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                     "has_column_security": t.has_column_security,
                     "has_row_security": t.has_row_security,
                     "is_sharded": t.is_sharded,
-                    "update_frequency": t.update_frequency
+                    "update_frequency": t.update_frequency,
+                    "table_metadata": t.table_metadata or {}
                 }
                 for t in tables
             ],
@@ -746,6 +780,27 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                     "shard_tables": st.shard_tables or []
                 }
                 for st in sharded_tables
+            ],
+            "indexes": [
+                {
+                    "id": idx.id,
+                    "table_id": idx.table_id,
+                    "schema_name": idx.schema_name,
+                    "table_name": idx.table_name,
+                    "object_type": idx.object_type if hasattr(idx, 'object_type') else 'TABLE',
+                    "index_name": idx.index_name,
+                    "index_type": idx.index_type,
+                    "is_unique": idx.is_unique,
+                    "is_primary_key": idx.is_primary_key,
+                    "is_clustered": idx.is_clustered,
+                    "key_columns": idx.key_columns,
+                    "included_columns": idx.included_columns,
+                    "filter_definition": idx.filter_definition,
+                    "size_mb": idx.size_mb,
+                    "row_count": idx.row_count,
+                    "index_metadata": idx.index_metadata or {}
+                }
+                for idx in indexes
             ]
         }
         
