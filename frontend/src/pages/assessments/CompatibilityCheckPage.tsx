@@ -20,6 +20,7 @@ export const CompatibilityCheckPage: React.FC = () => {
   const [loadingAssessments, setLoadingAssessments] = useState(true);
   const [report, setReport] = useState<CompatibilityReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     dataTypes: true, featureGaps: true, sqlSyntax: true, llmInsights: true,
   });
@@ -39,7 +40,7 @@ export const CompatibilityCheckPage: React.FC = () => {
       // Only show completed assessments
       setAssessments(data.assessments.filter(a => a.status === 'completed'));
     } catch (err: any) {
-      console.error('Failed to fetch assessments:', err);
+      // silently fail
     } finally {
       setLoadingAssessments(false);
     }
@@ -61,8 +62,9 @@ export const CompatibilityCheckPage: React.FC = () => {
       // Auto-save the result
       try {
         await saveCompatibilityResult(selectedAssessmentId as number, result);
+        setSaveStatus('saved');
       } catch (saveErr) {
-        console.warn('Failed to save compatibility result:', saveErr);
+        setSaveStatus('error');
       }
     } catch (err: any) {
       setError(err.detail || err.message || 'Compatibility check failed');
@@ -74,11 +76,13 @@ export const CompatibilityCheckPage: React.FC = () => {
   // Auto-load saved result when assessment is selected
   useEffect(() => {
     if (selectedAssessmentId) {
+      setSaveStatus('idle');
       const loadSaved = async () => {
         try {
           const saved = await getSavedCompatibility(selectedAssessmentId as number);
           if (saved.found && saved.report) {
             setReport(saved.report);
+            setSaveStatus('saved');
           }
         } catch (err) {
           // Silently fail — user can run a fresh check
@@ -87,6 +91,7 @@ export const CompatibilityCheckPage: React.FC = () => {
       loadSaved();
     } else {
       setReport(null);
+      setSaveStatus('idle');
     }
   }, [selectedAssessmentId]);
 
@@ -164,6 +169,11 @@ export const CompatibilityCheckPage: React.FC = () => {
                 <><Zap size={16} /> Run Compatibility Check</>
               )}
             </Button>
+            {saveStatus === 'saved' && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#10b981', marginLeft: 12 }}>
+                <CheckCircle size={14} /> Saved
+              </span>
+            )}
           </div>
           {error && (
             <div className="compat-error">

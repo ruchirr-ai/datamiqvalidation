@@ -8,7 +8,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -124,6 +124,48 @@ def _get_workspace_stats(db: Session) -> Dict[str, Any]:
 
     return stats
 
+
+
+@router.post("/")
+async def create_workspace(
+    body: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Create a new workspace."""
+    name = body.get("name", "").strip()
+    description = body.get("description", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Workspace name is required")
+
+    slug = name.lower().replace(" ", "-")
+    try:
+        # Get user's organization
+        org_query = text("SELECT organization_id FROM users WHERE id = :uid")
+        org_row = db.execute(org_query, {"uid": current_user.user_id}).fetchone()
+        org_id = org_row[0] if org_row else 1
+
+        insert_ws = text("""
+            INSERT INTO workspaces (name, slug, description, organization_id, is_active, created_at)
+            VALUES (:name, :slug, :desc, :org_id, TRUE, NOW())
+            RETURNING id
+        """)
+        result = db.execute(insert_ws, {"name": name, "slug": slug, "desc": description or None, "org_id": org_id})
+        ws_id = result.fetchone()[0]
+
+        # Link user to workspace
+        link = text("""
+            INSERT INTO user_workspaces (user_id, workspace_id, role)
+            VALUES (:uid, :wid, 'owner')
+        """)
+        db.execute(link, {"uid": current_user.user_id, "wid": ws_id})
+        db.commit()
+
+        return {"id": ws_id, "name": name, "slug": slug, "description": description}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to create workspace: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{workspace_id}/analysis")

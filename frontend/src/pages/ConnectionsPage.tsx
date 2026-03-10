@@ -4,9 +4,12 @@ import { Cable, Database } from 'lucide-react';
 import { Button, Badge, Dropdown, DropdownItem, Select, Avatar } from '../components/ui';
 import { CreateConnectionModal, ConnectionFormData } from '../components/connections/CreateConnectionModal';
 import { listConnections, createConnection, Connection, testConnection, api } from '../services/api';
+import { WorkspaceSelector } from '../components/WorkspaceSelector';
+import { useWorkspace } from '../contexts/WorkspaceContext';
 import './ConnectionsPage.css';
 
 export const ConnectionsPage: React.FC = () => {
+  const { selectedWorkspaceName } = useWorkspace();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(15);
@@ -46,7 +49,6 @@ export const ConnectionsPage: React.FC = () => {
       // Try to fetch from API
       try {
         const data = await listConnections();
-        console.log('Fetched connections:', data);
         
         // If no connections, add sample data
         if (data.length === 0) {
@@ -56,11 +58,9 @@ export const ConnectionsPage: React.FC = () => {
         }
       } catch (apiError) {
         // If API fails, use sample data
-        console.log('API failed, using sample data');
         setConnections(getSampleConnections());
       }
     } catch (err: any) {
-      console.error('Failed to fetch connections:', err);
       setError(err.detail || err.message || 'Failed to load connections');
       // Still show sample data on error
       setConnections(getSampleConnections());
@@ -214,7 +214,6 @@ export const ConnectionsPage: React.FC = () => {
 
   const handleSubmitConnection = async (data: ConnectionFormData) => {
     try {
-      console.log('Creating connection:', data);
       
       // Extract connection params (all fields except name, type, database)
       const { name, type, database, ...connectionParams } = data;
@@ -230,7 +229,6 @@ export const ConnectionsPage: React.FC = () => {
         last_tested_at: new Date().toISOString() // Set current time as last tested
       });
       
-      console.log('Connection created:', response);
       
       // Refresh the connections list
       await fetchConnections();
@@ -238,7 +236,6 @@ export const ConnectionsPage: React.FC = () => {
       // Show success message
       setToast({ message: `${type} connection created`, type: 'success' });
     } catch (error: any) {
-      console.error('Failed to create connection:', error);
       setToast({ message: `Failed to create connection: ${error.detail || error.message}`, type: 'error' });
       throw error; // Re-throw so modal can handle it
     }
@@ -280,7 +277,6 @@ export const ConnectionsPage: React.FC = () => {
       await fetchConnections();
       setDeleteConfirmId(null);
     } catch (error: any) {
-      console.error('Failed to delete connection:', error);
       setToast({ message: `Failed to delete connection: ${error.detail || error.message}`, type: 'error' });
     }
   };
@@ -295,7 +291,6 @@ export const ConnectionsPage: React.FC = () => {
     if (!editingConnection) return;
 
     try {
-      console.log('Updating connection:', updatedData);
       
       // Extract connection params (all fields except name, type, database)
       const { name, type, database, ...connectionParams } = updatedData;
@@ -310,7 +305,6 @@ export const ConnectionsPage: React.FC = () => {
         last_tested_at: new Date().toISOString()
       });
       
-      console.log('Connection updated:', response);
       
       // Refresh the connections list
       await fetchConnections();
@@ -322,7 +316,6 @@ export const ConnectionsPage: React.FC = () => {
       // Show success message
       setToast({ message: 'Connection updated', type: 'success' });
     } catch (error: any) {
-      console.error('Failed to update connection:', error);
       setToast({ message: `Failed to update connection: ${error.detail || error.message}`, type: 'error' });
       throw error; // Re-throw so modal can handle it
     }
@@ -338,11 +331,9 @@ export const ConnectionsPage: React.FC = () => {
         c.id === connection.id ? { ...c, status: 'testing' } : c
       ));
       
-      console.log('Testing connection by ID:', connection.id);
       
       // Use the new endpoint that tests by ID (handles decryption server-side)
       const result = await api.post<any>(`/api/connections/${connection.id}/test`, {});
-      console.log('Test result:', result);
       
       // Store test result for display
       setTestResult({
@@ -357,7 +348,6 @@ export const ConnectionsPage: React.FC = () => {
       await fetchConnections();
       
     } catch (error: any) {
-      console.error('Failed to test connection:', error);
       
       // Store error result
       setTestResult({
@@ -397,11 +387,13 @@ export const ConnectionsPage: React.FC = () => {
           <h1 className="connections-title">
             <Cable size={20} strokeWidth={2} className="page-title-icon" />
             Data Connections
+            <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280', marginLeft: 8 }}>— {selectedWorkspaceName}</span>
           </h1>
           <div className="connections-subheader">
             <span className="connections-count">{totalConnections} Connections</span>
             
             <div className="connections-actions">
+              <WorkspaceSelector />
               <div className="search-box">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="7" cy="7" r="5" />
@@ -524,14 +516,6 @@ export const ConnectionsPage: React.FC = () => {
                               : { top: rect.bottom + 4 }
                             )
                           };
-                          
-                          console.log('Connection dropdown:', { 
-                            rect, 
-                            windowHeight, 
-                            spaceBelow, 
-                            shouldOpenUpward,
-                            position
-                          });
                           
                           setMenuPosition(position);
                           setOpenMenuId(openMenuId === connection.id ? null : connection.id);

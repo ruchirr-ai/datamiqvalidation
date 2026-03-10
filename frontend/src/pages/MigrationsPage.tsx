@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Badge, Dropdown, DropdownItem, Select, Avatar } from '../components/ui';
 import { bqRedshiftApi, Migration as BQMigration } from '../services/bqRedshiftApi';
+import { WorkspaceSelector } from '../components/WorkspaceSelector';
+import { useWorkspace } from '../contexts/WorkspaceContext';
 import './MigrationsPage.css';
 
 interface Migration {
@@ -16,6 +18,7 @@ interface Migration {
 
 export const MigrationsPage: React.FC = () => {
   const navigate = useNavigate();
+  const { selectedWorkspaceName } = useWorkspace();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(15);
@@ -53,7 +56,6 @@ export const MigrationsPage: React.FC = () => {
       setLoading(true);
       
       const data = await bqRedshiftApi.listMigrations();
-      console.log('Fetched migrations from API:', data);
       
       // Transform API data to UI format
       const transformedMigrations: Migration[] = data.map((m: BQMigration) => ({
@@ -67,9 +69,7 @@ export const MigrationsPage: React.FC = () => {
       }));
       
       setMigrations(transformedMigrations);
-      console.log(`✓ Loaded ${transformedMigrations.length} migrations from database`);
     } catch (err: any) {
-      console.error('Failed to fetch migrations:', err);
       setMigrations([]);
       setToast({ message: `Failed to load migrations: ${err.message}`, type: 'error' });
     } finally {
@@ -129,7 +129,6 @@ export const MigrationsPage: React.FC = () => {
     setOpenMenuId(null);
     
     try {
-      console.log('Running migration:', migration.id);
       
       // Update status to running
       setMigrations(prev => prev.map(m => 
@@ -145,7 +144,6 @@ export const MigrationsPage: React.FC = () => {
       await fetchMigrations();
       
     } catch (error: any) {
-      console.error('Failed to run migration:', error);
       setToast({ message: `Failed to start migration: ${error.message}`, type: 'error' });
       
       // Revert status
@@ -170,7 +168,6 @@ export const MigrationsPage: React.FC = () => {
     setRestartConfirmMigration(null);
     
     try {
-      console.log('Restarting migration:', migration.id);
       
       // Optimistically update status to running
       setMigrations(prev => prev.map(m => 
@@ -186,7 +183,6 @@ export const MigrationsPage: React.FC = () => {
       await fetchMigrations();
       
     } catch (error: any) {
-      console.error('Failed to restart migration:', error);
       setToast({ message: `Failed to restart migration: ${error.message}`, type: 'error' });
       
       // Revert status
@@ -200,7 +196,6 @@ export const MigrationsPage: React.FC = () => {
     setOpenMenuId(null);
     
     try {
-      console.log('Resuming migration:', migration.id);
       
       // Update status to running
       setMigrations(prev => prev.map(m => 
@@ -216,7 +211,6 @@ export const MigrationsPage: React.FC = () => {
       await fetchMigrations();
       
     } catch (error: any) {
-      console.error('Failed to resume migration:', error);
       setToast({ message: `Failed to resume migration: ${error.message}`, type: 'error' });
       
       // Revert status
@@ -240,7 +234,6 @@ export const MigrationsPage: React.FC = () => {
     setCancelConfirmMigration(null);
     
     try {
-      console.log('Cancelling migration:', migration.id);
       
       // Update status to cancelled
       setMigrations(prev => prev.map(m => 
@@ -256,7 +249,6 @@ export const MigrationsPage: React.FC = () => {
       await fetchMigrations();
       
     } catch (error: any) {
-      console.error('Failed to cancel migration:', error);
       setToast({ message: `Failed to cancel migration: ${error.message}`, type: 'error' });
       
       // Revert status
@@ -274,7 +266,6 @@ export const MigrationsPage: React.FC = () => {
 
   const handleDeleteMigration = async (migrationId: string) => {
     try {
-      console.log('Deleting migration:', migrationId);
       
       // Call API to delete migration
       await bqRedshiftApi.deleteMigration(parseInt(migrationId));
@@ -286,7 +277,6 @@ export const MigrationsPage: React.FC = () => {
       
       setToast({ message: 'Migration deleted', type: 'success' });
     } catch (error: any) {
-      console.error('Failed to delete migration:', error);
       setToast({ message: `Failed to delete migration: ${error.message}`, type: 'error' });
     }
   };
@@ -298,7 +288,6 @@ export const MigrationsPage: React.FC = () => {
     setLogsData(null);
     
     try {
-      console.log('Fetching logs for migration:', migration.id);
       
       // Call API to get logs
       const logs = await bqRedshiftApi.getMigrationLogs(parseInt(migration.id));
@@ -310,7 +299,6 @@ export const MigrationsPage: React.FC = () => {
       });
       
     } catch (error: any) {
-      console.error('Failed to fetch logs:', error);
       setLogsData({
         migrationName: migration.name,
         migrationId: migration.id,
@@ -398,11 +386,13 @@ export const MigrationsPage: React.FC = () => {
               <path d="M3 10h14M14 6l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             Data Migrations
+            <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280', marginLeft: 8 }}>— {selectedWorkspaceName}</span>
           </h1>
           <div className="migrations-subheader">
             <span className="migrations-count">{totalMigrations} Migrations</span>
             
             <div className="migrations-actions">
+              <WorkspaceSelector />
               <div className="search-box">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="7" cy="7" r="5" />
@@ -512,14 +502,6 @@ export const MigrationsPage: React.FC = () => {
                             : { top: rect.bottom + 4 }
                           )
                         };
-                        
-                        console.log('Migration dropdown:', { 
-                          rect, 
-                          windowHeight, 
-                          spaceBelow, 
-                          shouldOpenUpward,
-                          position
-                        });
                         
                         setMenuPosition(position);
                         setOpenMenuId(openMenuId === migration.id ? null : migration.id);

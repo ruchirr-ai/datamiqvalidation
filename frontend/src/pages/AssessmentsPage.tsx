@@ -18,10 +18,13 @@ import { FileSearch, Database } from 'lucide-react';
 import { Button, Badge, Select } from '../components/ui';
 import { CreateAssessmentModal, EditAssessmentModal, ViewLogsModal } from '../components/assessments';
 import { listAssessments, deleteAssessment, runAssessment, Assessment } from '../services/assessmentsApi';
+import { WorkspaceSelector } from '../components/WorkspaceSelector';
+import { useWorkspace } from '../contexts/WorkspaceContext';
 import './AssessmentsPage.css';
 
 export const AssessmentsPage: React.FC = () => {
   const navigate = useNavigate();
+  const { selectedWorkspaceName } = useWorkspace();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(15);
@@ -53,14 +56,10 @@ export const AssessmentsPage: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      console.log('Fetching assessments...');
       const data = await listAssessments();
-      console.log('Assessments data received:', data);
       
       setAssessments(data.assessments || []);
     } catch (err: any) {
-      console.error('Failed to fetch assessments:', err);
-      
       // Handle different error types
       if (err.status === 401) {
         setError('Authentication failed. Please logout and login again.');
@@ -82,7 +81,6 @@ export const AssessmentsPage: React.FC = () => {
       await fetchAssessments();
       setDeleteConfirmId(null);
     } catch (error: any) {
-      console.error('Failed to delete assessment:', error);
       setToast({ message: `Failed to delete assessment: ${error.detail || error.message}`, type: 'error' });
     }
   };
@@ -105,7 +103,6 @@ export const AssessmentsPage: React.FC = () => {
       }, 300000);
       
     } catch (error: any) {
-      console.error('Failed to run assessment:', error);
       setToast({ message: `Failed to run assessment: ${error.detail || error.message}`, type: 'error' });
     }
   };
@@ -205,11 +202,13 @@ export const AssessmentsPage: React.FC = () => {
           <h1 className="assessments-title">
             <FileSearch size={20} strokeWidth={2} className="page-title-icon" />
             Assessments
+            <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280', marginLeft: 8 }}>— {selectedWorkspaceName}</span>
           </h1>
           <div className="assessments-subheader">
             <span className="assessments-count">{totalAssessments} Assessments</span>
             
             <div className="assessments-actions">
+              <WorkspaceSelector />
               <div className="search-box">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="7" cy="7" r="5" />

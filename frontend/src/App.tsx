@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { WorkspaceProvider } from './contexts/WorkspaceContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { MainLayout } from './components/layout/MainLayout';
 import { ChatAgent } from './components/ChatAgent/ChatAgent';
@@ -231,7 +232,9 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppContent />
+        <WorkspaceProvider>
+          <AppContent />
+        </WorkspaceProvider>
       </AuthProvider>
     </BrowserRouter>
   );

@@ -1,7 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import './WorkspacesPage.css';
+
+/* ===== SVG Icon Components ===== */
+const BigQueryIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <path d="M6 3.5L2 6.5V17.5L6 20.5L12 17V7L6 3.5Z" fill="#4285F4" opacity="0.7"/>
+    <path d="M18 3.5L12 7V17L18 20.5L22 17.5V6.5L18 3.5Z" fill="#4285F4"/>
+    <path d="M6 3.5L12 7L18 3.5L12 0L6 3.5Z" fill="#669DF6"/>
+  </svg>
+);
+
+const RedshiftIcon: React.FC<{ size?: number }> = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <path d="M12 2L3 7V17L12 22L21 17V7L12 2Z" fill="#205B97"/>
+    <path d="M12 2L3 7L12 12L21 7L12 2Z" fill="#5294CF"/>
+    <path d="M12 12V22L21 17V7L12 12Z" fill="#2E73B8"/>
+  </svg>
+);
+
+const ConnectionIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <circle cx="4" cy="8" r="2" /><circle cx="12" cy="8" r="2" /><path d="M6 8h4" />
+  </svg>
+);
+
+const AssessmentIcon: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+    <path d="M8 2L3 5v3c0 3 2 5 5 5.5 3-.5 5-2.5 5-5.5V5l-5-3z" />
+  </svg>
+);
 
 interface WorkspaceStats {
   connections: number;
@@ -74,10 +102,9 @@ interface AnalysisData {
   };
 }
 
-type TabId = 'overview' | 'assessments' | 'migrations' | 'connections';
+type TabId = 'overview' | 'assessments' | 'migrations' | 'connections' | 'source_connections' | 'target_connections' | 'compatibility' | 'converter';
 
 export const WorkspacesPage: React.FC = () => {
-  const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedWs, setSelectedWs] = useState<Workspace | null>(null);
@@ -85,6 +112,10 @@ export const WorkspacesPage: React.FC = () => {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newWsName, setNewWsName] = useState('');
+  const [newWsDesc, setNewWsDesc] = useState('');
+  const [creating, setCreating] = useState(false);
   const [pinnedIds, setPinnedIds] = useState<Set<number>>(() => {
     try {
       const saved = localStorage.getItem('datamiq_pinned_workspaces');
@@ -103,7 +134,7 @@ export const WorkspacesPage: React.FC = () => {
           setExpandedSections(prev => new Set([...prev, `ws-${data[0].id}`]));
         }
       } catch (err) {
-        console.error('Failed to load workspaces:', err);
+        // silently fail
       } finally {
         setLoading(false);
       }
@@ -119,7 +150,7 @@ export const WorkspacesPage: React.FC = () => {
           const data = await api.get<AnalysisData>(`/api/workspaces/${selectedWs.id}/analysis`);
           setAnalysis(data);
         } catch (err) {
-          console.error('Failed to load analysis:', err);
+          // silently fail
         } finally {
           setAnalysisLoading(false);
         }
@@ -145,6 +176,23 @@ export const WorkspacesPage: React.FC = () => {
     });
   };
 
+  const handleCreateWorkspace = async () => {
+    if (!newWsName.trim()) return;
+    setCreating(true);
+    try {
+      await api.post('/api/workspaces/', { name: newWsName.trim(), description: newWsDesc.trim() });
+      const data = await api.get<Workspace[]>('/api/workspaces/');
+      setWorkspaces(data);
+      setShowCreateModal(false);
+      setNewWsName('');
+      setNewWsDesc('');
+    } catch (err) {
+      // silently fail
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const filteredWorkspaces = workspaces.filter(ws =>
     ws.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -162,6 +210,16 @@ export const WorkspacesPage: React.FC = () => {
     return n.toLocaleString();
   };
 
+  // Sidebar tree child items — clicking switches tab, NOT navigates away
+  const treeChildren: { label: string; tab: TabId; icon: React.ReactNode }[] = [
+    { label: 'Source Connections', tab: 'source_connections', icon: <ConnectionIcon /> },
+    { label: 'Target Connections', tab: 'target_connections', icon: <ConnectionIcon /> },
+    { label: 'Assessments', tab: 'assessments', icon: <AssessmentIcon /> },
+    { label: 'Compatibility Check', tab: 'compatibility', icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 12l4-4 3 3 5-5" strokeLinecap="round" strokeLinejoin="round" /></svg> },
+    { label: 'Code Converter', tab: 'converter', icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 4L2 8l3 4M11 4l3 4-3 4M9 2L7 14" strokeLinecap="round" strokeLinejoin="round" /></svg> },
+    { label: 'Migration Jobs', tab: 'migrations', icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 8h12M11 5l3 3-3 3" strokeLinecap="round" strokeLinejoin="round" /></svg> },
+  ];
+
   if (loading) {
     return (
       <div className="ws-page">
@@ -177,7 +235,7 @@ export const WorkspacesPage: React.FC = () => {
         <div className="ws-sidebar-header">
           <div className="ws-sidebar-title-row">
             <h2 className="ws-sidebar-title">Your Workspaces</h2>
-            <button className="ws-sidebar-new-btn" title="Create workspace">
+            <button className="ws-sidebar-new-btn" title="Create workspace" onClick={() => setShowCreateModal(true)}>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M8 3v10M3 8h10" strokeLinecap="round" />
               </svg>
@@ -245,42 +303,13 @@ export const WorkspacesPage: React.FC = () => {
 
               {expandedSections.has(`ws-${ws.id}`) && (
                 <div className="ws-tree-children">
-                  <button className="ws-tree-child" onClick={() => navigate('/connections')}>
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <circle cx="4" cy="8" r="2" /><circle cx="12" cy="8" r="2" /><path d="M6 8h4" />
-                    </svg>
-                    Source Connections
-                  </button>
-                  <button className="ws-tree-child" onClick={() => navigate('/connections')}>
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <circle cx="4" cy="8" r="2" /><circle cx="12" cy="8" r="2" /><path d="M6 8h4" />
-                    </svg>
-                    Target Connections
-                  </button>
-                  <button className="ws-tree-child" onClick={() => navigate('/assessments')}>
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M8 2L3 5v3c0 3 2 5 5 5.5 3-.5 5-2.5 5-5.5V5l-5-3z" />
-                    </svg>
-                    Assessments
-                  </button>
-                  <button className="ws-tree-child" onClick={() => navigate('/assessments/compatibility')}>
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M2 12l4-4 3 3 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    Compatibility Check
-                  </button>
-                  <button className="ws-tree-child" onClick={() => navigate('/converter')}>
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M5 4L2 8l3 4M11 4l3 4-3 4M9 2L7 14" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    Code Converter
-                  </button>
-                  <button className="ws-tree-child" onClick={() => navigate('/migrations')}>
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M2 8h12M11 5l3 3-3 3" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    Migration Jobs
-                  </button>
+                  {treeChildren.map((child, i) => (
+                    <button key={i} className={`ws-tree-child ${activeTab === child.tab && selectedWs?.id === ws.id ? 'active' : ''}`}
+                      onClick={() => { setSelectedWs(ws); setActiveTab(child.tab); }}>
+                      {child.icon}
+                      {child.label}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -307,16 +336,9 @@ export const WorkspacesPage: React.FC = () => {
                 </svg>
                 <span className="ws-breadcrumb-ws">{selectedWs.name}</span>
                 <span className="ws-breadcrumb-sep">/</span>
-                <span className="ws-breadcrumb-page">Database Analysis</span>
+                <span className="ws-breadcrumb-page">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</span>
               </div>
               <div className="ws-content-actions">
-                <button className="ws-action-btn" onClick={() => navigate('/assessments')}>
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M4 2h8a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" />
-                    <path d="M6 6h4M6 9h4" strokeLinecap="round" />
-                  </svg>
-                  Report
-                </button>
                 <button className="ws-action-btn primary" onClick={() => {
                   if (selectedWs) {
                     setAnalysisLoading(true);
@@ -341,7 +363,10 @@ export const WorkspacesPage: React.FC = () => {
                 { id: 'overview' as TabId, label: 'Overview' },
                 { id: 'assessments' as TabId, label: 'Assessments' },
                 { id: 'migrations' as TabId, label: 'Migrations' },
-                { id: 'connections' as TabId, label: 'Connections' },
+                { id: 'source_connections' as TabId, label: 'Source Connections' },
+                { id: 'target_connections' as TabId, label: 'Target Connections' },
+                { id: 'compatibility' as TabId, label: 'Compatibility' },
+                { id: 'converter' as TabId, label: 'Code Converter' },
               ]).map(tab => (
                 <button key={tab.id} className={`ws-tab ${activeTab === tab.id ? 'active' : ''}`}
                   onClick={() => setActiveTab(tab.id)}>{tab.label}</button>
@@ -355,16 +380,49 @@ export const WorkspacesPage: React.FC = () => {
               ) : activeTab === 'overview' ? (
                 <OverviewTab analysis={analysis} formatSize={formatSize} formatNumber={formatNumber} />
               ) : activeTab === 'assessments' ? (
-                <AssessmentsTab analysis={analysis} navigate={navigate} />
+                <AssessmentsTab analysis={analysis} />
               ) : activeTab === 'migrations' ? (
-                <MigrationsTab analysis={analysis} navigate={navigate} />
-              ) : (
-                <ConnectionsTab analysis={analysis} navigate={navigate} />
-              )}
+                <MigrationsTab analysis={analysis} />
+              ) : activeTab === 'source_connections' ? (
+                <ConnectionsTab analysis={analysis} filter="source" />
+              ) : activeTab === 'target_connections' ? (
+                <ConnectionsTab analysis={analysis} filter="target" />
+              ) : activeTab === 'compatibility' ? (
+                <CompatibilityTab />
+              ) : activeTab === 'converter' ? (
+                <ConverterTab />
+              ) : activeTab === 'connections' ? (
+                <ConnectionsTab analysis={analysis} />
+              ) : null}
             </div>
           </>
         )}
       </div>
+
+      {/* Create Workspace Modal */}
+      {showCreateModal && (
+        <div className="ws-modal-overlay" onClick={() => setShowCreateModal(false)}>
+          <div className="ws-modal" onClick={e => e.stopPropagation()}>
+            <h3 className="ws-modal-title">Create Workspace</h3>
+            <div className="ws-modal-field">
+              <label>Name</label>
+              <input type="text" value={newWsName} onChange={e => setNewWsName(e.target.value)}
+                placeholder="e.g. Production Migration" autoFocus />
+            </div>
+            <div className="ws-modal-field">
+              <label>Description (optional)</label>
+              <input type="text" value={newWsDesc} onChange={e => setNewWsDesc(e.target.value)}
+                placeholder="Brief description" />
+            </div>
+            <div className="ws-modal-actions">
+              <button className="ws-action-btn" onClick={() => setShowCreateModal(false)}>Cancel</button>
+              <button className="ws-action-btn primary" onClick={handleCreateWorkspace} disabled={creating || !newWsName.trim()}>
+                {creating ? 'Creating...' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -388,14 +446,14 @@ const OverviewTab: React.FC<{ analysis: AnalysisData | null; formatSize: (n: num
       <div className="ws-overview-top">
         <div className="ws-info-cards">
           {[
-            { label: 'SOURCE TYPE', value: ov.source_type, icon: '📊' },
-            { label: 'TARGET TYPE', value: ov.target_type, icon: '🗄️' },
-            { label: 'CONNECTIONS', value: String(ov.total_connections), icon: '🔗' },
-            { label: 'ASSESSMENTS', value: String(ov.total_assessments), icon: '🛡️' },
+            { label: 'SOURCE TYPE', value: ov.source_type, icon: <BigQueryIcon size={18} /> },
+            { label: 'TARGET TYPE', value: ov.target_type, icon: <RedshiftIcon size={18} /> },
+            { label: 'CONNECTIONS', value: String(ov.total_connections), icon: <ConnectionIcon size={16} /> },
+            { label: 'ASSESSMENTS', value: String(ov.total_assessments), icon: <AssessmentIcon size={16} /> },
           ].map((card, i) => (
             <div key={i} className="ws-info-card">
               <div className="ws-info-label">{card.label}</div>
-              <div className="ws-info-value"><span>{card.icon}</span> {card.value}</div>
+              <div className="ws-info-value"><span className="ws-info-icon">{card.icon}</span> {card.value}</div>
             </div>
           ))}
         </div>
@@ -466,12 +524,12 @@ const OverviewTab: React.FC<{ analysis: AnalysisData | null; formatSize: (n: num
 
 
 /* ===== Assessments Tab ===== */
-const AssessmentsTab: React.FC<{ analysis: AnalysisData | null; navigate: (path: string) => void }> = ({ analysis, navigate }) => {
+const AssessmentsTab: React.FC<{ analysis: AnalysisData | null }> = ({ analysis }) => {
   if (!analysis || analysis.recent_assessments.length === 0) {
     return (
       <div className="ws-empty-tab">
-        <p>No assessments found.</p>
-        <button className="ws-action-btn primary" onClick={() => navigate('/assessments')}>Go to Assessments</button>
+        <p>No assessments found in this workspace.</p>
+        <p style={{ fontSize: 12, color: '#9CA3AF' }}>Create assessments from the Assessments page to see them here.</p>
       </div>
     );
   }
@@ -483,7 +541,7 @@ const AssessmentsTab: React.FC<{ analysis: AnalysisData | null; navigate: (path:
         </thead>
         <tbody>
           {analysis.recent_assessments.map(a => (
-            <tr key={a.id} className="ws-table-row-clickable" onClick={() => navigate(`/assessments/${a.id}/report`)}>
+            <tr key={a.id}>
               <td className="ws-td-name">{a.name}</td>
               <td><span className={`ws-status-badge ${a.status}`}>{a.status}</span></td>
               <td>{a.total_tables}</td>
@@ -493,13 +551,12 @@ const AssessmentsTab: React.FC<{ analysis: AnalysisData | null; navigate: (path:
           ))}
         </tbody>
       </table>
-      <button className="ws-view-all-btn" onClick={() => navigate('/assessments')}>View all assessments →</button>
     </div>
   );
 };
 
 /* ===== Migrations Tab ===== */
-const MigrationsTab: React.FC<{ analysis: AnalysisData | null; navigate: (path: string) => void }> = ({ analysis, navigate }) => {
+const MigrationsTab: React.FC<{ analysis: AnalysisData | null }> = ({ analysis }) => {
   const migrations = analysis?.recent_migrations || [];
 
   const formatDuration = (seconds: number | null) => {
@@ -513,7 +570,7 @@ const MigrationsTab: React.FC<{ analysis: AnalysisData | null; navigate: (path: 
     return (
       <div className="ws-empty-tab">
         <p>No migrations found in this workspace.</p>
-        <button className="ws-action-btn primary" onClick={() => navigate('/migrations')}>Go to Migrations</button>
+        <p style={{ fontSize: 12, color: '#9CA3AF' }}>Create migrations from the Migrations page to see them here.</p>
       </div>
     );
   }
@@ -554,7 +611,7 @@ const MigrationsTab: React.FC<{ analysis: AnalysisData | null; navigate: (path: 
         </thead>
         <tbody>
           {migrations.map(m => (
-            <tr key={m.id} className="ws-table-row-clickable" onClick={() => navigate('/migrations')}>
+            <tr key={m.id}>
               <td className="ws-td-name">{m.name}</td>
               <td><span className="ws-pathway-badge">Path {m.pathway}</span></td>
               <td><span className={`ws-status-badge ${m.status}`}>{m.status}</span></td>
@@ -572,52 +629,78 @@ const MigrationsTab: React.FC<{ analysis: AnalysisData | null; navigate: (path: 
           ))}
         </tbody>
       </table>
-      <button className="ws-view-all-btn" onClick={() => navigate('/migrations')}>View all migrations →</button>
     </div>
   );
 };
 
 /* ===== Connections Tab ===== */
-const ConnectionsTab: React.FC<{ analysis: AnalysisData | null; navigate: (path: string) => void }> = ({ analysis, navigate }) => {
+const ConnectionsTab: React.FC<{ analysis: AnalysisData | null; filter?: 'source' | 'target' }> = ({ analysis, filter }) => {
   if (!analysis) return <div className="ws-empty-tab">No data available.</div>;
   const { source, target } = analysis.connections;
+  const showSource = !filter || filter === 'source';
+  const showTarget = !filter || filter === 'target';
   return (
     <div className="ws-connections-tab">
-      <div className="ws-conn-group">
-        <h4 className="ws-conn-group-title">Source Connections ({source.length})</h4>
-        {source.length === 0 ? <p className="ws-conn-empty">No source connections</p> : (
-          <div className="ws-conn-list">
-            {source.map(c => (
-              <div key={c.id} className="ws-conn-card">
-                <div className="ws-conn-icon source">S</div>
-                <div className="ws-conn-info">
-                  <div className="ws-conn-name">{c.name}</div>
-                  <div className="ws-conn-db">{c.database}</div>
+      {showSource && (
+        <div className="ws-conn-group">
+          <h4 className="ws-conn-group-title">Source Connections ({source.length})</h4>
+          {source.length === 0 ? <p className="ws-conn-empty">No source connections</p> : (
+            <div className="ws-conn-list">
+              {source.map(c => (
+                <div key={c.id} className="ws-conn-card">
+                  <div className="ws-conn-icon source"><BigQueryIcon size={18} /></div>
+                  <div className="ws-conn-info">
+                    <div className="ws-conn-name">{c.name}</div>
+                    <div className="ws-conn-db">{c.database}</div>
+                  </div>
+                  <span className={`ws-status-badge ${c.status}`}>{c.status}</span>
                 </div>
-                <span className={`ws-status-badge ${c.status}`}>{c.status}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="ws-conn-group">
-        <h4 className="ws-conn-group-title">Target Connections ({target.length})</h4>
-        {target.length === 0 ? <p className="ws-conn-empty">No target connections</p> : (
-          <div className="ws-conn-list">
-            {target.map(c => (
-              <div key={c.id} className="ws-conn-card">
-                <div className="ws-conn-icon target">T</div>
-                <div className="ws-conn-info">
-                  <div className="ws-conn-name">{c.name}</div>
-                  <div className="ws-conn-db">{c.database}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {showTarget && (
+        <div className="ws-conn-group">
+          <h4 className="ws-conn-group-title">Target Connections ({target.length})</h4>
+          {target.length === 0 ? <p className="ws-conn-empty">No target connections</p> : (
+            <div className="ws-conn-list">
+              {target.map(c => (
+                <div key={c.id} className="ws-conn-card">
+                  <div className="ws-conn-icon target"><RedshiftIcon size={18} /></div>
+                  <div className="ws-conn-info">
+                    <div className="ws-conn-name">{c.name}</div>
+                    <div className="ws-conn-db">{c.database}</div>
+                  </div>
+                  <span className={`ws-status-badge ${c.status}`}>{c.status}</span>
                 </div>
-                <span className={`ws-status-badge ${c.status}`}>{c.status}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <button className="ws-view-all-btn" onClick={() => navigate('/connections')}>Manage all connections →</button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
+
+/* ===== Compatibility Tab ===== */
+const CompatibilityTab: React.FC = () => (
+  <div className="ws-empty-tab">
+    <svg width="40" height="40" viewBox="0 0 16 16" fill="none" stroke="#9CA3AF" strokeWidth="1.5">
+      <path d="M2 12l4-4 3 3 5-5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+    <p>Compatibility Check</p>
+    <p style={{ fontSize: 12, color: '#9CA3AF' }}>Run compatibility checks from the Assessments → Compatibility Check page. Saved results will appear here.</p>
+  </div>
+);
+
+/* ===== Code Converter Tab ===== */
+const ConverterTab: React.FC = () => (
+  <div className="ws-empty-tab">
+    <svg width="40" height="40" viewBox="0 0 16 16" fill="none" stroke="#9CA3AF" strokeWidth="1.5">
+      <path d="M5 4L2 8l3 4M11 4l3 4-3 4M9 2L7 14" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+    <p>Code Converter</p>
+    <p style={{ fontSize: 12, color: '#9CA3AF' }}>Convert BigQuery SQL to Redshift SQL from the Code Converter page.</p>
+  </div>
+);
