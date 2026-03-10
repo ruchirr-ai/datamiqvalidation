@@ -893,12 +893,93 @@ class BigQueryAssessmentService:
         """Placeholder — detailed version used instead."""
         return []
 
-    # ─── Step 8: Security Policies (REST API — catches both RLS and CLS) ───
+    # ─── Step 8: Security Policies (INFORMATION_SCHEMA first, REST API fallback) ───
 
     async def collect_security_policies_detailed(self) -> List[Dict]:
-        """Collect security policies using REST API to detect both RLS and CLS (policy tags)."""
+        """Collect RLS and CLS policies. Tries INFORMATION_SCHEMA first, falls back to REST API."""
         security_policies = []
+        region = self._detect_region()
 
+        # ── Strategy 1: INFORMATION_SCHEMA ──
+
+        # CLS: Check COLUMN_FIELD_PATHS for policy tags
+        cls_success = False
+        try:
+            cls_query = f"""
+            SELECT
+                table_schema,
+                table_name,
+                column_name,
+                field_path,
+                policy_tags
+            FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.COLUMN_FIELD_PATHS`
+            WHERE policy_tags IS NOT NULL
+              AND policy_tags.names IS NOT NULL
+              AND ARRAY_LENGTH(policy_tags.names) > 0
+            """
+            job = self.client.query(cls_query)
+            rows = list(job.result())
+            cls_success = True
+            for row in rows:
+                tag_names = row.policy_tags.names if hasattr(row.policy_tags, 'names') else []
+                if not tag_names and isinstance(row.policy_tags, dict):
+                    tag_names = row.policy_tags.get('names', [])
+                for tag in tag_names:
+                    security_policies.append({
+                        'security_type': 'CLS',
+                        'table_name': f"{row.table_schema}.{row.table_name}",
+                        'policy_name': f"policy_tag_{row.column_name}",
+                        'filter_predicate': None,
+                        'grantees': [],
+                        'creation_time': None,
+                        'security_metadata': {
+                            'column_name': row.column_name,
+                            'policy_tag': tag
+                        }
+                    })
+            print(f"  [INFORMATION_SCHEMA] Found {len([p for p in security_policies if p['security_type'] == 'CLS'])} CLS policies")
+        except Exception as e:
+            print(f"  CLS INFORMATION_SCHEMA query failed: {e}")
+
+        # RLS: Check ROW_ACCESS_POLICIES
+        rls_success = False
+        try:
+            rls_query = f"""
+            SELECT
+                table_schema,
+                table_name,
+                policy_name,
+                filter_predicate,
+                grantee_list,
+                ddl AS creation_ddl
+            FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
+            """
+            job = self.client.query(rls_query)
+            rows = list(job.result())
+            rls_success = True
+            for row in rows:
+                security_policies.append({
+                    'security_type': 'RLS',
+                    'table_name': f"{row.table_schema}.{row.table_name}",
+                    'policy_name': row.policy_name,
+                    'filter_predicate': row.filter_predicate,
+                    'grantees': row.grantee_list.split(',') if row.grantee_list else [],
+                    'creation_time': None,
+                    'security_metadata': {
+                        'ddl': row.creation_ddl if hasattr(row, 'creation_ddl') else None
+                    }
+                })
+            print(f"  [INFORMATION_SCHEMA] Found {len([p for p in security_policies if p['security_type'] == 'RLS'])} RLS policies")
+        except Exception as e:
+            print(f"  RLS INFORMATION_SCHEMA query failed: {e}")
+
+        if cls_success or rls_success:
+            print(f"  ✓ Collected {len(security_policies)} security policies via INFORMATION_SCHEMA")
+            return security_policies
+
+        # ── Strategy 2: REST API fallback ──
+        print("  [Fallback] Using REST API for security policies...")
+        security_policies = []
         for dataset in self.client.list_datasets():
             for table in self.client.list_tables(dataset.dataset_id):
                 key = f"{dataset.dataset_id}.{table.table_id}"
@@ -908,7 +989,6 @@ class BigQueryAssessmentService:
                         f"{self.project_id}.{dataset.dataset_id}.{table.table_id}")
                     self._cached_table_refs[key] = table_ref
 
-                # Check CLS — column-level security via policy tags
                 for field in table_ref.schema:
                     if field.policy_tags and field.policy_tags.names:
                         for tag in field.policy_tags.names:
@@ -925,7 +1005,6 @@ class BigQueryAssessmentService:
                                 }
                             })
 
-            # Check RLS — row-level security per dataset
             try:
                 rls_query = f"""
                 SELECT table_schema, table_name, policy_name, filter_predicate, grantee_list
@@ -943,9 +1022,9 @@ class BigQueryAssessmentService:
                         'security_metadata': {}
                     })
             except Exception:
-                pass  # No RLS policies in this dataset or insufficient permissions
+                pass
 
-        print(f"  ✓ Collected {len(security_policies)} security policies (CLS + RLS) via REST API")
+        print(f"  ✓ Collected {len(security_policies)} security policies via REST API fallback")
         return security_policies
 
     # ─── Step 9: Sharded Tables (derived from cached data) ──────────────
