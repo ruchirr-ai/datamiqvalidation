@@ -151,7 +151,15 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-agent-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .chat-agent-logo-icon {
@@ -167,25 +175,16 @@
 }
 
 .chat-agent-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: #1f2937;
   white-space: nowrap;
-}
-
-.chat-agent-header-center {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  justify-content: flex-end;
-  min-width: 0;
+  line-height: 1.2;
 }
 
 .chat-agent-token-badges {
   display: flex;
   gap: 4px;
-  flex-shrink: 0;
 }
 
 .token-badge {
