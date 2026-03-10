@@ -267,48 +267,68 @@ export const CompatibilityCheckPage: React.FC = () => {
             {report.llm_insights && (
               <div className="compat-section compat-ai-section">
                 <button className="compat-section-header compat-ai-header" onClick={() => toggleSection('llmInsights')}>
-                  <div className="compat-section-title"><Brain size={18} /> AI-Powered Insights</div>
+                  <div className="compat-section-title"><Brain size={18} /> AI Migration Strategy</div>
                   {expandedSections.llmInsights ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
                 </button>
                 {expandedSections.llmInsights && (
                   <div className="compat-section-body">
-                    {/* Summary + Effort + Approach in one row */}
+                    {/* Top: Summary + pills */}
                     <div className="llm-top-row">
                       <div className="llm-summary-text">{report.llm_insights.executive_summary}</div>
                       <div className="llm-meta-pills">
                         <span className={`llm-effort-pill llm-effort-${(report.llm_insights.effort_level || '').toLowerCase()}`}>
                           {report.llm_insights.effort_level}
                         </span>
-                        <span className="llm-approach-pill">{report.llm_insights.migration_approach}</span>
+                        {report.llm_insights.estimated_timeline && (
+                          <span className="llm-timeline-pill">⏱ {report.llm_insights.estimated_timeline}</span>
+                        )}
                       </div>
                     </div>
 
-                    {/* Risks as compact table */}
-                    {report.llm_insights.critical_risks?.length > 0 && (
-                      <table className="llm-risks-table">
-                        <thead>
-                          <tr><th>Risk</th><th>Impact</th><th>Mitigation</th></tr>
-                        </thead>
-                        <tbody>
-                          {report.llm_insights.critical_risks.map((r, i) => (
-                            <tr key={i}>
-                              <td className="llm-risk-name"><AlertTriangle size={13} /> {r.risk}</td>
-                              <td>{r.impact}</td>
-                              <td>{r.mitigation}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-
-                    {/* Recommendations as inline tags */}
-                    {report.llm_insights.additional_recommendations?.length > 0 && (
-                      <div className="llm-rec-tags">
-                        {report.llm_insights.additional_recommendations.map((r, i) => (
-                          <span key={i} className="llm-rec-tag"><CheckCircle size={12} /> {r}</span>
-                        ))}
+                    {/* Strategy cards row */}
+                    <div className="llm-strategy-grid">
+                      <div className="llm-strategy-card">
+                        <div className="llm-strategy-label">Approach</div>
+                        <div className="llm-strategy-value">{report.llm_insights.migration_approach}</div>
                       </div>
-                    )}
+                      {report.llm_insights.rollback_plan && (
+                        <div className="llm-strategy-card">
+                          <div className="llm-strategy-label">Rollback Plan</div>
+                          <div className="llm-strategy-value">{report.llm_insights.rollback_plan}</div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Team + Testing + Cost in columns */}
+                    <div className="llm-details-grid">
+                      {report.llm_insights.team_requirements && report.llm_insights.team_requirements.length > 0 && (
+                        <div className="llm-detail-col">
+                          <div className="llm-detail-title">👥 Team Needed</div>
+                          {report.llm_insights.team_requirements.map((t, i) => (
+                            <div key={i} className="llm-detail-item">
+                              <span className="llm-detail-role">{t.role}</span>
+                              <span className="llm-detail-reason">{t.reason}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {report.llm_insights.testing_strategy && report.llm_insights.testing_strategy.length > 0 && (
+                        <div className="llm-detail-col">
+                          <div className="llm-detail-title">🧪 Testing Strategy</div>
+                          {report.llm_insights.testing_strategy.map((s, i) => (
+                            <div key={i} className="llm-detail-step">{i + 1}. {s}</div>
+                          ))}
+                        </div>
+                      )}
+                      {report.llm_insights.cost_considerations && report.llm_insights.cost_considerations.length > 0 && (
+                        <div className="llm-detail-col">
+                          <div className="llm-detail-title">💰 Cost Factors</div>
+                          {report.llm_insights.cost_considerations.map((c, i) => (
+                            <div key={i} className="llm-detail-step">• {c}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

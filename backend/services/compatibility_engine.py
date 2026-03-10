@@ -226,17 +226,21 @@ class CompatibilityEngine:
             "sql_syntax_issues": [{"pattern": i["pattern"], "severity": i["severity"],
                 "affected_count": i["affected_count"]} for i in report.get("sql_syntax_issues", [])],
         }
-        prompt = "You are a database migration expert. Be extremely concise.\n"
-        prompt += "Analyze this BigQuery to Redshift compatibility report.\n"
+        prompt = "You are a database migration strategist. Be extremely concise.\n"
+        prompt += "Given this BigQuery to Redshift compatibility report, provide STRATEGIC insights.\n"
+        prompt += "DO NOT repeat feature gaps or data type issues - those are already shown separately.\n"
+        prompt += "Focus on: timeline, team planning, cost, testing strategy, rollback plan.\n\n"
         prompt += "Respond in JSON with these fields:\n"
-        prompt += "- executive_summary: 1 sentence max\n"
-        prompt += "- critical_risks: array of {risk: 5 words max, impact: 8 words max, mitigation: 8 words max}, max 3 items\n"
-        prompt += "- migration_approach: 1 short sentence\n"
+        prompt += "- executive_summary: 1 sentence strategic overview\n"
         prompt += "- effort_level: Low/Medium/High\n"
-        prompt += "- effort_justification: comma-separated short bullet points, max 3\n"
-        prompt += "- additional_recommendations: array of short action items, 5 words each max, max 4 items\n\n"
+        prompt += "- migration_approach: 1 short sentence (phased/big-bang/parallel)\n"
+        prompt += "- estimated_timeline: e.g. '2-3 weeks'\n"
+        prompt += "- team_requirements: array of {role: string, reason: string}, max 3\n"
+        prompt += "- testing_strategy: array of short steps, max 4 items, 8 words each\n"
+        prompt += "- rollback_plan: 1 short sentence\n"
+        prompt += "- cost_considerations: array of short items, max 3, 8 words each\n\n"
         prompt += f"Report: {json.dumps(summary)}\n\n"
-        prompt += "IMPORTANT: Keep ALL text extremely short. No long sentences."
+        prompt += "IMPORTANT: Keep ALL text extremely short. Do NOT mention specific feature gaps or data type issues."
         try:
             if use_bedrock:
                 return self._call_bedrock(prompt)

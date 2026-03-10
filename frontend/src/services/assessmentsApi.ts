@@ -435,11 +435,17 @@ export interface SqlSyntaxIssue {
 
 export interface LLMInsights {
   executive_summary: string;
-  critical_risks: { risk: string; impact: string; mitigation: string }[];
-  migration_approach: string;
   effort_level: string;
-  effort_justification: string;
-  additional_recommendations: string[];
+  migration_approach: string;
+  estimated_timeline?: string;
+  team_requirements?: { role: string; reason: string }[];
+  testing_strategy?: string[];
+  rollback_plan?: string;
+  cost_considerations?: string[];
+  // Legacy fields (backward compat)
+  critical_risks?: { risk: string; impact: string; mitigation: string }[];
+  effort_justification?: string;
+  additional_recommendations?: string[];
 }
 
 export interface CompatibilityReport {

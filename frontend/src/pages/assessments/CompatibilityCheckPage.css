@@ -483,7 +483,8 @@
 .llm-effort-medium { background: #fef3c7; color: #92400e; }
 .llm-effort-high { background: #fee2e2; color: #991b1b; }
 
-.llm-approach-pill {
+/* Timeline pill */
+.llm-timeline-pill {
   display: inline-block;
   padding: 4px 14px;
   border-radius: 20px;
@@ -495,74 +496,82 @@
   white-space: nowrap;
 }
 
-/* Risks table */
-.llm-risks-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--font-size-xs);
-  margin-bottom: 12px;
+/* Strategy cards */
+.llm-strategy-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-.llm-risks-table th {
-  text-align: left;
-  padding: 6px 10px;
-  background: #f1f5f9;
-  color: var(--color-text-secondary);
-  font-weight: 600;
+.llm-strategy-card {
+  padding: 12px 16px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.llm-strategy-label {
   font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  border-bottom: 1px solid #e2e8f0;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
 }
 
-.llm-risks-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid #f1f5f9;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
+.llm-strategy-value {
+  font-size: 13px;
+  color: var(--color-text-primary);
   line-height: 1.4;
 }
 
-.llm-risks-table tbody tr:hover {
-  background: #f8fafc;
+/* Details grid */
+.llm-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
 }
 
-.llm-risk-name {
+.llm-detail-col {
+  padding: 12px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.llm-detail-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.llm-detail-item {
   display: flex;
-  align-items: center;
-  gap: 5px;
-  font-weight: 500;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 6px;
+}
+
+.llm-detail-role {
+  font-size: 12px;
+  font-weight: 600;
   color: var(--color-text-primary);
 }
 
-.llm-risk-name svg {
-  color: #f59e0b;
-  flex-shrink: 0;
-}
-
-/* Recommendation tags */
-.llm-rec-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.llm-rec-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-radius: 16px;
+.llm-detail-reason {
   font-size: 11px;
-  font-weight: 500;
-  color: #166534;
-  white-space: nowrap;
+  color: var(--color-text-secondary);
 }
 
-.llm-rec-tag svg {
-  flex-shrink: 0;
+.llm-detail-step {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin-bottom: 2px;
 }
 
 /* Spinner */
