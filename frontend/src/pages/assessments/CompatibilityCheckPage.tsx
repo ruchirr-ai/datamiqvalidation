@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  CheckCircle, AlertTriangle, XCircle, Info, Zap, Database,
+  CheckCircle, XCircle, Info, Zap, Database,
   Shield, Code, Brain, ArrowRight, ChevronDown, ChevronUp,
   Loader
 } from 'lucide-react';
 import { Button, Select } from '../../components/ui';
 import {
   listAssessments, Assessment,
-  runCompatibilityCheck, CompatibilityReport
+  runCompatibilityCheck, CompatibilityReport,
+  saveCompatibilityResult, getSavedCompatibility
 } from '../../services/assessmentsApi';
 import './AssessmentsPage.css';
 import './CompatibilityCheckPage.css';
@@ -57,12 +58,37 @@ export const CompatibilityCheckPage: React.FC = () => {
         result.summary.total_sharded_tables = result.summary.total_sharded_tables ?? 0;
       }
       setReport(result);
+      // Auto-save the result
+      try {
+        await saveCompatibilityResult(selectedAssessmentId as number, result);
+      } catch (saveErr) {
+        console.warn('Failed to save compatibility result:', saveErr);
+      }
     } catch (err: any) {
       setError(err.detail || err.message || 'Compatibility check failed');
     } finally {
       setLoading(false);
     }
   };
+
+  // Auto-load saved result when assessment is selected
+  useEffect(() => {
+    if (selectedAssessmentId) {
+      const loadSaved = async () => {
+        try {
+          const saved = await getSavedCompatibility(selectedAssessmentId as number);
+          if (saved.found && saved.report) {
+            setReport(saved.report);
+          }
+        } catch (err) {
+          // Silently fail — user can run a fresh check
+        }
+      };
+      loadSaved();
+    } else {
+      setReport(null);
+    }
+  }, [selectedAssessmentId]);
 
   const toggleSection = (key: string) => {
     setExpandedSections(prev => ({ ...prev, [key]: !prev[key] }));

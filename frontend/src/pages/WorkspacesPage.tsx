@@ -23,6 +23,23 @@ interface Workspace {
   stats: WorkspaceStats;
 }
 
+interface MigrationItem {
+  id: number;
+  name: string;
+  pathway: string;
+  status: string;
+  current_stage: string | null;
+  progress: number;
+  source_dataset: string | null;
+  target_schema: string | null;
+  total_rows_source: number;
+  total_rows_target: number;
+  created_at: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  duration_seconds: number | null;
+}
+
 interface AnalysisData {
   workspace_id: number;
   overview: {
@@ -50,6 +67,7 @@ interface AnalysisData {
   };
   top_tables: { name: string; dataset: string; row_count: number; size_mb: number }[];
   recent_assessments: { id: number; name: string; status: string; total_tables: number; total_size_mb: number; started_at: string | null }[];
+  recent_migrations: MigrationItem[];
   connections: {
     source: { id: number; name: string; database: string; status: string }[];
     target: { id: number; name: string; database: string; status: string }[];
@@ -73,7 +91,7 @@ export const WorkspacesPage: React.FC = () => {
       return saved ? new Set(JSON.parse(saved)) : new Set<number>();
     } catch { return new Set<number>(); }
   });
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['source', 'target', 'insights', 'migrations']));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['pinned']));
 
   useEffect(() => {
     const fetchWorkspaces = async () => {
@@ -82,6 +100,7 @@ export const WorkspacesPage: React.FC = () => {
         setWorkspaces(data);
         if (data.length > 0 && !selectedWs) {
           setSelectedWs(data[0]);
+          setExpandedSections(prev => new Set([...prev, `ws-${data[0].id}`]));
         }
       } catch (err) {
         console.error('Failed to load workspaces:', err);
@@ -226,31 +245,37 @@ export const WorkspacesPage: React.FC = () => {
 
               {expandedSections.has(`ws-${ws.id}`) && (
                 <div className="ws-tree-children">
-                  <button className="ws-tree-child" onClick={() => { setSelectedWs(ws); setActiveTab('connections'); }}>
+                  <button className="ws-tree-child" onClick={() => navigate('/connections')}>
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                       <circle cx="4" cy="8" r="2" /><circle cx="12" cy="8" r="2" /><path d="M6 8h4" />
                     </svg>
                     Source Connections
                   </button>
-                  <button className="ws-tree-child" onClick={() => { setSelectedWs(ws); setActiveTab('connections'); }}>
+                  <button className="ws-tree-child" onClick={() => navigate('/connections')}>
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                       <circle cx="4" cy="8" r="2" /><circle cx="12" cy="8" r="2" /><path d="M6 8h4" />
                     </svg>
                     Target Connections
                   </button>
-                  <button className="ws-tree-child" onClick={() => { setSelectedWs(ws); setActiveTab('connections'); }}>
+                  <button className="ws-tree-child" onClick={() => navigate('/assessments')}>
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                      <path d="M8 2v4M4 6h8l1 6H3l1-6zM5 12v2M11 12v2" />
+                      <path d="M8 2L3 5v3c0 3 2 5 5 5.5 3-.5 5-2.5 5-5.5V5l-5-3z" />
                     </svg>
-                    AWS Connections
+                    Assessments
                   </button>
-                  <button className="ws-tree-child" onClick={() => { setSelectedWs(ws); setActiveTab('assessments'); }}>
+                  <button className="ws-tree-child" onClick={() => navigate('/assessments/compatibility')}>
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                       <path d="M2 12l4-4 3 3 5-5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                    Insights
+                    Compatibility Check
                   </button>
-                  <button className="ws-tree-child" onClick={() => { setSelectedWs(ws); setActiveTab('migrations'); }}>
+                  <button className="ws-tree-child" onClick={() => navigate('/converter')}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M5 4L2 8l3 4M11 4l3 4-3 4M9 2L7 14" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    Code Converter
+                  </button>
+                  <button className="ws-tree-child" onClick={() => navigate('/migrations')}>
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                       <path d="M2 8h12M11 5l3 3-3 3" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
@@ -356,56 +381,25 @@ const OverviewTab: React.FC<{ analysis: AnalysisData | null; formatSize: (n: num
   const dataPct = ((sz.data_size_mb / total) * 100).toFixed(1);
   const indexPct = ((sz.index_size_mb / total) * 100).toFixed(1);
   const storagePct = ((sz.storage_size_mb / total) * 100).toFixed(1);
-
-  // Max row count for bar chart scaling
   const maxRows = Math.max(...(analysis.top_tables.map(t => t.row_count) || [1]), 1);
 
   return (
     <div className="ws-overview">
-      {/* Info Cards + Donut + Stats */}
       <div className="ws-overview-top">
-        {/* Left: Info Cards */}
         <div className="ws-info-cards">
-          <div className="ws-info-card">
-            <div className="ws-info-label">SOURCE TYPE</div>
-            <div className="ws-info-value">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <rect x="2" y="2" width="12" height="12" rx="2" />
-                <path d="M5 6h6M5 10h4" strokeLinecap="round" />
-              </svg>
-              {ov.source_type}
+          {[
+            { label: 'SOURCE TYPE', value: ov.source_type, icon: '📊' },
+            { label: 'TARGET TYPE', value: ov.target_type, icon: '🗄️' },
+            { label: 'CONNECTIONS', value: String(ov.total_connections), icon: '🔗' },
+            { label: 'ASSESSMENTS', value: String(ov.total_assessments), icon: '🛡️' },
+          ].map((card, i) => (
+            <div key={i} className="ws-info-card">
+              <div className="ws-info-label">{card.label}</div>
+              <div className="ws-info-value"><span>{card.icon}</span> {card.value}</div>
             </div>
-          </div>
-          <div className="ws-info-card">
-            <div className="ws-info-label">TARGET TYPE</div>
-            <div className="ws-info-value">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M2 4c0-1.1 2.7-2 6-2s6 .9 6 2M2 4v8c0 1.1 2.7 2 6 2s6-.9 6-2V4M2 8c0 1.1 2.7 2 6 2s6-.9 6-2" />
-              </svg>
-              {ov.target_type}
-            </div>
-          </div>
-          <div className="ws-info-card">
-            <div className="ws-info-label">CONNECTIONS</div>
-            <div className="ws-info-value">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="4" cy="8" r="2" /><circle cx="12" cy="8" r="2" /><path d="M6 8h4" />
-              </svg>
-              {ov.total_connections}
-            </div>
-          </div>
-          <div className="ws-info-card">
-            <div className="ws-info-label">ASSESSMENTS</div>
-            <div className="ws-info-value">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M8 2L3 5v3c0 3 2 5 5 5.5 3-.5 5-2.5 5-5.5V5l-5-3z" />
-              </svg>
-              {ov.total_assessments}
-            </div>
-          </div>
+          ))}
         </div>
 
-        {/* Center: Donut Chart */}
         <div className="ws-donut-section">
           <svg viewBox="0 0 120 120" className="ws-donut-chart">
             <circle cx="60" cy="60" r="50" fill="none" stroke="#E5E7EB" strokeWidth="12" />
@@ -430,44 +424,27 @@ const OverviewTab: React.FC<{ analysis: AnalysisData | null; formatSize: (n: num
           </div>
         </div>
 
-        {/* Right: Stats Cards */}
         <div className="ws-stat-cards">
-          <div className="ws-stat-card">
-            <div className="ws-stat-icon blue">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M3 5c0-1.1 3.1-2 7-2s7 .9 7 2M3 5v10c0 1.1 3.1 2 7 2s7-.9 7-2V5M3 10c0 1.1 3.1 2 7 2s7-.9 7-2" />
-              </svg>
+          {[
+            { label: 'DATASETS', value: st.datasets, color: 'blue' },
+            { label: 'TABLES', value: st.tables, color: 'green' },
+            { label: 'TOTAL RECORDS', value: formatNumber(st.total_records), color: 'purple' },
+          ].map((card, i) => (
+            <div key={i} className="ws-stat-card">
+              <div className={`ws-stat-icon ${card.color}`}>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <rect x="3" y="3" width="14" height="14" rx="2" /><path d="M3 7h14M7 7v10" strokeLinecap="round" />
+                </svg>
+              </div>
+              <div className="ws-stat-label">{card.label}</div>
+              <div className="ws-stat-value">{card.value}</div>
             </div>
-            <div className="ws-stat-label">DATASETS</div>
-            <div className="ws-stat-value">{st.datasets}</div>
-          </div>
-          <div className="ws-stat-card">
-            <div className="ws-stat-icon green">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <rect x="3" y="3" width="14" height="14" rx="2" />
-                <path d="M3 7h14M7 7v10" strokeLinecap="round" />
-              </svg>
-            </div>
-            <div className="ws-stat-label">TABLES</div>
-            <div className="ws-stat-value">{st.tables}</div>
-          </div>
-          <div className="ws-stat-card">
-            <div className="ws-stat-icon purple">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M3 12l4-4 3 3 7-7" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <div className="ws-stat-label">TOTAL RECORDS</div>
-            <div className="ws-stat-value">{formatNumber(st.total_records)}</div>
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Top Tables Bar Chart */}
       <div className="ws-chart-section">
-        <div className="ws-chart-header">
-          <h3 className="ws-chart-title">Top Tables by Row Count</h3>
-        </div>
+        <div className="ws-chart-header"><h3 className="ws-chart-title">Top Tables by Row Count</h3></div>
         {analysis.top_tables.length === 0 ? (
           <div className="ws-chart-empty">No table data available. Run an assessment to populate.</div>
         ) : (
@@ -486,6 +463,7 @@ const OverviewTab: React.FC<{ analysis: AnalysisData | null; formatSize: (n: num
     </div>
   );
 };
+
 
 /* ===== Assessments Tab ===== */
 const AssessmentsTab: React.FC<{ analysis: AnalysisData | null; navigate: (path: string) => void }> = ({ analysis, navigate }) => {
@@ -522,10 +500,79 @@ const AssessmentsTab: React.FC<{ analysis: AnalysisData | null; navigate: (path:
 
 /* ===== Migrations Tab ===== */
 const MigrationsTab: React.FC<{ analysis: AnalysisData | null; navigate: (path: string) => void }> = ({ analysis, navigate }) => {
+  const migrations = analysis?.recent_migrations || [];
+
+  const formatDuration = (seconds: number | null) => {
+    if (!seconds) return '—';
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  };
+
+  if (migrations.length === 0) {
+    return (
+      <div className="ws-empty-tab">
+        <p>No migrations found in this workspace.</p>
+        <button className="ws-action-btn primary" onClick={() => navigate('/migrations')}>Go to Migrations</button>
+      </div>
+    );
+  }
+
   return (
-    <div className="ws-empty-tab">
-      <p>{analysis?.overview.total_migrations || 0} migration(s) in this workspace.</p>
-      <button className="ws-action-btn primary" onClick={() => navigate('/migrations')}>Go to Migrations</button>
+    <div className="ws-table-section">
+      <div className="ws-migration-summary">
+        <div className="ws-mig-stat">
+          <span className="ws-mig-stat-value">{migrations.length}</span>
+          <span className="ws-mig-stat-label">Total</span>
+        </div>
+        <div className="ws-mig-stat">
+          <span className="ws-mig-stat-value ws-mig-completed">{migrations.filter(m => m.status === 'completed').length}</span>
+          <span className="ws-mig-stat-label">Completed</span>
+        </div>
+        <div className="ws-mig-stat">
+          <span className="ws-mig-stat-value ws-mig-running">{migrations.filter(m => m.status === 'running').length}</span>
+          <span className="ws-mig-stat-label">Running</span>
+        </div>
+        <div className="ws-mig-stat">
+          <span className="ws-mig-stat-value ws-mig-failed">{migrations.filter(m => m.status === 'failed').length}</span>
+          <span className="ws-mig-stat-label">Failed</span>
+        </div>
+      </div>
+
+      <table className="ws-data-table">
+        <thead>
+          <tr>
+            <th>Migration Name</th>
+            <th>Pathway</th>
+            <th>Status</th>
+            <th>Stage</th>
+            <th>Progress</th>
+            <th>Source → Target</th>
+            <th>Duration</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {migrations.map(m => (
+            <tr key={m.id} className="ws-table-row-clickable" onClick={() => navigate('/migrations')}>
+              <td className="ws-td-name">{m.name}</td>
+              <td><span className="ws-pathway-badge">Path {m.pathway}</span></td>
+              <td><span className={`ws-status-badge ${m.status}`}>{m.status}</span></td>
+              <td>{m.current_stage || '—'}</td>
+              <td>
+                <div className="ws-progress-bar">
+                  <div className="ws-progress-fill" style={{ width: `${m.progress}%` }} />
+                  <span className="ws-progress-text">{m.progress}%</span>
+                </div>
+              </td>
+              <td className="ws-td-route">{m.source_dataset || '—'} → {m.target_schema || '—'}</td>
+              <td>{formatDuration(m.duration_seconds)}</td>
+              <td>{m.created_at ? new Date(m.created_at).toLocaleDateString() : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button className="ws-view-all-btn" onClick={() => navigate('/migrations')}>View all migrations →</button>
     </div>
   );
 };

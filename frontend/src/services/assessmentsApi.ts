@@ -480,3 +480,18 @@ export const runCompatibilityCheck = async (assessmentId: number): Promise<Compa
     clearTimeout(timeout);
   }
 };
+
+
+/**
+ * Save compatibility check result
+ */
+export const saveCompatibilityResult = async (assessmentId: number, report: CompatibilityReport): Promise<{ success: boolean }> => {
+  return api.post('/api/compatibility/save', { assessment_id: assessmentId, report });
+};
+
+/**
+ * Get saved compatibility check result
+ */
+export const getSavedCompatibility = async (assessmentId: number): Promise<{ found: boolean; report: CompatibilityReport | null }> => {
+  return api.get(`/api/compatibility/saved/${assessmentId}`);
+};

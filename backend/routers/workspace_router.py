@@ -157,7 +157,27 @@ async def get_workspace_analysis(
         storage_size_mb = total_size_mb * 0.35 if total_size_mb else 0
 
         # Migrations
-        migrations = db.query(MigrationBQRedshift).all()
+        migrations = db.query(MigrationBQRedshift).order_by(MigrationBQRedshift.id.desc()).all()
+
+        # Migration details for the migrations tab
+        recent_migrations = []
+        for m in migrations[:20]:
+            recent_migrations.append({
+                "id": m.id,
+                "name": m.migration_name,
+                "pathway": m.pathway,
+                "status": m.status,
+                "current_stage": m.current_stage,
+                "progress": m.progress_percentage or 0,
+                "source_dataset": m.source_dataset,
+                "target_schema": m.target_schema,
+                "total_rows_source": m.total_rows_source or 0,
+                "total_rows_target": m.total_rows_target or 0,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "start_time": m.start_time.isoformat() if m.start_time else None,
+                "end_time": m.end_time.isoformat() if m.end_time else None,
+                "duration_seconds": m.duration_seconds,
+            })
 
         # Top tables by row count (from completed assessments)
         top_tables = []
@@ -213,6 +233,7 @@ async def get_workspace_analysis(
             },
             "top_tables": top_tables,
             "recent_assessments": recent_assessments,
+            "recent_migrations": recent_migrations,
             "connections": {
                 "source": [{"id": c.id, "name": c.name, "database": c.database, "status": c.status} for c in source_conns],
                 "target": [{"id": c.id, "name": c.name, "database": c.database, "status": c.status} for c in target_conns],
@@ -237,5 +258,6 @@ async def get_workspace_analysis(
             "stats": {"datasets": 0, "tables": 0, "views": 0, "routines": 0, "total_records": 0},
             "top_tables": [],
             "recent_assessments": [],
+            "recent_migrations": [],
             "connections": {"source": [], "target": []},
         }
