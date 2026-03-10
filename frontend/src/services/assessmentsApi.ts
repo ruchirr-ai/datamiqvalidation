@@ -495,3 +495,98 @@ export const saveCompatibilityResult = async (assessmentId: number, report: Comp
 export const getSavedCompatibility = async (assessmentId: number): Promise<{ found: boolean; report: CompatibilityReport | null }> => {
   return api.get(`/api/compatibility/saved/${assessmentId}`);
 };
+
+
+// ---- Schema Analysis Types ----
+
+export interface SchemaColumn {
+  name: string;
+  data_type: string;
+  is_nullable: boolean;
+  ordinal_position: number;
+  is_partitioning: boolean;
+  clustering_position: number | null;
+  max_length: number | null;
+  policy_tags: string[];
+}
+
+export interface SchemaTable {
+  id: number;
+  dataset: string;
+  name: string;
+  full_name: string;
+  type: string;
+  row_count: number;
+  size_mb: number;
+  created_at: string | null;
+  partitioning_columns: string[];
+  clustering_columns: string[];
+  has_column_security: boolean;
+  has_row_security: boolean;
+  is_sharded: boolean;
+  shard_group: string | null;
+  column_count: number;
+  columns: SchemaColumn[];
+}
+
+export interface SchemaDataset {
+  name: string;
+  table_count: number;
+  total_size_mb: number;
+  location: string | null;
+  created_at: string | null;
+  tables: string[];
+}
+
+export interface SchemaView {
+  name: string;
+  dataset: string | null;
+  type: string;
+  definition: string | null;
+  is_materialized: boolean;
+}
+
+export interface SchemaRoutine {
+  name: string;
+  type: string;
+  language: string;
+  definition: string | null;
+}
+
+export interface SchemaTypeDistribution {
+  type: string;
+  count: number;
+}
+
+export interface SchemaAnalysisData {
+  assessment_id: number;
+  assessment_name: string;
+  status: string;
+  summary: {
+    datasets: number;
+    tables: number;
+    columns: number;
+    views: number;
+    routines: number;
+    total_rows: number;
+    total_size_mb: number;
+    partitioned_tables: number;
+    clustered_tables: number;
+    secured_tables: number;
+    sharded_tables: number;
+    nullable_columns: number;
+    non_nullable_columns: number;
+  };
+  datasets: SchemaDataset[];
+  tables: SchemaTable[];
+  views: SchemaView[];
+  routines: SchemaRoutine[];
+  type_distribution: SchemaTypeDistribution[];
+}
+
+/**
+ * Get schema analysis for a completed assessment
+ */
+export const getSchemaAnalysis = async (assessmentId: number): Promise<SchemaAnalysisData> => {
+  return api.get<SchemaAnalysisData>(`/api/schema/analysis/${assessmentId}`);
+};

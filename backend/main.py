@@ -25,6 +25,7 @@ from routers.dashboard_router import router as dashboard_router
 from routers.workspace_router import router as workspace_router
 from routers.compatibility_router import router as compatibility_router
 from routers.jobs_router import router as jobs_router
+from routers.schema_router import router as schema_router
 from database import db_instance
 
 # Import all models to ensure they're registered with SQLAlchemy
@@ -184,6 +185,7 @@ app.include_router(dashboard_router)
 app.include_router(workspace_router)
 app.include_router(compatibility_router)
 app.include_router(jobs_router)
+app.include_router(schema_router)
 
 # Health check endpoint
 @app.get("/health")
