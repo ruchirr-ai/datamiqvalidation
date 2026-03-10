@@ -20,7 +20,7 @@ import {
 } from '../services/assessmentsApi';
 import QueryInsightsSection from '../components/assessments/QueryInsightsSection';
 import { DownloadReportModal } from '../components/assessments/DownloadReportModal';
-import { generatePDF } from '../utils/pdfGenerator';
+import { generatePDF } from '../utils/pdfReport';
 import './AssessmentReportPage.css';
 
 export const AssessmentReportPage: React.FC = () => {
@@ -104,7 +104,7 @@ export const AssessmentReportPage: React.FC = () => {
         try { tcoData = await getAssessmentTCO(parseInt(assessmentId!)); } catch (e) { console.warn('Could not fetch TCO:', e); }
       }
 
-      generatePDF({
+      await generatePDF({
         report,
         selectedSections,
         assessmentId: parseInt(assessmentId!),
