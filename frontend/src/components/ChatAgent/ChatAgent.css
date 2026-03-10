@@ -151,15 +151,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 1;
-  min-width: 0;
-}
-
-.chat-agent-title-group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
+  flex-shrink: 0;
 }
 
 .chat-agent-logo-icon {
@@ -175,16 +167,16 @@
 }
 
 .chat-agent-title {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: #1f2937;
   white-space: nowrap;
-  line-height: 1.2;
 }
 
 .chat-agent-token-badges {
   display: flex;
   gap: 4px;
+  flex-shrink: 0;
 }
 
 .token-badge {
@@ -352,6 +344,29 @@
 }
 
 .more-menu-dropdown button:hover { background: #f3f4f6; }
+
+/* New Chat Button */
+.chat-agent-new-chat-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.chat-agent-new-chat-btn:hover {
+  background: #f3f4f6;
+  border-color: #6366f1;
+  color: #6366f1;
+}
 
 /* Action buttons */
 .chat-agent-action-btn,

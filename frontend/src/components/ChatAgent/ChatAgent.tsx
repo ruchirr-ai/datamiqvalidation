@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   X, Send, MessageCircle, Home, Copy, RotateCcw, Check,
   ThumbsUp, ThumbsDown, Download, Maximize2, Minimize2,
-  Clock, MoreVertical, ChevronDown, Sparkles
+  MoreVertical, ChevronDown, Sparkles, Plus
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -265,19 +265,14 @@ export const ChatAgent: React.FC<ChatAgentProps> = ({
                 <div className="chat-agent-logo-icon" aria-hidden="true">
                   <Sparkles size={18} />
                 </div>
-                <div className="chat-agent-title-group">
-                  <span className="chat-agent-title" id="chat-agent-title">AI Migration Assistant</span>
-                  <div className="chat-agent-token-badges">
-                    <span className="token-badge">In: {formatTokens(totalInputTokens)}</span>
-                    <span className="token-badge">Out: {formatTokens(totalOutputTokens)}</span>
-                  </div>
-                </div>
+                <span className="chat-agent-title" id="chat-agent-title">AI Migration Assistant</span>
               </div>
 
               <div className="chat-agent-header-right">
-                <button className="chat-agent-action-btn" onClick={handleBackToHome} title="New Chat" aria-label="New Chat">
-                  <Clock size={16} />
-                </button>
+                <div className="chat-agent-token-badges">
+                  <span className="token-badge">In: {formatTokens(totalInputTokens)}</span>
+                  <span className="token-badge">Out: {formatTokens(totalOutputTokens)}</span>
+                </div>
 
                 {/* Model Selector */}
                 <div className="model-selector-wrapper" ref={modelDropdownRef}>
@@ -306,6 +301,11 @@ export const ChatAgent: React.FC<ChatAgentProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* New Chat */}
+                <button className="chat-agent-new-chat-btn" onClick={handleBackToHome} title="New Chat" aria-label="New Chat">
+                  <Plus size={14} /> New
+                </button>
 
                 {/* More Menu */}
                 <div className="more-menu-wrapper" ref={moreMenuRef}>
