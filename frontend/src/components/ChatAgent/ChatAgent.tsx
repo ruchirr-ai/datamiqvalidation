@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  X, Send, MessageCircle, Home, Copy, RotateCcw, Check,
+  X, Send, Copy, RotateCcw, Check,
   ThumbsUp, ThumbsDown, Download, Maximize2, Minimize2,
-  MoreVertical, ChevronDown, Sparkles, Plus
+  MoreVertical, ChevronDown, Sparkles, Plus, Home
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -66,8 +66,6 @@ export const ChatAgent: React.FC<ChatAgentProps> = ({
   const [selectedModel, setSelectedModel] = useState(AVAILABLE_MODELS[0]);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [totalInputTokens, setTotalInputTokens] = useState(0);
-  const [totalOutputTokens, setTotalOutputTokens] = useState(0);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -118,10 +116,6 @@ export const ChatAgent: React.FC<ChatAgentProps> = ({
     setIsLoading(true);
     setShowHomeView(false);
 
-    // Estimate input tokens (rough: ~4 chars per token)
-    const inputTokenEstimate = Math.round(text.length / 4);
-    setTotalInputTokens(prev => prev + inputTokenEstimate);
-
     try {
       const recentHistory = conversationHistory.slice(-5).map(msg => ({
         role: msg.sender === 'user' ? 'user' : 'assistant',
@@ -144,15 +138,12 @@ export const ChatAgent: React.FC<ChatAgentProps> = ({
       const data = await response.json();
 
       const responseText = data.response || 'I encountered an error. Please try again.';
-      const outputTokenEstimate = Math.round(responseText.length / 4);
-      setTotalOutputTokens(prev => prev + outputTokenEstimate);
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         text: responseText,
         sender: 'ai',
         timestamp: new Date(),
-        tokenCount: outputTokenEstimate
       };
 
       setMessages(prev => [...prev, aiMessage]);
@@ -188,7 +179,19 @@ export const ChatAgent: React.FC<ChatAgentProps> = ({
 
   const handleCopyMessage = async (messageId: string, text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        // Fallback for HTTP (non-secure) contexts
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
       setCopiedMessageId(messageId);
       setTimeout(() => setCopiedMessageId(null), 2000);
     } catch (err) { console.error('Failed to copy:', err); }
@@ -210,7 +213,6 @@ export const ChatAgent: React.FC<ChatAgentProps> = ({
   const handleBackToHome = () => {
     setMessages([]); setConversationHistory([]);
     setShowHomeView(true); setInputValue('');
-    setTotalInputTokens(0); setTotalOutputTokens(0);
   };
 
   const toggleModal = () => {
@@ -228,8 +230,6 @@ export const ChatAgent: React.FC<ChatAgentProps> = ({
   };
 
   const sanitizeText = (text: string) => text.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-
-  const formatTokens = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n.toString();
 
   return (
     <>
@@ -375,9 +375,6 @@ export const ChatAgent: React.FC<ChatAgentProps> = ({
                             <span className="message-time">
                               {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
-                            {message.tokenCount && (
-                              <span className="message-tokens">{message.tokenCount} tokens</span>
-                            )}
                             <div className="message-actions">
                               <button onClick={() => handleCopyMessage(message.id, message.text)} title="Copy">
                                 {copiedMessageId === message.id ? <Check size={13} /> : <Copy size={13} />}
