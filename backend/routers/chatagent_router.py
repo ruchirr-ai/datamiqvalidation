@@ -71,6 +71,7 @@ class ChatRequest(BaseModel):
     context: Optional[str] = "dashboard"
     workspaceId: Optional[str] = "default"
     conversationHistory: Optional[list] = []
+    model: Optional[str] = None
 
 
 class ChatResponse(BaseModel):
@@ -235,7 +236,7 @@ Migration risk analysis helps identify potential issues before migrating your da
 }
 
 
-def get_ai_response(message: str, context: str, conversation_history: list = [], user_context: dict = None) -> str:
+def get_ai_response(message: str, context: str, conversation_history: list = [], user_context: dict = None, model: str = None) -> str:
     """
     Generate AI response using Claude AI or fallback to knowledge base
     """
@@ -243,14 +244,14 @@ def get_ai_response(message: str, context: str, conversation_history: list = [],
     # Try Bedrock first if available
     if bedrock_runtime:
         try:
-            return get_bedrock_response(message, context, conversation_history, user_context)
+            return get_bedrock_response(message, context, conversation_history, user_context, model)
         except Exception as e:
             logger.error(f"Bedrock error: {e}, falling back to knowledge base")
     
     # Try Anthropic API if available
     elif anthropic_client:
         try:
-            return get_claude_response(message, context, conversation_history, user_context)
+            return get_claude_response(message, context, conversation_history, user_context, model)
         except Exception as e:
             logger.error(f"Claude AI error: {e}, falling back to knowledge base")
     
@@ -258,7 +259,7 @@ def get_ai_response(message: str, context: str, conversation_history: list = [],
     return get_knowledge_base_response(message, context)
 
 
-def get_claude_response(message: str, context: str, conversation_history: list = [], user_context: dict = None) -> str:
+def get_claude_response(message: str, context: str, conversation_history: list = [], user_context: dict = None, model: str = None) -> str:
     """
     Get response from Claude AI (Anthropic API) with user context
     """
@@ -320,8 +321,20 @@ Current context: User is on the {context} page of the platform.{context_info}"""
     })
     
     # Call Claude API
+    # Use the model from request if provided, otherwise use default
+    api_model = CLAUDE_MODEL
+    if model:
+        # Map bedrock model IDs to Anthropic API model names
+        bedrock_to_api = {
+            'us.anthropic.claude-3-5-sonnet-20241022-v2:0': 'claude-3-5-sonnet-20241022',
+            'us.anthropic.claude-3-5-haiku-20241022-v1:0': 'claude-3-5-haiku-20241022',
+            'us.anthropic.claude-3-opus-20240229-v1:0': 'claude-3-opus-20240229',
+            'us.anthropic.claude-3-sonnet-20240229-v1:0': 'claude-3-sonnet-20240229',
+        }
+        api_model = bedrock_to_api.get(model, model)
+    
     response = anthropic_client.messages.create(
-        model=CLAUDE_MODEL,
+        model=api_model,
         max_tokens=CLAUDE_MAX_TOKENS,
         temperature=CLAUDE_TEMPERATURE,
         system=system_prompt,
@@ -335,7 +348,7 @@ Current context: User is on the {context} page of the platform.{context_info}"""
     return "I apologize, but I couldn't generate a response. Please try again."
 
 
-def get_bedrock_response(message: str, context: str, conversation_history: list = [], user_context: dict = None) -> str:
+def get_bedrock_response(message: str, context: str, conversation_history: list = [], user_context: dict = None, model: str = None) -> str:
     """
     Get response from Claude AI via AWS Bedrock with user context
     """
@@ -405,9 +418,12 @@ Current context: User is on the {context} page of the platform.{context_info}"""
         "messages": messages
     }
     
-    # Call Bedrock API
+    # Call Bedrock API - use model from request if provided, otherwise use default
+    bedrock_model = model if model else CLAUDE_MODEL_ID
+    logger.info(f"Calling Bedrock with model: {bedrock_model}")
+    
     response = bedrock_runtime.invoke_model(
-        modelId=CLAUDE_MODEL_ID,
+        modelId=bedrock_model,
         body=json.dumps(request_body)
     )
     
@@ -537,7 +553,7 @@ async def chat(request: ChatRequest, db: Session = Depends(get_db)):
             logger.warning(f"Failed to gather context: {e}, continuing without context")
         
         # Generate response with context
-        response_text = get_ai_response(request.message, request.context, request.conversationHistory, user_context_data)
+        response_text = get_ai_response(request.message, request.context, request.conversationHistory, user_context_data, request.model)
         
         logger.info(f"ChatAgent response generated successfully")
         
