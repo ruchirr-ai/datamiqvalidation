@@ -36,11 +36,14 @@ export function renderSummary(ctx: PDFContext, report: AssessmentFullReport): vo
     `Status: ${a.status.toUpperCase()}`,
   ], 'Assessment Details', C.PRIMARY_L);
 
-  // Quick stats card
-  const totalRows = report.tables.reduce((s, t) => s + (t.row_count || 0), 0);
-  const partitioned = report.tables.filter(t => t.partitioning_columns?.length > 0).length;
-  const clustered = report.tables.filter(t => t.clustering_columns?.length > 0).length;
-  const securedTables = report.tables.filter(t => t.has_row_security || t.has_column_security).length;
+  // Quick stats card — filter to base tables only
+  const baseTables = report.tables.filter(t =>
+    !t.table_type || t.table_type === 'BASE TABLE' || t.table_type === 'EXTERNAL' || t.table_type === 'TABLE'
+  );
+  const totalRows = baseTables.reduce((s, t) => s + (t.row_count || 0), 0);
+  const partitioned = baseTables.filter(t => t.partitioning_columns?.length > 0).length;
+  const clustered = baseTables.filter(t => t.clustering_columns?.length > 0).length;
+  const securedTables = baseTables.filter(t => t.has_row_security || t.has_column_security).length;
 
   checkPage(ctx, 30);
   drawCard(ctx, [

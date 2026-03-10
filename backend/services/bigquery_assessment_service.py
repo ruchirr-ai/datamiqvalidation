@@ -227,13 +227,20 @@ class BigQueryAssessmentService:
             s.schema_name AS dataset_name,
             s.creation_time,
             s.location,
-            COALESCE(ts.table_count, 0) AS table_count,
+            COALESCE(tc.table_count, 0) AS table_count,
             COALESCE(ts.total_size_bytes, 0) AS total_size_bytes
         FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.SCHEMATA` s
         LEFT JOIN (
             SELECT
                 table_schema,
-                COUNT(*) AS table_count,
+                COUNT(*) AS table_count
+            FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.TABLES`
+            WHERE table_type = 'BASE TABLE'
+            GROUP BY table_schema
+        ) tc ON s.schema_name = tc.table_schema
+        LEFT JOIN (
+            SELECT
+                table_schema,
                 SUM(total_logical_bytes) AS total_size_bytes
             FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.TABLE_STORAGE`
             GROUP BY table_schema
