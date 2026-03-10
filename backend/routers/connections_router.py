@@ -37,6 +37,12 @@ try:
 except ImportError:
     MYSQL_AVAILABLE = False
 
+try:
+    import pyodbc
+    SQLSERVER_AVAILABLE = True
+except ImportError:
+    SQLSERVER_AVAILABLE = False
+
 from database import get_db
 from models.connection import Connection, Base
 from services.kms_encryption_service import get_kms_encryption_service
@@ -459,6 +465,136 @@ def test_mysql_connection(params: Dict[str, Any]) -> ConnectionResponse:
         )
 
 
+def test_sqlserver_connection(params: Dict[str, Any]) -> ConnectionResponse:
+    """Test SQL Server connection"""
+    if not SQLSERVER_AVAILABLE:
+        return ConnectionResponse(
+            success=False,
+            message="SQL Server client library not installed. Install with: pip install pyodbc"
+        )
+
+    try:
+        # Extract parameters
+        host = params.get('host', 'localhost')
+        port = params.get('port', 1433)
+        database = params.get('database_name') or params.get('database', 'master')
+        instance_name = params.get('instance_name', '')
+        username = params.get('username', '')
+        password = params.get('password', '')
+
+        # Convert windows_auth to boolean (handle string "true"/"false" and boolean values)
+        windows_auth_value = params.get('windows_auth', False)
+        if isinstance(windows_auth_value, str):
+            windows_auth = windows_auth_value.lower() in ('true', '1', 'yes')
+        else:
+            windows_auth = bool(windows_auth_value)
+
+        driver = params.get('driver', 'ODBC Driver 17 for SQL Server')
+
+        logger.info(f"Testing SQL Server connection to {host}:{port}/{database}")
+
+        # Build server string
+        if instance_name:
+            server = f"{host}\\{instance_name}"
+        else:
+            if host.lower() in ['localhost', '127.0.0.1', '.'] and port == 1433:
+                server = host
+            else:
+                server = f"{host},{port}"
+
+        # Build connection string based on authentication type
+        if windows_auth:
+            connection_string = (
+                f"DRIVER={{{driver}}};"
+                f"SERVER={server};"
+                f"DATABASE={database};"
+                f"Trusted_Connection=yes;"
+            )
+            logger.info(f"Using Windows Authentication for {server}")
+        else:
+            if not username:
+                return ConnectionResponse(
+                    success=False,
+                    message="Username is required for SQL Server authentication"
+                )
+            connection_string = (
+                f"DRIVER={{{driver}}};"
+                f"SERVER={server};"
+                f"DATABASE={database};"
+                f"UID={username};"
+                f"PWD={password};"
+            )
+            logger.info(f"Using SQL Server Authentication for {server} as user {username}")
+
+        # Create connection
+        conn = pyodbc.connect(connection_string, timeout=10)
+
+        # Test query
+        cursor = conn.cursor()
+        cursor.execute("SELECT @@VERSION;")
+        version = cursor.fetchone()[0]
+
+        cursor.execute("SELECT @@SERVERNAME;")
+        server_name = cursor.fetchone()[0]
+
+        cursor.close()
+        conn.close()
+
+        logger.info(f"SQL Server connection successful: {server_name}")
+        version_line = version.split('\n')[0] if version else "Unknown"
+
+        return ConnectionResponse(
+            success=True,
+            message="Successfully connected to SQL Server",
+            details={
+                "host": host,
+                "port": port,
+                "database": database,
+                "server_name": server_name,
+                "version": version_line,
+                "authentication": "Windows Authentication" if windows_auth else "SQL Server Authentication"
+            }
+        )
+
+    except pyodbc.Error as e:
+        error_msg = str(e).strip()
+        logger.error(f"SQL Server connection failed (pyodbc.Error): {error_msg}")
+
+        if "driver" in error_msg.lower() and "not found" in error_msg.lower():
+            return ConnectionResponse(
+                success=False,
+                message=f"ODBC driver not found. Please install the ODBC driver. Error: {error_msg}"
+            )
+        elif "login failed" in error_msg.lower() or "authentication failed" in error_msg.lower():
+            return ConnectionResponse(
+                success=False,
+                message=f"Authentication failed. Please check username, password, and permissions. Error: {error_msg}"
+            )
+        elif "could not open" in error_msg.lower() or "cannot open" in error_msg.lower():
+            return ConnectionResponse(
+                success=False,
+                message=f"Could not connect to server. Check host, port, and network connectivity. Error: {error_msg}"
+            )
+        elif "timeout" in error_msg.lower():
+            return ConnectionResponse(
+                success=False,
+                message=f"Connection timeout. Check server reachability and firewall rules. Error: {error_msg}"
+            )
+        else:
+            return ConnectionResponse(
+                success=False,
+                message=f"Connection failed: {error_msg}"
+            )
+
+    except Exception as e:
+        error_msg = str(e).strip()
+        logger.error(f"SQL Server connection test failed: {error_msg}", exc_info=True)
+        return ConnectionResponse(
+            success=False,
+            message=f"Connection failed: {error_msg}"
+        )
+
+
 class UpdateStatusRequest(BaseModel):
     """Request model for updating connection status"""
     status: str = Field(..., description="Connection status")
@@ -501,10 +637,7 @@ async def test_connection(request: TestConnectionRequest):
         )
     
     elif database_type == 'sqlserver':
-        return ConnectionResponse(
-            success=False,
-            message="SQL Server connection testing not yet implemented. Install pyodbc library."
-        )
+        return test_sqlserver_connection(request.connection_params)
     
     else:
         raise HTTPException(
@@ -547,6 +680,8 @@ async def test_connection_by_id(connection_id: int, db: Session = Depends(get_db
         result = test_mysql_connection(params)
     elif database_type == 'redshift':
         result = test_postgresql_connection(params)
+    elif database_type == 'sqlserver':
+        result = test_sqlserver_connection(params)
     else:
         result = ConnectionResponse(success=False, message=f"Unsupported database type: {database_type}")
 
@@ -573,7 +708,8 @@ async def health_check():
             "bigquery": BIGQUERY_AVAILABLE,
             "mongodb": MONGODB_AVAILABLE,
             "postgresql": POSTGRESQL_AVAILABLE,
-            "mysql": MYSQL_AVAILABLE
+            "mysql": MYSQL_AVAILABLE,
+            "sqlserver": SQLSERVER_AVAILABLE
         }
     }
 

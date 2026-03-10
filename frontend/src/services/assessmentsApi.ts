@@ -127,6 +127,9 @@ export interface AssessmentReportTable {
   has_row_security: boolean;
   is_sharded: boolean;
   update_frequency: string;
+  table_metadata?: Record<string, any>;
+  partition_function?: string | null;
+  partition_scheme?: string | null;
 }
 
 export interface AssessmentReportColumn {
@@ -210,6 +213,7 @@ export interface AssessmentFullReport {
     total_routines: number;
     total_ml_models: number;
     total_size_mb: number;
+    source_db_type?: string;
   };
   datasets: DatasetSummary[];
   tables: AssessmentReportTable[];
@@ -220,6 +224,26 @@ export interface AssessmentFullReport {
   query_stats: AssessmentReportQueryStat[];
   security_policies: AssessmentReportSecurity[];
   sharded_tables: AssessmentReportShardedTable[];
+  indexes: AssessmentReportIndex[];
+}
+
+export interface AssessmentReportIndex {
+  id: number;
+  table_id: number | null;
+  schema_name: string;
+  table_name: string;
+  object_type: string;
+  index_name: string;
+  index_type: string;
+  is_unique: boolean;
+  is_primary_key: boolean;
+  is_clustered: boolean;
+  key_columns: string;
+  included_columns: string | null;
+  filter_definition: string | null;
+  size_mb: number;
+  row_count: number;
+  index_metadata: Record<string, any>;
 }
 
 /**

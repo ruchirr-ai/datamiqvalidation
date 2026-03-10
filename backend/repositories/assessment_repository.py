@@ -285,13 +285,14 @@ class AssessmentRepository:
         self.db.commit()
     
     # Routine operations
-    def bulk_create_routines(self, assessment_id: int, routines_data: List[dict]):
-        """Bulk create routine records with deduplication"""
-        # Delete existing routines for this assessment to avoid duplicates
-        self.db.query(AssessmentRoutine).filter(
-            AssessmentRoutine.assessment_id == assessment_id
-        ).delete()
-        self.db.commit()
+    def bulk_create_routines(self, assessment_id: int, routines_data: List[dict], clear_existing: bool = True):
+        """Bulk create routine records with optional deduplication"""
+        if clear_existing:
+            # Delete existing routines for this assessment to avoid duplicates
+            self.db.query(AssessmentRoutine).filter(
+                AssessmentRoutine.assessment_id == assessment_id
+            ).delete()
+            self.db.commit()
         
         # Create new records
         routines = [
@@ -472,3 +473,53 @@ class AssessmentRepository:
         return self.db.query(AssessmentShardedTable).filter(
             AssessmentShardedTable.assessment_id == assessment_id
         ).all()
+
+    def get_procedures(self, assessment_id: int):
+        """Get stored procedures for an assessment"""
+        from models.assessment import AssessmentRoutine
+        return self.db.query(AssessmentRoutine).filter(
+            AssessmentRoutine.assessment_id == assessment_id,
+            AssessmentRoutine.routine_type == 'PROCEDURE'
+        ).all()
+
+    def get_functions(self, assessment_id: int):
+        """Get functions for an assessment"""
+        from models.assessment import AssessmentRoutine
+        return self.db.query(AssessmentRoutine).filter(
+            AssessmentRoutine.assessment_id == assessment_id,
+            AssessmentRoutine.routine_type == 'FUNCTION'
+        ).all()
+
+    def get_triggers(self, assessment_id: int):
+        """Get triggers for an assessment"""
+        from models.assessment import AssessmentRoutine
+        return self.db.query(AssessmentRoutine).filter(
+            AssessmentRoutine.assessment_id == assessment_id,
+            AssessmentRoutine.routine_type == 'TRIGGER'
+        ).all()
+
+    def get_indexes(self, assessment_id: int):
+        """Get indexes for an assessment"""
+        from models.assessment import AssessmentIndex
+        return self.db.query(AssessmentIndex).filter(
+            AssessmentIndex.assessment_id == assessment_id
+        ).all()
+
+    def bulk_create_indexes(self, assessment_id: int, indexes_data: List[dict]):
+        """Bulk create index records with deduplication"""
+        from models.assessment import AssessmentIndex
+
+        # Delete existing indexes for this assessment to avoid duplicates
+        self.db.query(AssessmentIndex).filter(
+            AssessmentIndex.assessment_id == assessment_id
+        ).delete()
+
+        # Create new index records
+        for index_data in indexes_data:
+            index_record = AssessmentIndex(
+                assessment_id=assessment_id,
+                **index_data
+            )
+            self.db.add(index_record)
+
+        self.db.commit()
