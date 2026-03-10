@@ -392,3 +392,79 @@ export const getAssessmentTCO = async (assessmentId: number, region: string = 'u
 export const getTCORegions = async (): Promise<{ regions: AWSRegion[] }> => {
   return api.get('/api/assessments/tco/regions');
 };
+
+
+// ---- Compatibility Check Types ----
+
+export interface CompatibilityCheckRequest {
+  assessment_id: number;
+}
+
+export interface DataTypeMapping {
+  table_name: string;
+  column_name: string;
+  bq_type: string;
+  redshift_type: string;
+  compatibility: 'full' | 'partial' | 'lossy' | 'unsupported' | 'unknown';
+  notes: string;
+}
+
+export interface DataTypeAnalysis {
+  mappings: DataTypeMapping[];
+  stats: { full: number; partial: number; lossy: number; unsupported: number; unknown: number };
+  compatibility_pct: number;
+  total_columns: number;
+}
+
+export interface FeatureGap {
+  category: string;
+  severity: 'high' | 'medium' | 'low';
+  count: number;
+  description: string;
+  items: string[];
+  recommendation: string;
+}
+
+export interface SqlSyntaxIssue {
+  pattern: string;
+  severity: 'high' | 'medium' | 'low';
+  fix: string;
+  affected_count: number;
+  affected_items: string[];
+}
+
+export interface LLMInsights {
+  executive_summary: string;
+  critical_risks: { risk: string; impact: string; mitigation: string }[];
+  migration_approach: string;
+  effort_level: string;
+  effort_justification: string;
+  additional_recommendations: string[];
+}
+
+export interface CompatibilityReport {
+  assessment_id: number;
+  assessment_name: string;
+  overall_score: number;
+  score_breakdown: { overall: number; data_types: number; feature_gaps: number; sql_syntax: number };
+  summary: {
+    total_tables: number;
+    total_columns: number;
+    total_views: number;
+    total_routines: number;
+    total_ml_models: number;
+    total_security_policies: number;
+    total_sharded_tables: number;
+  };
+  data_type_analysis: DataTypeAnalysis;
+  feature_gaps: FeatureGap[];
+  sql_syntax_issues: SqlSyntaxIssue[];
+  llm_insights?: LLMInsights | null;
+}
+
+/**
+ * Run compatibility check on a completed assessment
+ */
+export const runCompatibilityCheck = async (assessmentId: number): Promise<CompatibilityReport> => {
+  return api.post<CompatibilityReport>('/api/compatibility/check', { assessment_id: assessmentId });
+};
