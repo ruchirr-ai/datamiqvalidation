@@ -137,6 +137,28 @@
   margin: 0 0 var(--spacing-6) 0;
 }
 
+.section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-4);
+}
+
+.section-header-row .section-heading {
+  margin: 0;
+}
+
+.section-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+}
+
+.section-filters .custom-select {
+  min-width: 180px;
+}
+
 .subsection-heading {
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-medium);

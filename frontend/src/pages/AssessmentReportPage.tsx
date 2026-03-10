@@ -12,6 +12,7 @@ import {
   Zap, Info, Server, Download
 } from 'lucide-react';
 import { Button, Badge } from '../components/ui';
+import { Select } from '../components/ui/Select';
 import { 
   getAssessmentReport, AssessmentFullReport,
   getAssessmentRecommendations, RecommendationsData,
@@ -591,9 +592,23 @@ const DatasetsSection: React.FC<any> = ({ datasets, formatSize, formatDate }) =>
 const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate, formatNumber }) => {
   const [selectedTable, setSelectedTable] = useState<any | null>(null);
   const [showColumnsModal, setShowColumnsModal] = useState(false);
+  const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
 
   // Filter to show only BASE TABLEs (not views)
   const baseTables = tables.filter((t: any) => t.table_type === 'BASE TABLE');
+
+  // Get unique datasets for dropdown
+  const datasetOptions = [
+    { value: 'all', label: `All Datasets (${baseTables.length})` },
+    ...Array.from(new Set(baseTables.map((t: any) => t.dataset_name))).sort().map((ds: any) => ({
+      value: ds,
+      label: `${ds} (${baseTables.filter((t: any) => t.dataset_name === ds).length})`,
+    })),
+  ];
+
+  const filteredTables = selectedDataset === 'all'
+    ? baseTables
+    : baseTables.filter((t: any) => t.dataset_name === selectedDataset);
 
   const handleTableClick = (table: any) => {
     setSelectedTable(table);
@@ -605,12 +620,8 @@ const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate,
   };
 
   const formatColumnArray = (arr: any) => {
-    // Handle null, undefined, or non-array values
     if (!arr) return 'None';
-    
-    // If it's not an array, try to parse it
     if (!Array.isArray(arr)) {
-      // If it's a string that looks like JSON, try to parse it
       if (typeof arr === 'string') {
         try {
           const parsed = JSON.parse(arr);
@@ -626,22 +637,27 @@ const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate,
         return 'None';
       }
     }
-    
-    // Filter out any malformed entries (single characters like '[', ']', '"')
     const filtered = arr.filter((item: any) => 
       item && typeof item === 'string' && item.length > 1 && 
       item !== '[]' && item !== '""'
     );
-    
     if (filtered.length === 0) return 'None';
-    
     return filtered.join(', ');
   };
 
   return (
     <div className="section-content">
-      <h2 className="section-heading">Tables ({baseTables.length})</h2>
-      {baseTables.length === 0 ? (
+      <div className="section-header-row">
+        <h2 className="section-heading">Tables ({filteredTables.length})</h2>
+        <div className="section-filters">
+          <Select
+            value={selectedDataset}
+            onChange={setSelectedDataset}
+            options={datasetOptions}
+          />
+        </div>
+      </div>
+      {filteredTables.length === 0 ? (
         <div className="empty-state">
           <TableIcon size={48} />
           <p>No tables found</p>
@@ -661,7 +677,7 @@ const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate,
               </tr>
             </thead>
             <tbody>
-              {baseTables.map((table: any) => (
+              {filteredTables.map((table: any) => (
                 <tr key={table.id}>
                   <td className="font-medium">{table.dataset_name}</td>
                   <td>
@@ -762,23 +778,62 @@ const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate,
 // Views Section Component - Table Format with Clickable Names
 const ViewsSection: React.FC<any> = ({ views, formatDate }) => {
   const [expandedView, setExpandedView] = useState<number | null>(null);
+  const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
+  const [selectedViewType, setSelectedViewType] = useState<string | number>('all');
 
   const handleViewClick = (index: number) => {
     setExpandedView(expandedView === index ? null : index);
   };
 
-  // Debug: Log the first view to see its structure
-  React.useEffect(() => {
-    if (views && views.length > 0) {
-      console.log('First view data:', views[0]);
-      console.log('View keys:', Object.keys(views[0]));
-    }
-  }, [views]);
+  // Extract dataset from view_name (format: "dataset.viewname")
+  const getDataset = (v: any) => {
+    const name = v.view_name || '';
+    return name.includes('.') ? name.split('.')[0] : 'Unknown';
+  };
+
+  // Get unique datasets
+  const datasetOptions = [
+    { value: 'all', label: `All Datasets (${views.length})` },
+    ...Array.from(new Set(views.map((v: any) => getDataset(v)))).sort().map((ds: any) => ({
+      value: ds,
+      label: `${ds} (${views.filter((v: any) => getDataset(v) === ds).length})`,
+    })),
+  ];
+
+  // Get unique view types
+  const viewTypeOptions = [
+    { value: 'all', label: `All Types (${views.length})` },
+    ...Array.from(new Set(views.map((v: any) => v.view_type || 'VIEW'))).sort().map((vt: any) => ({
+      value: vt,
+      label: `${vt === 'MATERIALIZED_VIEW' ? 'Materialized View' : 'View'} (${views.filter((v: any) => (v.view_type || 'VIEW') === vt).length})`,
+    })),
+  ];
+
+  // Apply filters
+  const filteredViews = views.filter((v: any) => {
+    const dsMatch = selectedDataset === 'all' || getDataset(v) === selectedDataset;
+    const vtMatch = selectedViewType === 'all' || (v.view_type || 'VIEW') === selectedViewType;
+    return dsMatch && vtMatch;
+  });
 
   return (
     <div className="section-content">
-      <h2 className="section-heading">Views ({views.length})</h2>
-      {views.length === 0 ? (
+      <div className="section-header-row">
+        <h2 className="section-heading">Views ({filteredViews.length})</h2>
+        <div className="section-filters">
+          <Select
+            value={selectedDataset}
+            onChange={setSelectedDataset}
+            options={datasetOptions}
+          />
+          <Select
+            value={selectedViewType}
+            onChange={setSelectedViewType}
+            options={viewTypeOptions}
+          />
+        </div>
+      </div>
+      {filteredViews.length === 0 ? (
         <div className="empty-state">
           <Eye size={48} />
           <p>No views found</p>
@@ -788,33 +843,37 @@ const ViewsSection: React.FC<any> = ({ views, formatDate }) => {
           <table className="data-table">
             <thead>
               <tr>
+                <th>Dataset</th>
                 <th>Name</th>
                 <th>Type</th>
                 <th>Created Time</th>
               </tr>
             </thead>
             <tbody>
-              {views.map((view: any, index: number) => {
+              {filteredViews.map((view: any, index: number) => {
                 const isExpanded = expandedView === index;
                 const totalDeps = (view.dependent_tables?.length || 0) + 
                                  (view.dependent_views?.length || 0) + 
                                  (view.dependent_functions?.length || 0);
+                const dataset = getDataset(view);
+                const viewName = view.view_name?.includes('.') ? view.view_name.split('.').slice(1).join('.') : view.view_name;
                 
                 return (
                   <React.Fragment key={index}>
                     <tr>
+                      <td className="font-medium">{dataset}</td>
                       <td>
                         <button
                           className="table-name-link"
                           onClick={() => handleViewClick(index)}
                           title="Click to view dependencies"
                         >
-                          {view.view_name}
+                          {viewName}
                         </button>
                       </td>
                       <td>
                         <Badge variant={view.view_type === 'MATERIALIZED_VIEW' ? 'info' : 'default'}>
-                          {view.view_type}
+                          {view.view_type === 'MATERIALIZED_VIEW' ? 'Materialized' : 'View'}
                         </Badge>
                       </td>
                       <td className="text-sm">{formatDate(view.creation_time)}</td>
@@ -822,7 +881,7 @@ const ViewsSection: React.FC<any> = ({ views, formatDate }) => {
                     
                     {isExpanded && (
                       <tr className="expanded-row">
-                        <td colSpan={3}>
+                        <td colSpan={4}>
                           <div className="dependency-details">
                             {/* SQL Definition */}
                             {view.view_definition && (
@@ -918,23 +977,44 @@ const ViewsSection: React.FC<any> = ({ views, formatDate }) => {
 // Routines Section Component (for both SPs and Functions) - Table Format with Clickable Names
 const RoutinesSection: React.FC<any> = ({ routines, title, formatDate }) => {
   const [expandedRoutine, setExpandedRoutine] = useState<number | null>(null);
+  const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
 
   const handleRoutineClick = (index: number) => {
     setExpandedRoutine(expandedRoutine === index ? null : index);
   };
 
-  // Debug: Log the first routine to see its structure
-  React.useEffect(() => {
-    if (routines && routines.length > 0) {
-      console.log(`First ${title} data:`, routines[0]);
-      console.log(`${title} keys:`, Object.keys(routines[0]));
-    }
-  }, [routines, title]);
+  // Extract dataset from routine_name (format: "dataset.routinename")
+  const getDataset = (r: any) => {
+    const name = r.routine_name || '';
+    return name.includes('.') ? name.split('.')[0] : 'Unknown';
+  };
+
+  // Get unique datasets
+  const datasetOptions = [
+    { value: 'all', label: `All Datasets (${routines.length})` },
+    ...Array.from(new Set(routines.map((r: any) => getDataset(r)))).sort().map((ds: any) => ({
+      value: ds,
+      label: `${ds} (${routines.filter((r: any) => getDataset(r) === ds).length})`,
+    })),
+  ];
+
+  const filteredRoutines = selectedDataset === 'all'
+    ? routines
+    : routines.filter((r: any) => getDataset(r) === selectedDataset);
 
   return (
     <div className="section-content">
-      <h2 className="section-heading">{title} ({routines.length})</h2>
-      {routines.length === 0 ? (
+      <div className="section-header-row">
+        <h2 className="section-heading">{title} ({filteredRoutines.length})</h2>
+        <div className="section-filters">
+          <Select
+            value={selectedDataset}
+            onChange={setSelectedDataset}
+            options={datasetOptions}
+          />
+        </div>
+      </div>
+      {filteredRoutines.length === 0 ? (
         <div className="empty-state">
           <Code size={48} />
           <p>No {title.toLowerCase()} found</p>
@@ -944,6 +1024,7 @@ const RoutinesSection: React.FC<any> = ({ routines, title, formatDate }) => {
           <table className="data-table">
             <thead>
               <tr>
+                <th>Dataset</th>
                 <th>Name</th>
                 <th>Type</th>
                 <th>Language</th>
@@ -951,23 +1032,26 @@ const RoutinesSection: React.FC<any> = ({ routines, title, formatDate }) => {
               </tr>
             </thead>
             <tbody>
-              {routines.map((routine: any, index: number) => {
+              {filteredRoutines.map((routine: any, index: number) => {
                 const isExpanded = expandedRoutine === index;
                 const totalDeps = (routine.dependent_tables?.length || 0) + 
                                  (routine.dependent_views?.length || 0) + 
                                  (routine.dependent_functions?.length || 0) +
                                  (routine.calls_procedures?.length || 0);
+                const dataset = getDataset(routine);
+                const routineName = routine.routine_name?.includes('.') ? routine.routine_name.split('.').slice(1).join('.') : routine.routine_name;
                 
                 return (
                   <React.Fragment key={index}>
                     <tr>
+                      <td className="font-medium">{dataset}</td>
                       <td>
                         <button
                           className="table-name-link"
                           onClick={() => handleRoutineClick(index)}
                           title="Click to view dependencies"
                         >
-                          {routine.routine_name}
+                          {routineName}
                         </button>
                       </td>
                       <td>
@@ -985,7 +1069,7 @@ const RoutinesSection: React.FC<any> = ({ routines, title, formatDate }) => {
                     
                     {isExpanded && (
                       <tr className="expanded-row">
-                        <td colSpan={4}>
+                        <td colSpan={5}>
                           <div className="dependency-details">
                             {/* Routine Metadata */}
                             {(routine.return_type || routine.external_language) && (
