@@ -1401,9 +1401,28 @@ const SecuritySection: React.FC<any> = ({ securityPolicies, columns, tables }) =
       };
     })
     .filter((col: any) => col.policy_tags && col.policy_tags.length > 0);
+
+  // Also extract CLS entries from securityPolicies (collected by backend security step)
+  const clsFromPolicies = securityPolicies
+    .filter((p: any) => p.security_type === 'CLS')
+    .map((p: any) => ({
+      column_name: p.security_metadata?.column_name || p.policy_name?.replace('policy_tag_', '') || 'Unknown',
+      data_type: 'N/A',
+      policy_tags: [p.security_metadata?.policy_tag || p.policy_name || 'Policy Tag'],
+      table_name: p.table_name || 'Unknown'
+    }));
+  
+  // Merge both sources, dedup by table+column
+  const allClsColumns = [...clsColumns];
+  const existingKeys = new Set(clsColumns.map((c: any) => `${c.table_name}.${c.column_name}`));
+  for (const cp of clsFromPolicies) {
+    if (!existingKeys.has(`${cp.table_name}.${cp.column_name}`)) {
+      allClsColumns.push(cp);
+    }
+  }
   
   // Group CLS columns by table
-  const clsByTable = clsColumns.reduce((acc: any, col: any) => {
+  const clsByTable = allClsColumns.reduce((acc: any, col: any) => {
     const tableName = col.table_name;
     if (!acc[tableName]) {
       acc[tableName] = [];
