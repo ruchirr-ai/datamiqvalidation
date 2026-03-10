@@ -16,7 +16,10 @@ from datetime import datetime
 
 from database import get_db
 from services.bigquery_assessment_service import BigQueryAssessmentService
-from services.sqlserver_assessment_service import SQLServerAssessmentService
+try:
+    from services.sqlserver_assessment_service import SQLServerAssessmentService
+except ImportError:
+    SQLServerAssessmentService = None
 from services.recommendation_engine import RecommendationEngine
 from services.tco_engine import TCOEngine
 from repositories.assessment_repository import AssessmentRepository
