@@ -226,15 +226,17 @@ class CompatibilityEngine:
             "sql_syntax_issues": [{"pattern": i["pattern"], "severity": i["severity"],
                 "affected_count": i["affected_count"]} for i in report.get("sql_syntax_issues", [])],
         }
-        prompt = "You are a database migration expert (BigQuery to Redshift).\n"
-        prompt += "Analyze this compatibility report and provide:\n"
-        prompt += "1. Executive summary (2-3 sentences)\n"
-        prompt += "2. Top 3 critical risks with mitigation\n"
-        prompt += "3. Migration approach (phased vs big-bang)\n"
-        prompt += "4. Effort level (Low/Medium/High)\n\n"
+        prompt = "You are a database migration expert. Be extremely concise.\n"
+        prompt += "Analyze this BigQuery to Redshift compatibility report.\n"
+        prompt += "Respond in JSON with these fields:\n"
+        prompt += "- executive_summary: 1 sentence max\n"
+        prompt += "- critical_risks: array of {risk: 5 words max, impact: 8 words max, mitigation: 8 words max}, max 3 items\n"
+        prompt += "- migration_approach: 1 short sentence\n"
+        prompt += "- effort_level: Low/Medium/High\n"
+        prompt += "- effort_justification: comma-separated short bullet points, max 3\n"
+        prompt += "- additional_recommendations: array of short action items, 5 words each max, max 4 items\n\n"
         prompt += f"Report: {json.dumps(summary)}\n\n"
-        prompt += "Respond in JSON: executive_summary, critical_risks (risk/impact/mitigation), "
-        prompt += "migration_approach, effort_level, effort_justification, additional_recommendations"
+        prompt += "IMPORTANT: Keep ALL text extremely short. No long sentences."
         try:
             if use_bedrock:
                 return self._call_bedrock(prompt)
@@ -245,13 +247,16 @@ class CompatibilityEngine:
 
     def _call_bedrock(self, prompt):
         import boto3
+        from botocore.config import Config
         region = os.getenv("AWS_REGION", "us-east-1")
-        model_id = os.getenv("CLAUDE_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+        model_id = os.getenv("COMPAT_MODEL_ID", "us.anthropic.claude-3-5-haiku-20241022-v1:0")
+        config = Config(read_timeout=30, connect_timeout=10, retries={"max_attempts": 1})
         client = boto3.client("bedrock-runtime", region_name=region,
             aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"))
-        body = json.dumps({"anthropic_version": "bedrock-2023-05-31", "max_tokens": 2048,
-            "temperature": 0.3, "messages": [{"role": "user", "content": prompt}]})
+            aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+            config=config)
+        body = json.dumps({"anthropic_version": "bedrock-2023-05-31", "max_tokens": 512,
+            "temperature": 0.1, "messages": [{"role": "user", "content": prompt}]})
         resp = client.invoke_model(modelId=model_id, contentType="application/json",
             accept="application/json", body=body)
         result = json.loads(resp["body"].read())
@@ -261,8 +266,8 @@ class CompatibilityEngine:
     def _call_anthropic(self, prompt, api_key):
         from anthropic import Anthropic
         client = Anthropic(api_key=api_key)
-        resp = client.messages.create(model=os.getenv("CLAUDE_MODEL", "claude-3-5-sonnet-20241022"),
-            max_tokens=2048, temperature=0.3, messages=[{"role": "user", "content": prompt}])
+        resp = client.messages.create(model="claude-3-5-haiku-20241022",
+            max_tokens=512, temperature=0.1, messages=[{"role": "user", "content": prompt}])
         if resp.content:
             return self._parse_llm_json(resp.content[0].text)
         return None

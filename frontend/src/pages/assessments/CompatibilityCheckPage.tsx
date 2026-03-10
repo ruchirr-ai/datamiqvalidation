@@ -272,58 +272,41 @@ export const CompatibilityCheckPage: React.FC = () => {
                 </button>
                 {expandedSections.llmInsights && (
                   <div className="compat-section-body">
-                    {/* Executive Summary */}
-                    <div className="llm-executive-summary">
-                      <h4>Executive Summary</h4>
-                      <p>{report.llm_insights.executive_summary}</p>
-                    </div>
-
-                    {/* Migration Approach + Effort Level side by side */}
-                    <div className="llm-grid">
-                      <div className="llm-card llm-approach-card">
-                        <div className="llm-card-icon"><ArrowRight size={16} /></div>
-                        <h4>Migration Approach</h4>
-                        <p>{report.llm_insights.migration_approach}</p>
-                      </div>
-                      <div className="llm-card llm-effort-card">
-                        <div className="llm-card-icon"><Zap size={16} /></div>
-                        <h4>Effort Level</h4>
-                        <p className="llm-effort-value">{report.llm_insights.effort_level}</p>
-                        <p className="llm-effort-detail">{report.llm_insights.effort_justification}</p>
+                    {/* Summary + Effort + Approach in one row */}
+                    <div className="llm-top-row">
+                      <div className="llm-summary-text">{report.llm_insights.executive_summary}</div>
+                      <div className="llm-meta-pills">
+                        <span className={`llm-effort-pill llm-effort-${(report.llm_insights.effort_level || '').toLowerCase()}`}>
+                          {report.llm_insights.effort_level}
+                        </span>
+                        <span className="llm-approach-pill">{report.llm_insights.migration_approach}</span>
                       </div>
                     </div>
 
-                    {/* Critical Risks */}
+                    {/* Risks as compact table */}
                     {report.llm_insights.critical_risks?.length > 0 && (
-                      <div className="llm-risks">
-                        <h4>Critical Risks</h4>
-                        <div className="llm-risks-grid">
+                      <table className="llm-risks-table">
+                        <thead>
+                          <tr><th>Risk</th><th>Impact</th><th>Mitigation</th></tr>
+                        </thead>
+                        <tbody>
                           {report.llm_insights.critical_risks.map((r, i) => (
-                            <div key={i} className="llm-risk-card">
-                              <div className="llm-risk-icon"><AlertTriangle size={16} /></div>
-                              <div className="llm-risk-content">
-                                <div className="llm-risk-title">{r.risk}</div>
-                                <div className="llm-risk-row"><span className="llm-risk-label">Impact:</span> {r.impact}</div>
-                                <div className="llm-risk-row"><span className="llm-risk-label">Mitigation:</span> {r.mitigation}</div>
-                              </div>
-                            </div>
+                            <tr key={i}>
+                              <td className="llm-risk-name"><AlertTriangle size={13} /> {r.risk}</td>
+                              <td>{r.impact}</td>
+                              <td>{r.mitigation}</td>
+                            </tr>
                           ))}
-                        </div>
-                      </div>
+                        </tbody>
+                      </table>
                     )}
 
-                    {/* Additional Recommendations */}
+                    {/* Recommendations as inline tags */}
                     {report.llm_insights.additional_recommendations?.length > 0 && (
-                      <div className="llm-recommendations">
-                        <h4>Additional Recommendations</h4>
-                        <div className="llm-rec-list">
-                          {report.llm_insights.additional_recommendations.map((r, i) => (
-                            <div key={i} className="llm-rec-item">
-                              <CheckCircle size={14} className="llm-rec-icon" />
-                              <span>{r}</span>
-                            </div>
-                          ))}
-                        </div>
+                      <div className="llm-rec-tags">
+                        {report.llm_insights.additional_recommendations.map((r, i) => (
+                          <span key={i} className="llm-rec-tag"><CheckCircle size={12} /> {r}</span>
+                        ))}
                       </div>
                     )}
                   </div>
