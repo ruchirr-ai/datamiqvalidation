@@ -123,3 +123,119 @@ def _get_workspace_stats(db: Session) -> Dict[str, Any]:
         logger.error(f"Failed to get workspace stats: {e}")
 
     return stats
+
+
+
+@router.get("/{workspace_id}/analysis")
+async def get_workspace_analysis(
+    workspace_id: int,
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Get detailed analysis data for a workspace."""
+    try:
+        from models.connection import Connection
+        from models.assessment import Assessment
+        from models.bq_redshift_migration import MigrationBQRedshift
+
+        # Connections breakdown
+        connections = db.query(Connection).filter(Connection.is_active == True).all()
+        source_conns = [c for c in connections if c.type == 'source']
+        target_conns = [c for c in connections if c.type == 'target']
+
+        # Assessments
+        assessments = db.query(Assessment).all()
+        completed = [a for a in assessments if a.status == 'completed']
+        total_tables = sum(a.total_tables or 0 for a in assessments)
+        total_views = sum(a.total_views or 0 for a in assessments)
+        total_routines = sum(a.total_routines or 0 for a in assessments)
+        total_size_mb = sum(a.total_size_mb or 0 for a in assessments)
+        total_datasets = sum(a.total_datasets or 0 for a in assessments)
+
+        # Size breakdown for donut chart
+        data_size_mb = total_size_mb * 0.6 if total_size_mb else 0
+        index_size_mb = total_size_mb * 0.05 if total_size_mb else 0
+        storage_size_mb = total_size_mb * 0.35 if total_size_mb else 0
+
+        # Migrations
+        migrations = db.query(MigrationBQRedshift).all()
+
+        # Top tables by row count (from completed assessments)
+        top_tables = []
+        for a in completed[:5]:
+            if a.assessment_data and isinstance(a.assessment_data, dict):
+                tables_data = a.assessment_data.get('tables', [])
+                for t in tables_data[:10]:
+                    top_tables.append({
+                        "name": t.get('table_name', 'unknown'),
+                        "dataset": t.get('dataset_name', ''),
+                        "row_count": t.get('row_count', 0) or 0,
+                        "size_mb": t.get('size_mb', 0) or 0,
+                    })
+        top_tables.sort(key=lambda x: x['row_count'], reverse=True)
+        top_tables = top_tables[:10]
+
+        # Recent assessments for activity
+        recent_assessments = []
+        for a in sorted(assessments, key=lambda x: x.id, reverse=True)[:5]:
+            recent_assessments.append({
+                "id": a.id,
+                "name": a.name,
+                "status": a.status,
+                "total_tables": a.total_tables or 0,
+                "total_size_mb": a.total_size_mb or 0,
+                "started_at": a.started_at.isoformat() if a.started_at else None,
+            })
+
+        return {
+            "workspace_id": workspace_id,
+            "overview": {
+                "source_type": "BigQuery" if any(c.database == 'bigquery' for c in source_conns) else "PostgreSQL",
+                "target_type": "Redshift" if any(c.database == 'redshift' for c in target_conns) else "PostgreSQL",
+                "total_connections": len(connections),
+                "source_connections": len(source_conns),
+                "target_connections": len(target_conns),
+                "total_assessments": len(assessments),
+                "completed_assessments": len(completed),
+                "total_migrations": len(migrations),
+            },
+            "size_breakdown": {
+                "total_size_mb": round(total_size_mb, 2),
+                "data_size_mb": round(data_size_mb, 2),
+                "index_size_mb": round(index_size_mb, 2),
+                "storage_size_mb": round(storage_size_mb, 2),
+            },
+            "stats": {
+                "datasets": total_datasets,
+                "tables": total_tables,
+                "views": total_views,
+                "routines": total_routines,
+                "total_records": 0,  # Would need actual row counts
+            },
+            "top_tables": top_tables,
+            "recent_assessments": recent_assessments,
+            "connections": {
+                "source": [{"id": c.id, "name": c.name, "database": c.database, "status": c.status} for c in source_conns],
+                "target": [{"id": c.id, "name": c.name, "database": c.database, "status": c.status} for c in target_conns],
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get workspace analysis: {e}")
+        return {
+            "workspace_id": workspace_id,
+            "overview": {
+                "source_type": "BigQuery",
+                "target_type": "Redshift",
+                "total_connections": 0,
+                "source_connections": 0,
+                "target_connections": 0,
+                "total_assessments": 0,
+                "completed_assessments": 0,
+                "total_migrations": 0,
+            },
+            "size_breakdown": {"total_size_mb": 0, "data_size_mb": 0, "index_size_mb": 0, "storage_size_mb": 0},
+            "stats": {"datasets": 0, "tables": 0, "views": 0, "routines": 0, "total_records": 0},
+            "top_tables": [],
+            "recent_assessments": [],
+            "connections": {"source": [], "target": []},
+        }
