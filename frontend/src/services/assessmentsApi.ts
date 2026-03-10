@@ -466,5 +466,11 @@ export interface CompatibilityReport {
  * Run compatibility check on a completed assessment
  */
 export const runCompatibilityCheck = async (assessmentId: number): Promise<CompatibilityReport> => {
-  return api.post<CompatibilityReport>('/api/compatibility/check', { assessment_id: assessmentId });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000); // 2 min timeout
+  try {
+    return await api.post<CompatibilityReport>('/api/compatibility/check', { assessment_id: assessmentId }, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 };

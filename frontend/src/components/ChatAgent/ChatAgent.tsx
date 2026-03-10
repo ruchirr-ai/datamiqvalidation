@@ -269,10 +269,6 @@ export const ChatAgent: React.FC<ChatAgentProps> = ({
               </div>
 
               <div className="chat-agent-header-right">
-                <div className="chat-agent-token-badges">
-                  <span className="token-badge">In: {formatTokens(totalInputTokens)}</span>
-                  <span className="token-badge">Out: {formatTokens(totalOutputTokens)}</span>
-                </div>
 
                 {/* Model Selector */}
                 <div className="model-selector-wrapper" ref={modelDropdownRef}>
