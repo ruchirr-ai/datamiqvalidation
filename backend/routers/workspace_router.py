@@ -140,14 +140,20 @@ async def create_workspace(
 
     slug = name.lower().replace(" ", "-")
     try:
-        # Get user's organization
-        org_query = text("SELECT organization_id FROM users WHERE id = :uid")
-        org_row = db.execute(org_query, {"uid": current_user.user_id}).fetchone()
-        org_id = org_row[0] if org_row else 1
+        # Get user's organization — default to 1 if not set
+        org_id = 1
+        try:
+            org_query = text("SELECT organization_id FROM users WHERE id = :uid")
+            org_row = db.execute(org_query, {"uid": current_user.user_id}).fetchone()
+            if org_row and org_row[0]:
+                org_id = org_row[0]
+        except Exception:
+            pass
 
+        # Get next workspace id to avoid conflicts
         insert_ws = text("""
-            INSERT INTO workspaces (name, slug, description, organization_id, is_active, created_at)
-            VALUES (:name, :slug, :desc, :org_id, TRUE, NOW())
+            INSERT INTO workspaces (name, slug, description, organization_id, is_active, created_at, updated_at)
+            VALUES (:name, :slug, :desc, :org_id, TRUE, NOW(), NOW())
             RETURNING id
         """)
         result = db.execute(insert_ws, {"name": name, "slug": slug, "desc": description or None, "org_id": org_id})
