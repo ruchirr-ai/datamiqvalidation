@@ -819,7 +819,7 @@ class BigQueryAssessmentService:
         return []
 
     async def collect_query_statistics_detailed(self) -> List[Dict]:
-        """Collect query statistics from INFORMATION_SCHEMA.JOBS."""
+        """Collect query statistics from INFORMATION_SCHEMA.JOBS, with REST API fallback."""
         query_stats = []
         region = self._detect_region()
 
@@ -872,11 +872,62 @@ class BigQueryAssessmentService:
                     'user_email': row.user_email
                 })
 
-            print(f"  ✓ Collected {len(query_stats)} query statistics from region-{region}")
+            print(f"  ✓ Collected {len(query_stats)} query statistics from INFORMATION_SCHEMA (region-{region})")
         except Exception as e:
-            print(f"  Warning: Could not collect query statistics from region-{region}: {e}")
+            print(f"  INFORMATION_SCHEMA.JOBS failed: {e}")
+            print(f"  Falling back to REST API (client.list_jobs)...")
+            query_stats = await self._collect_query_stats_rest_api()
 
         return query_stats
+
+    async def _collect_query_stats_rest_api(self) -> List[Dict]:
+        """Fallback: collect query statistics via BigQuery REST API (client.list_jobs)."""
+        from datetime import datetime, timedelta, timezone
+        query_stats = []
+        try:
+            min_creation_time = datetime.now(timezone.utc) - timedelta(days=30)
+            jobs_iter = self.client.list_jobs(
+                project=self.project_id,
+                min_creation_time=min_creation_time,
+                all_users=True,
+                state_filter="done",
+                max_results=50000,
+            )
+
+            count = 0
+            for job in jobs_iter:
+                # Only include query jobs
+                if job.job_type != "query":
+                    continue
+
+                referenced_tables = []
+                try:
+                    if hasattr(job, 'referenced_tables') and job.referenced_tables:
+                        for tref in job.referenced_tables:
+                            referenced_tables.append(f"{tref.project}.{tref.dataset_id}.{tref.table_id}")
+                except Exception:
+                    pass
+
+                query_stats.append({
+                    'job_id': job.job_id,
+                    'execution_time': job.created,
+                    'query_text': (job.query or '')[:5000] if hasattr(job, 'query') else None,
+                    'bytes_scanned': getattr(job, 'total_bytes_processed', 0) or 0,
+                    'slot_milliseconds': getattr(job, 'slot_millis', 0) or 0,
+                    'cache_hit': getattr(job, 'cache_hit', False) or False,
+                    'referenced_tables': referenced_tables,
+                    'user_email': getattr(job, 'user_email', None),
+                })
+                count += 1
+                if count >= 50000:
+                    break
+
+            print(f"  ✓ Collected {len(query_stats)} query statistics via REST API fallback")
+        except Exception as e2:
+            print(f"  REST API fallback also failed: {e2}")
+
+        return query_stats
+
 
     # ─── Step 7: ML Models (REST API only) ──────────────────────────────
 
