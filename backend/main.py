@@ -21,6 +21,7 @@ from routers.copy_history_router import router as copy_history_router
 from routers.task_history_router import router as task_history_router
 from routers.chatagent_router import router as chatagent_router
 from routers.conversion_router import router as conversion_router
+from routers.validation_router import router as validation_router
 from routers.dashboard_router import router as dashboard_router
 from routers.workspace_router import router as workspace_router
 from routers.compatibility_router import router as compatibility_router
@@ -39,6 +40,13 @@ try:
     from models.conversion_job_db import ConversionJob, ConversionBatch, ConversionLog
 except ImportError:
     pass  # Conversion feature models may not exist in all branches
+
+# Import validation models to ensure SQLAlchemy registration
+try:
+    from models.validation_run import ValidationRun
+    from models.validation_table_result import ValidationTableResult
+except ImportError:
+    pass  # Validation feature models may not exist in all branches
 
 # Load environment variables
 load_dotenv()
@@ -181,6 +189,7 @@ app.include_router(copy_history_router)
 app.include_router(task_history_router)
 app.include_router(chatagent_router)
 app.include_router(conversion_router)
+app.include_router(validation_router)
 app.include_router(dashboard_router)
 app.include_router(workspace_router)
 app.include_router(compatibility_router)

@@ -179,6 +179,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ]
     },
     {
+      id: 'validations',
+      label: 'Data Validation',
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="3" y="2" width="14" height="16" rx="2" />
+          <path d="M7 7l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M7 13h6" strokeLinecap="round" />
+        </svg>
+      ),
+      path: '/validations'
+    },
+    {
       id: 'monitoring',
       label: 'Monitoring',
       icon: (
