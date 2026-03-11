@@ -1980,6 +1980,8 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
             <div className="rec-config-details">
               <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{prov.node_type}</span></div>
               <div className="rec-config-row"><span>Nodes</span><span>{prov.num_nodes}</span></div>
+              {prov.vcpu_total && <div className="rec-config-row"><span>Total vCPUs</span><span>{prov.vcpu_total}</span></div>}
+              {prov.memory_gb_total && <div className="rec-config-row"><span>Total Memory</span><span>{prov.memory_gb_total} GB</span></div>}
               <div className="rec-config-row"><span>Compute</span><span>{fmt(prov.compute_monthly)}/mo</span></div>
               <div className="rec-config-row"><span>Storage</span><span>{fmt(prov.storage_monthly)}/mo</span></div>
               <div className="rec-config-row rec-config-row-total"><span>On-Demand</span><span>{fmt(prov.monthly)}/mo</span></div>
@@ -1991,6 +1993,16 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
                 <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(prov.ri_3yr_monthly)}/mo</span></div>
               )}
             </div>
+            {prov.sizing_rationale && prov.sizing_rationale.length > 0 && (
+              <div className="rec-sizing-rationale">
+                <div className="rec-sizing-rationale-title">Sizing Rationale</div>
+                <ul className="rec-sizing-rationale-list">
+                  {prov.sizing_rationale.map((r: string, i: number) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           {/* Serverless */}
           <div className={`rec-config-card ${cmp.best_option === 'serverless' ? 'rec-config-recommended' : ''}`}>
@@ -2072,6 +2084,30 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
                 <span className="tco-workload-stat-value">{wl.estimated_rpu_hours_monthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                 <span className="tco-workload-stat-label">Est. RPU-Hrs/Mo</span>
               </div>
+              {wl.max_concurrent_slots != null && wl.max_concurrent_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.max_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Max Slots/Query</span>
+                </div>
+              )}
+              {wl.min_concurrent_slots != null && wl.min_concurrent_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.min_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Min Slots/Query</span>
+                </div>
+              )}
+              {wl.avg_concurrent_slots != null && wl.avg_concurrent_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.avg_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Avg Slots/Query</span>
+                </div>
+              )}
+              {wl.estimated_peak_slots != null && wl.estimated_peak_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.estimated_peak_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Peak Slots (P95)</span>
+                </div>
+              )}
               {wl.avg_wall_clock_seconds != null && (
                 <div className="tco-workload-stat">
                   <span className="tco-workload-stat-value">{wl.avg_wall_clock_seconds.toFixed(1)}s</span>

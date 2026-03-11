@@ -258,6 +258,31 @@ class RecommendationEngine:
         slot_based_rpu_hours = (monthly_slot_hours / 2) * 1.5  # 1.5x overhead
         estimated_rpu_hours_monthly = max(estimated_rpu_hours_monthly, slot_based_rpu_hours)
 
+        # --- Per-query concurrent slot utilisation ---
+        per_query_slots = []
+        for q in query_stats:
+            q_slot_ms = q.get('slot_milliseconds', 0)
+            if q_slot_ms <= 0:
+                continue
+            q_runtime_ms = q.get('total_elapsed_time_ms') or q.get('runtime_ms', 0)
+            if q_runtime_ms and q_runtime_ms > 0:
+                slots_used = q_slot_ms / q_runtime_ms
+            else:
+                slots_used = q_slot_ms / 30000  # assume 30s
+            per_query_slots.append(max(1, slots_used))
+
+        if per_query_slots:
+            max_concurrent_slots = round(max(per_query_slots), 1)
+            min_concurrent_slots = round(min(per_query_slots), 1)
+            avg_concurrent_slots = round(sum(per_query_slots) / len(per_query_slots), 1)
+            sorted_slots = sorted(per_query_slots)
+            median_concurrent_slots = round(sorted_slots[len(sorted_slots) // 2], 1)
+        else:
+            max_concurrent_slots = round(estimated_peak_slots, 1)
+            min_concurrent_slots = 1.0
+            avg_concurrent_slots = round(estimated_avg_concurrent_slots, 1)
+            median_concurrent_slots = avg_concurrent_slots
+
         return {
             'total_slot_ms': total_slot_ms,
             'total_slot_hours': round(total_slot_hours, 2),
@@ -274,6 +299,10 @@ class RecommendationEngine:
             'avg_wall_clock_seconds': round(avg_wall_clock_s, 1),
             'estimated_base_rpu': estimated_base_rpu,
             'active_hours_per_day': round(active_hours_per_day, 1),
+            'max_concurrent_slots': max_concurrent_slots,
+            'min_concurrent_slots': min_concurrent_slots,
+            'avg_concurrent_slots': avg_concurrent_slots,
+            'median_concurrent_slots': median_concurrent_slots,
         }
 
     # ------------------------------------------------------------------ #
@@ -457,62 +486,125 @@ class RecommendationEngine:
         """
         Recommend provisioned cluster configuration.
 
-        Node selection logic:
-        - dc2.large: data < 160 GB, low compute needs
-        - ra3.xlplus: data < 1 TB or moderate compute
-        - ra3.4xlarge: data 1-10 TB or high compute
-        - ra3.16xlarge: data > 10 TB or very high compute
-        """
-        # Determine compute needs from BQ slot hours
-        # Monthly slot hours → equivalent vCPU-hours needed
-        # 1 BQ slot ≈ 0.5 Redshift vCPU
-        monthly_vcpu_hours = monthly_slot_hours * 0.5
-        # Hours in a month = 730
-        avg_vcpus_needed = monthly_vcpu_hours / 730 if monthly_vcpu_hours > 0 else 0
+        Node selection prioritises COMPUTE needs over raw data size.
+        ra3 nodes use managed storage, so data volume only matters for
+        dc2 (local SSD).  For ra3, we pick the smallest node type whose
+        per-node vCPU count can serve the workload with a reasonable
+        number of nodes (≤ 6 preferred, ≤ 32 hard max).
 
-        # Select node type based on BOTH data size and compute needs
-        # For very light workloads, a single node is sufficient
+        Mapping: 1 BQ slot ≈ 0.5 Redshift vCPU (Redshift vCPUs are
+        hyper-threaded Xeon cores, roughly 2× a BQ slot in throughput).
+        """
+        # --- Compute needs ---
+        monthly_vcpu_hours = monthly_slot_hours * 0.5
+        avg_vcpus_needed = monthly_vcpu_hours / 730 if monthly_vcpu_hours > 0 else 0
+        peak_vcpus = peak_slots * 0.5
+
+        # --- Determine the driving factor for node selection ---
+        # For dc2: local SSD limits matter.  For ra3: only compute matters.
+        # We try the smallest ra3 first and only up-size if we'd need too
+        # many nodes (> 6 is expensive and adds coordination overhead).
+
+        sizing_driver = 'compute'  # default
+
         if size_gb < 50 and avg_vcpus_needed < 2:
             node_type = 'dc2.large'
             min_nodes = 1
+            sizing_driver = 'data_volume'
         elif size_gb < 160 and avg_vcpus_needed < 4:
             node_type = 'dc2.large'
             min_nodes = 2
-        elif size_gb < 1000 and avg_vcpus_needed < 8:
-            node_type = 'ra3.xlplus'
-            min_nodes = 2
-        elif size_gb < 10000 and avg_vcpus_needed < 24:
-            node_type = 'ra3.4xlarge'
-            min_nodes = 2
+            sizing_driver = 'data_volume'
         else:
-            node_type = 'ra3.16xlarge'
-            min_nodes = 2
+            # ra3 territory — pick based on compute, NOT data size
+            # (ra3 uses managed storage, data volume doesn't constrain node type)
+            # Try ra3.xlplus first (4 vCPU / node)
+            nodes_xlplus = max(2, math.ceil(avg_vcpus_needed / 4))
+            peak_nodes_xlplus = max(2, math.ceil(peak_vcpus / 4))
+            needed_xlplus = max(nodes_xlplus, peak_nodes_xlplus)
+
+            # Try ra3.4xlarge (12 vCPU / node)
+            nodes_4xl = max(2, math.ceil(avg_vcpus_needed / 12))
+            peak_nodes_4xl = max(2, math.ceil(peak_vcpus / 12))
+            needed_4xl = max(nodes_4xl, peak_nodes_4xl)
+
+            # Try ra3.16xlarge (48 vCPU / node)
+            nodes_16xl = max(2, math.ceil(avg_vcpus_needed / 48))
+            peak_nodes_16xl = max(2, math.ceil(peak_vcpus / 48))
+            needed_16xl = max(nodes_16xl, peak_nodes_16xl)
+
+            # Pick the smallest node type that keeps node count ≤ 6
+            # (fewer large nodes = less coordination overhead, but
+            #  more small nodes = cheaper per-vCPU)
+            if needed_xlplus <= 6:
+                node_type = 'ra3.xlplus'
+                min_nodes = 2
+            elif needed_4xl <= 6:
+                node_type = 'ra3.4xlarge'
+                min_nodes = 2
+            elif needed_16xl <= 6:
+                node_type = 'ra3.16xlarge'
+                min_nodes = 2
+            else:
+                # Very large workload — use ra3.16xlarge with many nodes
+                node_type = 'ra3.16xlarge'
+                min_nodes = 2
+
+            # If peak concurrency drives the choice, note it
+            if peak_vcpus > avg_vcpus_needed * 2:
+                sizing_driver = 'peak_concurrency'
 
         specs = self.NODE_TYPES[node_type]
+        vcpus_per_node = specs['vcpu']
 
         # Calculate nodes needed for compute
-        vcpus_per_node = specs['vcpu']
         nodes_for_compute = max(min_nodes, math.ceil(avg_vcpus_needed / vcpus_per_node))
 
-        # Calculate nodes needed for storage (dc2 has local storage limits)
+        # Calculate nodes needed for storage (dc2 only)
         if 'dc2' in node_type:
             storage_per_node = specs['storage_gb']
-            # Redshift compresses data ~3-4x
-            compressed_size = size_gb / 3
+            compressed_size = size_gb / 3  # ~3x compression
             nodes_for_storage = max(min_nodes, math.ceil(compressed_size / storage_per_node))
+            if nodes_for_storage > nodes_for_compute:
+                sizing_driver = 'data_volume'
         else:
-            # ra3 uses managed storage, no node-level storage limit
             nodes_for_storage = min_nodes
 
         # Peak concurrency adjustment
-        # If peak slots > node vCPUs, need more nodes
-        peak_vcpus = peak_slots * 0.5
         nodes_for_peak = max(min_nodes, math.ceil(peak_vcpus / vcpus_per_node))
+        if nodes_for_peak > nodes_for_compute and nodes_for_peak > nodes_for_storage:
+            sizing_driver = 'peak_concurrency'
 
         num_nodes = min(
             max(nodes_for_compute, nodes_for_storage, nodes_for_peak),
             specs['max_nodes']
         )
+
+        # Build human-readable sizing rationale
+        rationale_parts = []
+        rationale_parts.append(
+            f"Avg vCPUs needed: {avg_vcpus_needed:.1f} "
+            f"(from {monthly_slot_hours:.0f} BQ slot-hrs/mo × 0.5 vCPU/slot ÷ 730 hrs)"
+        )
+        rationale_parts.append(
+            f"Peak concurrent slots: {peak_slots:.0f} → {peak_vcpus:.0f} Redshift vCPUs"
+        )
+        rationale_parts.append(
+            f"Selected {node_type} ({vcpus_per_node} vCPU/node) × {num_nodes} nodes "
+            f"= {vcpus_per_node * num_nodes} total vCPUs"
+        )
+        if sizing_driver == 'peak_concurrency':
+            rationale_parts.append(
+                f"Node count driven by peak concurrency ({nodes_for_peak} nodes needed)"
+            )
+        elif sizing_driver == 'data_volume':
+            rationale_parts.append(
+                f"Node count driven by data volume ({size_gb:.1f} GB, ~{size_gb/3:.0f} GB compressed)"
+            )
+        else:
+            rationale_parts.append(
+                f"Node count driven by average compute needs ({nodes_for_compute} nodes needed)"
+            )
 
         return {
             'node_type': node_type,
@@ -523,11 +615,18 @@ class RecommendationEngine:
             'use_case': specs['use_case'],
             'sizing_basis': {
                 'avg_vcpus_needed': round(avg_vcpus_needed, 2),
+                'peak_vcpus': round(peak_vcpus, 1),
+                'peak_slots': round(peak_slots, 1),
+                'monthly_slot_hours': round(monthly_slot_hours, 1),
+                'vcpus_per_node': vcpus_per_node,
                 'nodes_for_compute': nodes_for_compute,
                 'nodes_for_storage': nodes_for_storage,
                 'nodes_for_peak': nodes_for_peak,
+                'sizing_driver': sizing_driver,
             },
+            'sizing_rationale': rationale_parts,
         }
+
 
     def _recommend_serverless(
         self, size_gb: float, query_count: int,

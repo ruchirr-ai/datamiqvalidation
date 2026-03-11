@@ -355,6 +355,20 @@ export interface ProvisionedCosts extends TCOCostBreakdown {
   ri_1yr_annual: number;
   ri_3yr_monthly: number;
   ri_3yr_annual: number;
+  vcpu_total?: number;
+  memory_gb_total?: number;
+  sizing_basis?: {
+    avg_vcpus_needed: number;
+    peak_vcpus: number;
+    peak_slots: number;
+    monthly_slot_hours: number;
+    vcpus_per_node: number;
+    nodes_for_compute: number;
+    nodes_for_storage: number;
+    nodes_for_peak: number;
+    sizing_driver: string;
+  };
+  sizing_rationale?: string[];
 }
 
 export interface ServerlessCosts extends TCOCostBreakdown {
@@ -419,6 +433,11 @@ export interface TCOData {
     avg_wall_clock_seconds?: number;
     active_hours_per_day?: number;
     estimated_base_rpu?: number;
+    max_concurrent_slots?: number;
+    min_concurrent_slots?: number;
+    avg_concurrent_slots?: number;
+    median_concurrent_slots?: number;
+    estimated_peak_slots?: number;
   };
   recommendation?: TCORecommendation;
   cost_notes: string[];

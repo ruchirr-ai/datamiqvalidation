@@ -327,6 +327,11 @@ class TCOEngine:
                 'avg_wall_clock_seconds': workload_metrics.get('avg_wall_clock_seconds', 0),
                 'active_hours_per_day': workload_metrics.get('active_hours_per_day', 0),
                 'estimated_base_rpu': workload_metrics.get('estimated_base_rpu', 8),
+                'max_concurrent_slots': workload_metrics.get('max_concurrent_slots', 0),
+                'min_concurrent_slots': workload_metrics.get('min_concurrent_slots', 0),
+                'avg_concurrent_slots': workload_metrics.get('avg_concurrent_slots', 0),
+                'median_concurrent_slots': workload_metrics.get('median_concurrent_slots', 0),
+                'estimated_peak_slots': workload_metrics.get('estimated_peak_slots', 0),
             },
             'recommendation': self._generate_recommendation(
                 bq_costs, provisioned_costs, serverless_costs,
@@ -434,7 +439,7 @@ class TCOEngine:
         ri_3yr_monthly = compute_monthly * 0.25 + storage_monthly
         ri_3yr_annual = ri_3yr_monthly * 12
 
-        return {
+        result = {
             'node_type': node_type,
             'num_nodes': num_nodes,
             'hourly_per_node': round(hourly_per_node, 3),
@@ -448,6 +453,18 @@ class TCOEngine:
             'ri_3yr_monthly': round(ri_3yr_monthly, 2),
             'ri_3yr_annual': round(ri_3yr_annual, 2),
         }
+
+        # Pass through sizing justification from recommendation engine
+        if 'sizing_basis' in config:
+            result['sizing_basis'] = config['sizing_basis']
+        if 'sizing_rationale' in config:
+            result['sizing_rationale'] = config['sizing_rationale']
+        if 'vcpu_total' in config:
+            result['vcpu_total'] = config['vcpu_total']
+        if 'memory_gb_total' in config:
+            result['memory_gb_total'] = config['memory_gb_total']
+
+        return result
 
     def _calculate_serverless_costs(
         self, config: Dict, size_gb: float, pricing: Dict,
