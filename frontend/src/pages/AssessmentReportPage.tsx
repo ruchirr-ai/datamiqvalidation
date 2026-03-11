@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Button, Badge } from '../components/ui';
 import { Select } from '../components/ui/Select';
+import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { 
   getAssessmentReport, AssessmentFullReport,
   getAssessmentRecommendations, RecommendationsData,
@@ -1689,6 +1690,8 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
   const [data, setData] = useState<RecommendationsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
+  const [selectedTable, setSelectedTable] = useState<string | number>('all');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -1709,7 +1712,27 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
   if (error || !data) return <div className="section-content"><p style={{ color: 'var(--color-error)', padding: '20px' }}>{error || 'No data'}</p></div>;
 
   const { query_classification: qc, config_recommendation: cr, dist_sort_keys: dsk, architecture: arch } = data;
-  const recommended = cr.recommended;
+
+  // Extract datasets and tables from dsk for filters
+  const getDatasetFromTable = (name: string) => name.includes('.') ? name.split('.')[0] : 'Unknown';
+  const dskDatasets = Array.from(new Set(dsk.map(r => getDatasetFromTable(r.table_name)))).sort();
+  const datasetOptions = [
+    { value: 'all', label: `All Datasets (${dskDatasets.length})` },
+    ...dskDatasets.map(ds => ({ value: ds, label: ds })),
+  ];
+
+  const filteredDsk = dsk.filter(r => {
+    const ds = getDatasetFromTable(r.table_name);
+    const dsMatch = selectedDataset === 'all' || ds === selectedDataset;
+    const tblMatch = selectedTable === 'all' || r.table_name === selectedTable;
+    return dsMatch && tblMatch;
+  });
+
+  const tableOptions = [
+    { value: 'all', label: `All Tables (${(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset)).length})` },
+    ...(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset))
+      .map(r => ({ value: r.table_name, label: r.table_name })),
+  ];
 
   return (
     <div className="section-content">
@@ -1718,7 +1741,21 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
       {/* Distribution & Sort Key Recommendations */}
       <div className="rec-section">
         <h3 className="rec-section-title"><TableIcon size={18} /> Distribution & Sort Key Recommendations</h3>
-        {dsk.length === 0 ? (
+        <div className="section-filters" style={{ marginBottom: 'var(--spacing-4)' }}>
+          <SearchableSelect
+            value={selectedDataset}
+            onChange={(v) => { setSelectedDataset(v); setSelectedTable('all'); }}
+            options={datasetOptions}
+            placeholder="All Datasets"
+          />
+          <SearchableSelect
+            value={selectedTable}
+            onChange={setSelectedTable}
+            options={tableOptions}
+            placeholder="All Tables"
+          />
+        </div>
+        {filteredDsk.length === 0 ? (
           <div className="empty-state-small"><p>No table-level recommendations available.</p></div>
         ) : (
           <div className="table-container">
@@ -1732,7 +1769,7 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
                 </tr>
               </thead>
               <tbody>
-                {dsk.map((row, i) => (
+                {filteredDsk.map((row, i) => (
                   <tr key={i}>
                     <td className="font-mono font-medium">{row.table_name}</td>
                     <td><Badge variant={row.distkey === 'EVEN' ? 'default' : 'info'}>{row.distkey}</Badge></td>

@@ -5,6 +5,7 @@ import {
   Loader
 } from 'lucide-react';
 import { Button, Select } from '../../components/ui';
+import { SearchableSelect } from '../../components/ui/SearchableSelect';
 import {
   listAssessments, Assessment,
   runCompatibilityCheck, CompatibilityReport,
@@ -24,6 +25,8 @@ export const CompatibilityCheckPage: React.FC = () => {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     dataTypes: true, featureGaps: true, sqlSyntax: true, llmInsights: true,
   });
+  const [compatDataset, setCompatDataset] = useState<string | number>('all');
+  const [compatTable, setCompatTable] = useState<string | number>('all');
   const hasFetched = useRef(false);
 
   useEffect(() => {
@@ -254,47 +257,78 @@ export const CompatibilityCheckPage: React.FC = () => {
                       )
                     ))}
                   </div>
-                  <div className="compat-table-wrapper">
-                    <table className="compat-table">
-                      <thead>
-                        <tr>
-                          <th>Table</th>
-                          <th>Column</th>
-                          <th>BigQuery Type</th>
-                          <th><ArrowRight size={14} /></th>
-                          <th>Redshift Type</th>
-                          <th>Status</th>
-                          <th>Notes</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(report.data_type_analysis?.mappings || [])
-                          .filter(m => m.compatibility !== 'full')
-                          .slice(0, 100)
-                          .map((m, i) => (
-                            <tr key={i} className={`compat-row-${m.compatibility}`}>
-                              <td className="compat-cell-table">{m.table_name}</td>
-                              <td>{m.column_name}</td>
-                              <td className="compat-cell-type">{m.bq_type}</td>
-                              <td className="compat-cell-arrow"><ArrowRight size={12} /></td>
-                              <td className="compat-cell-type">{m.redshift_type}</td>
-                              <td>{getCompatBadge(m.compatibility)}</td>
-                              <td className="compat-cell-notes">{m.notes}</td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
-                    {(report.data_type_analysis?.mappings || []).filter(m => m.compatibility !== 'full').length === 0 && (
-                      <div className="compat-all-good">
-                        <CheckCircle size={20} /> All columns have full compatibility
-                      </div>
-                    )}
-                    {(report.data_type_analysis?.stats?.full ?? 0) > 0 && (
-                      <div className="compat-full-note">
-                        <Info size={14} /> {report.data_type_analysis?.stats?.full ?? 0} fully compatible column(s) hidden
-                      </div>
-                    )}
-                  </div>
+                  {(() => {
+                    const allMappings = (report.data_type_analysis?.mappings || []).filter(m => m.compatibility !== 'full');
+                    const getDs = (name: string) => name.includes('.') ? name.split('.')[0] : 'Unknown';
+                    const datasets = Array.from(new Set(allMappings.map(m => getDs(m.table_name)))).sort();
+                    const dsOptions = [
+                      { value: 'all', label: `All Datasets (${datasets.length})` },
+                      ...datasets.map(ds => ({ value: ds, label: ds })),
+                    ];
+                    const filteredByDs = compatDataset === 'all' ? allMappings : allMappings.filter(m => getDs(m.table_name) === compatDataset);
+                    const tables = Array.from(new Set(filteredByDs.map(m => m.table_name))).sort();
+                    const tblOptions = [
+                      { value: 'all', label: `All Tables (${tables.length})` },
+                      ...tables.map(t => ({ value: t, label: t })),
+                    ];
+                    const filtered = compatTable === 'all' ? filteredByDs : filteredByDs.filter(m => m.table_name === compatTable);
+                    return (
+                      <>
+                        <div className="section-filters" style={{ marginBottom: 'var(--spacing-4)' }}>
+                          <SearchableSelect
+                            value={compatDataset}
+                            onChange={(v) => { setCompatDataset(v); setCompatTable('all'); }}
+                            options={dsOptions}
+                            placeholder="All Datasets"
+                          />
+                          <SearchableSelect
+                            value={compatTable}
+                            onChange={setCompatTable}
+                            options={tblOptions}
+                            placeholder="All Tables"
+                          />
+                        </div>
+                        <div className="compat-table-wrapper">
+                          <table className="compat-table">
+                            <thead>
+                              <tr>
+                                <th>Table</th>
+                                <th>Column</th>
+                                <th>BigQuery Type</th>
+                                <th><ArrowRight size={14} /></th>
+                                <th>Redshift Type</th>
+                                <th>Status</th>
+                                <th>Notes</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {filtered.slice(0, 100).map((m, i) => (
+                                <tr key={i} className={`compat-row-${m.compatibility}`}>
+                                  <td className="compat-cell-table">{m.table_name}</td>
+                                  <td>{m.column_name}</td>
+                                  <td className="compat-cell-type">{m.bq_type}</td>
+                                  <td className="compat-cell-arrow"><ArrowRight size={12} /></td>
+                                  <td className="compat-cell-type">{m.redshift_type}</td>
+                                  <td>{getCompatBadge(m.compatibility)}</td>
+                                  <td className="compat-cell-notes">{m.notes}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {filtered.length === 0 && (
+                            <div className="compat-all-good">
+                              <CheckCircle size={20} /> All columns have full compatibility
+                            </div>
+                          )}
+                          {(report.data_type_analysis?.stats?.full ?? 0) > 0 && (
+                            <div className="compat-full-note">
+                              <Info size={14} /> {report.data_type_analysis?.stats?.full ?? 0} fully compatible column(s) hidden
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
             </div>
