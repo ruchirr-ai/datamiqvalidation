@@ -36,29 +36,29 @@
 
 /* Dark Mode Overrides */
 [data-theme="dark"] {
-  --sidebar-bg: #161822;
-  --sidebar-surface: #1C1F2E;
-  --sidebar-text-primary: #E4E7EC;
-  --sidebar-text-secondary: #E4E7EC;
-  --sidebar-divider: #2A2D3E;
-  --sidebar-selected-bg: rgba(91, 155, 245, 0.15);
-  --sidebar-hover-bg: rgba(91, 155, 245, 0.08);
-  --sidebar-selected-text: #5B9BF5;
-  --sidebar-focus-ring: rgba(91, 155, 245, 0.4);
-  --sidebar-disabled-text: #4B5468;
+  --sidebar-bg: var(--color-bg-secondary);
+  --sidebar-surface: var(--color-bg-surface);
+  --sidebar-text-primary: var(--color-text-primary);
+  --sidebar-text-secondary: var(--color-text-primary);
+  --sidebar-divider: var(--color-divider);
+  --sidebar-selected-bg: var(--color-selected-bg);
+  --sidebar-hover-bg: var(--color-hover-bg);
+  --sidebar-selected-text: var(--color-primary);
+  --sidebar-focus-ring: var(--color-focus-ring);
+  --sidebar-disabled-text: var(--color-text-disabled);
 }
 
 [data-theme="dark"] .account-role {
-  color: #8B95A9;
+  color: var(--color-text-secondary);
 }
 
 [data-theme="dark"] .user-menu-item.signout span,
 [data-theme="dark"] .user-menu-item.signout svg {
-  color: #F87171;
+  color: var(--color-error);
 }
 
 [data-theme="dark"] .user-menu-item.signout:hover {
-  background: rgba(248, 113, 113, 0.12);
+  background: var(--color-error-bg);
 }
 
 /* Sidebar Container */

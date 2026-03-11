@@ -770,6 +770,19 @@
   background: var(--color-bg-secondary);
 }
 
+[data-theme="dark"] .legend-item {
+  background: var(--color-bg-secondary);
+}
+
+[data-theme="dark"] .legend-value {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .legend-percentage {
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+}
+
 [data-theme="dark"] .query-insights-loading,
 [data-theme="dark"] .empty-state {
   color: var(--color-text-secondary);

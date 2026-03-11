@@ -192,50 +192,50 @@
 
 [data-theme="dark"] {
   /* Primary Brand Colors */
-  --color-primary: #5B9BF5;
-  --color-primary-dark: #4A88E0;
+  --color-primary: #60A5FA;
+  --color-primary-dark: #93BBFD;
 
   /* Backgrounds */
-  --color-bg-primary: #0F1117;
-  --color-bg-secondary: #161822;
-  --color-bg-surface: #1C1F2E;
+  --color-bg-primary: #0B0E14;
+  --color-bg-secondary: #111520;
+  --color-bg-surface: #171B26;
 
   /* Text Colors */
-  --color-text-primary: #E4E7EC;
-  --color-text-secondary: #8B95A9;
-  --color-text-disabled: #4B5468;
+  --color-text-primary: #F1F3F7;
+  --color-text-secondary: #A3B1C6;
+  --color-text-disabled: #5A6578;
 
   /* Interactive States */
-  --color-selected-bg: rgba(91, 155, 245, 0.15);
-  --color-hover-bg: rgba(91, 155, 245, 0.08);
-  --color-divider: #2A2D3E;
+  --color-selected-bg: rgba(96, 165, 250, 0.16);
+  --color-hover-bg: rgba(96, 165, 250, 0.10);
+  --color-divider: #252A38;
 
   /* Semantic Colors */
-  --color-success: #4CAF50;
-  --color-error: #F87171;
-  --color-error-bg: rgba(248, 113, 113, 0.12);
+  --color-success: #4ADE80;
+  --color-error: #FB7185;
+  --color-error-bg: rgba(251, 113, 133, 0.14);
   --color-warning: #FBBF24;
-  --color-info: #5B9BF5;
+  --color-info: #60A5FA;
 
   /* Focus & Accessibility */
-  --color-focus-ring: rgba(91, 155, 245, 0.4);
+  --color-focus-ring: rgba(96, 165, 250, 0.45);
 
   /* Grey Scale */
-  --color-grey-50: #0F1117;
-  --color-grey-100: #161822;
-  --color-grey-200: rgba(91, 155, 245, 0.08);
-  --color-grey-300: #2A2D3E;
-  --color-grey-400: rgba(91, 155, 245, 0.15);
-  --color-grey-500: #4B5468;
-  --color-grey-600: #8B95A9;
-  --color-grey-700: #E4E7EC;
-  --color-grey-800: #C8CDD6;
-  --color-grey-900: #F0F2F5;
+  --color-grey-50: #0B0E14;
+  --color-grey-100: #111520;
+  --color-grey-200: rgba(96, 165, 250, 0.10);
+  --color-grey-300: #252A38;
+  --color-grey-400: rgba(96, 165, 250, 0.16);
+  --color-grey-500: #5A6578;
+  --color-grey-600: #A3B1C6;
+  --color-grey-700: #F1F3F7;
+  --color-grey-800: #D6DCE6;
+  --color-grey-900: #F8F9FB;
 
   /* Shadows */
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
 /* ========================================
