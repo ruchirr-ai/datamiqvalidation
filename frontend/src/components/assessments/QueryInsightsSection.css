@@ -649,3 +649,136 @@
   font-size: 13px;
   color: var(--color-text-secondary);
 }
+
+/* ========================================
+   DARK MODE OVERRIDES
+   ======================================== */
+
+[data-theme="dark"] .filter-btn {
+  border-color: var(--color-divider);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .filter-btn:hover {
+  background: var(--color-hover-bg);
+  border-color: var(--color-primary);
+}
+
+[data-theme="dark"] .filter-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+[data-theme="dark"] .chart-card,
+[data-theme="dark"] .summary-card,
+[data-theme="dark"] .query-insights-table-container {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+
+[data-theme="dark"] .chart-title,
+[data-theme="dark"] .summary-value,
+[data-theme="dark"] .query-insights-table th,
+[data-theme="dark"] .expanded-query-title {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .summary-label,
+[data-theme="dark"] .legend-label,
+[data-theme="dark"] .user-email-cell {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .summary-icon {
+  background: rgba(91, 155, 245, 0.12);
+  color: var(--color-primary);
+}
+
+[data-theme="dark"] .query-insights-table thead {
+  background: var(--color-bg-secondary);
+  border-bottom-color: var(--color-divider);
+}
+
+[data-theme="dark"] .query-insights-table tbody tr.query-row {
+  border-bottom-color: var(--color-divider);
+}
+
+[data-theme="dark"] .query-insights-table tbody tr.query-row:hover {
+  background: var(--color-hover-bg);
+}
+
+[data-theme="dark"] .query-insights-table td {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .job-id-cell code {
+  background: var(--color-bg-secondary);
+  color: var(--color-primary);
+}
+
+[data-theme="dark"] .query-text-preview {
+  color: var(--color-primary);
+}
+
+[data-theme="dark"] .cache-status.hit {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4ade80;
+}
+
+[data-theme="dark"] .cache-status.miss {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+}
+
+[data-theme="dark"] .expanded-row {
+  background: var(--color-bg-secondary);
+}
+
+[data-theme="dark"] .query-text-full {
+  background: var(--color-bg-primary);
+  border-color: var(--color-divider);
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .referenced-tables-list li {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+
+[data-theme="dark"] .referenced-tables-list code {
+  color: var(--color-primary);
+}
+
+[data-theme="dark"] .interval-btn {
+  border-color: var(--color-divider);
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .interval-btn:hover {
+  background: var(--color-hover-bg);
+  border-color: var(--color-primary);
+}
+
+[data-theme="dark"] .interval-btn.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+[data-theme="dark"] .legend-container {
+  background: var(--color-bg-secondary);
+}
+
+[data-theme="dark"] .query-insights-loading,
+[data-theme="dark"] .empty-state {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .empty-state svg {
+  color: var(--color-text-disabled);
+}
+
+[data-theme="dark"] .query-insights-loading .spinner {
+  color: var(--color-primary);
+}

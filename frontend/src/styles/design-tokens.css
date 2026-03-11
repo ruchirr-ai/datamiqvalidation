@@ -187,6 +187,58 @@
 }
 
 /* ========================================
+   DARK MODE OVERRIDES
+   ======================================== */
+
+[data-theme="dark"] {
+  /* Primary Brand Colors */
+  --color-primary: #5B9BF5;
+  --color-primary-dark: #4A88E0;
+
+  /* Backgrounds */
+  --color-bg-primary: #0F1117;
+  --color-bg-secondary: #161822;
+  --color-bg-surface: #1C1F2E;
+
+  /* Text Colors */
+  --color-text-primary: #E4E7EC;
+  --color-text-secondary: #8B95A9;
+  --color-text-disabled: #4B5468;
+
+  /* Interactive States */
+  --color-selected-bg: rgba(91, 155, 245, 0.15);
+  --color-hover-bg: rgba(91, 155, 245, 0.08);
+  --color-divider: #2A2D3E;
+
+  /* Semantic Colors */
+  --color-success: #4CAF50;
+  --color-error: #F87171;
+  --color-error-bg: rgba(248, 113, 113, 0.12);
+  --color-warning: #FBBF24;
+  --color-info: #5B9BF5;
+
+  /* Focus & Accessibility */
+  --color-focus-ring: rgba(91, 155, 245, 0.4);
+
+  /* Grey Scale */
+  --color-grey-50: #0F1117;
+  --color-grey-100: #161822;
+  --color-grey-200: rgba(91, 155, 245, 0.08);
+  --color-grey-300: #2A2D3E;
+  --color-grey-400: rgba(91, 155, 245, 0.15);
+  --color-grey-500: #4B5468;
+  --color-grey-600: #8B95A9;
+  --color-grey-700: #E4E7EC;
+  --color-grey-800: #C8CDD6;
+  --color-grey-900: #F0F2F5;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* ========================================
    UTILITY CLASSES
    ======================================== */
 

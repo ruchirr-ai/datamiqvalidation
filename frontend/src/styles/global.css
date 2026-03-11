@@ -136,3 +136,266 @@ button:disabled {
   h4 { font-size: var(--font-size-lg); }
 }
 
+
+/* ========================================
+   GLOBAL DARK MODE OVERRIDES
+   Catches common hardcoded colors across
+   page and component CSS files
+   ======================================== */
+
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  border-color: var(--color-divider);
+}
+
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder {
+  color: var(--color-text-disabled);
+}
+
+/* Table overrides */
+[data-theme="dark"] .table thead {
+  border-bottom-color: var(--color-divider);
+}
+
+[data-theme="dark"] .table th {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .table tbody tr {
+  border-bottom-color: var(--color-divider);
+}
+
+[data-theme="dark"] .table td {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .table-cell-icon {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .table-cell-name {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .table-cell-timestamp {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .table-action-btn {
+  color: var(--color-text-disabled);
+}
+
+[data-theme="dark"] .table-action-btn:hover {
+  background: var(--color-hover-bg);
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .table-cell-status {
+  background: var(--color-hover-bg);
+  color: var(--color-text-secondary);
+}
+
+/* Badge overrides */
+[data-theme="dark"] .badge--default {
+  background-color: rgba(139, 149, 169, 0.15);
+  color: #8B95A9;
+}
+
+[data-theme="dark"] .badge--success {
+  background-color: rgba(76, 175, 80, 0.15);
+  color: #6DD670;
+}
+
+[data-theme="dark"] .badge--warning {
+  background-color: rgba(251, 191, 36, 0.15);
+  color: #FBBF24;
+}
+
+[data-theme="dark"] .badge--error {
+  background-color: rgba(248, 113, 113, 0.12);
+  color: #F87171;
+}
+
+[data-theme="dark"] .badge--info {
+  background-color: rgba(91, 155, 245, 0.15);
+  color: #5B9BF5;
+}
+
+/* Toggle overrides */
+[data-theme="dark"] .toggle-switch {
+  background: #3A3D4E;
+}
+
+[data-theme="dark"] .toggle-switch:hover:not(.disabled) {
+  background: #4A4D5E;
+}
+
+/* Modal overrides */
+[data-theme="dark"] .modal-content::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-secondary);
+}
+
+/* Page-level dark mode overrides for common patterns */
+[data-theme="dark"] .page-title,
+[data-theme="dark"] .page-title-icon {
+  color: var(--color-text-primary);
+}
+
+/* Common table patterns across pages */
+[data-theme="dark"] .assessments-table thead,
+[data-theme="dark"] .connections-table thead,
+[data-theme="dark"] .migrations-table thead,
+[data-theme="dark"] .jobs-table thead {
+  border-bottom-color: var(--color-divider);
+}
+
+[data-theme="dark"] .assessments-table th,
+[data-theme="dark"] .connections-table th,
+[data-theme="dark"] .migrations-table th,
+[data-theme="dark"] .jobs-table th {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .assessments-table tbody tr,
+[data-theme="dark"] .connections-table tbody tr,
+[data-theme="dark"] .migrations-table tbody tr,
+[data-theme="dark"] .jobs-table tbody tr {
+  border-bottom-color: var(--color-divider);
+}
+
+[data-theme="dark"] .assessments-table td,
+[data-theme="dark"] .connections-table td,
+[data-theme="dark"] .migrations-table td,
+[data-theme="dark"] .jobs-table td {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .assessment-name,
+[data-theme="dark"] .connection-name,
+[data-theme="dark"] .migration-name {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .assessment-name-link {
+  color: var(--color-primary);
+}
+
+[data-theme="dark"] .assessment-name-link:hover {
+  color: var(--color-primary-dark);
+}
+
+[data-theme="dark"] .timestamp-cell {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .assessments-count {
+  color: var(--color-text-secondary);
+}
+
+/* Row menu buttons */
+[data-theme="dark"] .row-menu-btn {
+  color: var(--color-text-disabled);
+}
+
+[data-theme="dark"] .row-menu-btn:hover {
+  background: var(--color-hover-bg);
+  color: var(--color-text-secondary);
+}
+
+/* Spinner */
+[data-theme="dark"] .spinner {
+  border-color: var(--color-divider);
+  border-top-color: var(--color-primary);
+}
+
+/* Cards and surfaces */
+[data-theme="dark"] .card,
+[data-theme="dark"] .panel {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+
+/* Comprehensive dark mode overrides for common page patterns */
+
+/* Page headers */
+[data-theme="dark"] .page-title-icon {
+  color: var(--color-text-primary);
+}
+
+/* Common count labels */
+[data-theme="dark"] .connections-count,
+[data-theme="dark"] .migrations-count {
+  color: var(--color-text-secondary);
+}
+
+/* Name cells */
+[data-theme="dark"] .name-cell,
+[data-theme="dark"] .connection-icon {
+  color: var(--color-text-primary);
+}
+
+/* Status badges */
+[data-theme="dark"] .status-badge {
+  background: var(--color-hover-bg);
+  color: var(--color-text-secondary);
+}
+
+/* Test result panels */
+[data-theme="dark"] .test-result-header.success {
+  background: rgba(76, 175, 80, 0.12);
+  color: #4ade80;
+}
+
+[data-theme="dark"] .test-result-header.error {
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+}
+
+[data-theme="dark"] .test-result-help {
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+[data-theme="dark"] .test-result-help h4,
+[data-theme="dark"] .test-result-help li {
+  color: #fbbf24;
+}
+
+/* Code/pre blocks */
+[data-theme="dark"] pre,
+[data-theme="dark"] code {
+  background: var(--color-bg-secondary);
+}
+
+/* Generic light backgrounds used across pages */
+[data-theme="dark"] .info-box,
+[data-theme="dark"] .detail-section {
+  background: var(--color-bg-secondary);
+}
+
+/* Modal dark mode */
+[data-theme="dark"] .modal-overlay .modal-content {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+
+[data-theme="dark"] .modal-header {
+  border-bottom-color: var(--color-divider);
+}
+
+[data-theme="dark"] .modal-footer {
+  border-top-color: var(--color-divider);
+}
+
+/* Form fields in dark mode */
+[data-theme="dark"] .form-group label {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .form-group .form-help {
+  color: var(--color-text-secondary);
+}

@@ -179,3 +179,9 @@
   background: #fef2f2;
   color: var(--color-error, #ef4444);
 }
+
+/* Dark mode overrides */
+[data-theme="dark"] .ddm-item-danger:hover,
+[data-theme="dark"] .ddm-item-danger[data-highlighted] {
+  background: rgba(248, 113, 113, 0.12);
+}
