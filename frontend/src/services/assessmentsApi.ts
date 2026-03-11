@@ -416,6 +416,9 @@ export interface TCOData {
     estimated_rpu_hours_monthly: number;
     total_queries: number;
     workload_type: WorkloadType;
+    avg_wall_clock_seconds?: number;
+    active_hours_per_day?: number;
+    estimated_base_rpu?: number;
   };
   recommendation?: TCORecommendation;
   cost_notes: string[];

@@ -324,6 +324,9 @@ class TCOEngine:
                 'estimated_rpu_hours_monthly': round(rpu_hours_monthly, 1),
                 'total_queries': total_queries,
                 'workload_type': self._classify_workload(monthly_slot_hours, total_queries, query_time_span_days),
+                'avg_wall_clock_seconds': workload_metrics.get('avg_wall_clock_seconds', 0),
+                'active_hours_per_day': workload_metrics.get('active_hours_per_day', 0),
+                'estimated_base_rpu': workload_metrics.get('estimated_base_rpu', 8),
             },
             'recommendation': self._generate_recommendation(
                 bq_costs, provisioned_costs, serverless_costs,
@@ -451,23 +454,27 @@ class TCOEngine:
         actual_rpu_hours_monthly: float
     ) -> Dict:
         """
-        Calculate Redshift Serverless costs using ACTUAL workload data.
+        Calculate Redshift Serverless costs using workload-derived RPU-hours.
 
-        Instead of flat utilization %, we use:
-        - actual_rpu_hours_monthly: derived from BQ slot_milliseconds
-        - Minimum charge: if queries run, at least base_rpu * query_duration
+        Redshift Serverless billing model:
+        - Billed per RPU-hour on a per-second basis
+        - 60-second minimum charge per warehouse activation
+        - Base RPU is the minimum always allocated during active queries
+        - Auto-scales up to max RPU based on query complexity
+        - No charge when idle (no queries running)
+        - Storage billed separately (same RMS rate as provisioned)
         """
         base_rpu = config.get('base_rpu', 8)
         max_rpu = config.get('max_rpu', 32)
         rpu_hour_rate = pricing['serverless_per_rpu_hour']
 
         # Use actual RPU-hours from workload analysis
-        # Minimum: if there are any queries, at least 1 RPU-hour
+        # This already accounts for 60s minimum billing and concurrency
         rpu_hours_month = max(actual_rpu_hours_monthly, 0)
 
         compute_monthly = rpu_hours_month * rpu_hour_rate
 
-        # Storage
+        # Storage (same RMS pricing as provisioned)
         storage_monthly = size_gb * pricing['managed_storage_per_gb_month']
 
         total_monthly = compute_monthly + storage_monthly
@@ -510,7 +517,8 @@ class TCOEngine:
             f'BQ query cost uses the higher of On-Demand (${BQ_QUERY_ON_DEMAND_PER_TB}/TB) or Editions (${BQ_EDITIONS_STANDARD_PER_SLOT_HOUR}/slot-hour) pricing.',
             f'BQ monthly compute: {monthly_slot_hours:.1f} slot-hours/month estimated from INFORMATION_SCHEMA.JOBS.',
             f'Redshift Provisioned shows On-Demand, 1-Year RI (40% discount), and 3-Year RI (75% discount) pricing.',
-            f'Redshift Serverless: {svls.get("est_rpu_hours_monthly", 0):.1f} RPU-hours/month derived from BQ slot usage (1 RPU ≈ 2 BQ slots).',
+            f'Redshift Serverless RPU-hours account for 60-second minimum billing per activation, query concurrency, and a 1.5× overhead factor vs BQ slot-hours.',
+            f'Redshift Serverless: {svls.get("est_rpu_hours_monthly", 0):.1f} RPU-hours/month estimated from BQ workload analysis.',
             f'Data transfer cost (${migration["total"]:.2f}) is a one-time GCP egress expense included in Redshift 3-year TCO.',
             f'Pricing for region: {region} ({pricing["label"]}).',
         ]

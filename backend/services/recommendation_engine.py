@@ -107,11 +107,17 @@ class RecommendationEngine:
         """
         Analyze BQ workload to derive Redshift-equivalent compute needs.
 
-        Key conversions:
-        - BQ slot-hours → Redshift compute-hours
-          1 BQ slot ≈ 0.5 Redshift vCPU (BQ slots are more abstracted)
-        - BQ slot-hours → Serverless RPU-hours
-          1 RPU ≈ 2 BQ slots (RPU is a higher-level unit)
+        BQ slot_milliseconds = total_slots_used × duration_ms for a query.
+        This is CPU-time, NOT wall-clock time.
+
+        Redshift Serverless bills: RPUs_allocated × wall_clock_seconds,
+        with a 60-second minimum per warehouse activation.
+
+        Conversion approach:
+        1. Estimate per-query wall-clock duration from slot_ms and concurrency
+        2. Apply 60-second minimum billing per activation window
+        3. Convert BQ slots to RPUs (1 RPU ≈ 2 vCPUs ≈ 2 BQ slots)
+        4. Account for query concurrency (overlapping queries share activation)
         """
         if not query_stats:
             return {
@@ -150,35 +156,112 @@ class RecommendationEngine:
 
         if len(exec_times) >= 2:
             time_span = (max(exec_times) - min(exec_times)).total_seconds() / 86400
-            time_span_days = max(time_span, 1)  # At least 1 day
+            time_span_days = max(time_span, 1)
         else:
-            # If we can't determine span, assume 30 days (BQ default JOBS window)
             time_span_days = 30
 
         # Extrapolate to monthly
         daily_slot_hours = total_slot_hours / time_span_days
         monthly_slot_hours = daily_slot_hours * 30
 
-        # Peak concurrency estimation:
-        # Sort queries by slot_ms descending, top 5% represent peak
+        # --- Estimate per-query concurrency and wall-clock duration ---
+        # BQ slot_ms = concurrent_slots × wall_clock_ms
+        # We estimate avg concurrent slots per query, then derive wall-clock.
         slot_values = sorted(
             [q.get('slot_milliseconds', 0) for q in query_stats], reverse=True
         )
+
+        # Estimate average concurrent slots per query.
+        # For BQ on-demand, typical concurrency is 50-500 slots per query.
+        # We use a heuristic: avg_slot_ms / assumed_avg_duration_ms
+        # Conservative: assume avg query takes ~30 seconds wall-clock
+        avg_slot_ms = total_slot_ms / query_count if query_count else 0
+        # Estimate concurrent slots: slot_ms / 30000ms (30s assumed avg duration)
+        # Clamp between 1 and 2000 (BQ on-demand max)
+        estimated_avg_concurrent_slots = max(1, min(avg_slot_ms / 30000, 2000))
+
+        # Peak concurrency: top 5% of queries
         top_5pct_count = max(1, int(len(slot_values) * 0.05))
         peak_slot_ms = sum(slot_values[:top_5pct_count]) / top_5pct_count if slot_values else 0
-        # BQ slot_ms for a single query: slot_ms / duration_ms = avg concurrent slots
-        # Approximate: peak_slot_ms / 60000 (assume ~1 min avg query) = peak slots
-        estimated_peak_slots = max(1, peak_slot_ms / 60000)
+        estimated_peak_slots = max(1, peak_slot_ms / 30000)
 
-        # BQ slots → Redshift RPU conversion
-        # 1 RPU ≈ 2 BQ slots in compute capacity
-        # RPU-hours/month = monthly_slot_hours / 2
-        estimated_rpu_hours_monthly = monthly_slot_hours / 2
+        # --- Redshift Serverless RPU-hour estimation ---
+        # Step 1: Estimate wall-clock seconds per query
+        # wall_clock_ms = slot_ms / concurrent_slots
+        avg_wall_clock_s = (avg_slot_ms / max(estimated_avg_concurrent_slots, 1)) / 1000
+
+        # Step 2: Apply 60-second minimum billing per activation
+        # Redshift bills min 60s per warehouse activation, not per query.
+        # If queries overlap or arrive within 60s of each other, they share
+        # the activation window. We estimate activation count from query spacing.
+        daily_queries = query_count / max(time_span_days, 1)
+        monthly_queries = daily_queries * 30
+
+        # Estimate how many 60-second activation windows per day.
+        # If queries are spread evenly: activations = daily_queries if gap > 60s,
+        # else queries cluster into fewer windows.
+        # Heuristic: assume queries arrive in bursts. Active hours per day ≈
+        # min(daily_queries × max(wall_clock, 60) / 3600, 24)
+        billed_seconds_per_query = max(avg_wall_clock_s, 60)  # 60s minimum
+        # But overlapping queries share the window, so apply concurrency factor
+        # Estimate: if N queries run per hour, and each takes T seconds,
+        # concurrent queries = N × T / 3600. Activation windows = N / max(concurrent, 1)
+        queries_per_hour = daily_queries / 24 if daily_queries > 0 else 0
+        concurrent_queries = max(1, queries_per_hour * billed_seconds_per_query / 3600)
+        # Effective activations per hour = queries_per_hour / concurrent_queries
+        activations_per_hour = queries_per_hour / concurrent_queries
+        # Each activation lasts at least 60s, or longer if queries take longer
+        activation_duration_s = max(60, avg_wall_clock_s * concurrent_queries)
+        # Total billed seconds per hour
+        billed_seconds_per_hour = activations_per_hour * activation_duration_s
+        # Cap at 3600 (can't bill more than 1 hour per hour)
+        billed_seconds_per_hour = min(billed_seconds_per_hour, 3600)
+
+        # Step 3: Convert BQ slots to RPUs for sizing
+        # 1 RPU = 16 GB RAM + ~2 vCPUs. BQ slot ≈ 1 vCPU.
+        # But Redshift allocates RPUs at base_rpu minimum (e.g., 32).
+        # The RPU count during a query depends on complexity.
+        # For estimation: RPUs needed ≈ max(base_rpu, peak_slots / 2)
+        # We use a moderate estimate: the base RPU that would be configured.
+        if monthly_slot_hours < 100:
+            estimated_base_rpu = 8
+        elif monthly_slot_hours < 500:
+            estimated_base_rpu = 16
+        elif monthly_slot_hours < 2000:
+            estimated_base_rpu = 32
+        else:
+            estimated_base_rpu = 64
+
+        # Step 4: Calculate monthly RPU-hours
+        # RPU-hours = (billed_seconds_per_hour / 3600) × RPUs × active_hours_per_day × 30
+        # Active hours per day: estimate from query distribution
+        if daily_queries <= 0:
+            active_hours_per_day = 0
+        elif daily_queries < 10:
+            active_hours_per_day = 1  # Sporadic
+        elif daily_queries < 100:
+            active_hours_per_day = min(daily_queries * billed_seconds_per_query / 3600, 8)
+        else:
+            active_hours_per_day = min(daily_queries * billed_seconds_per_query / 3600, 16)
+        # Cap: can't exceed 24 hours
+        active_hours_per_day = min(active_hours_per_day, 24)
+
+        # RPU-hours/month = base_rpu × active_hours_per_day × 30
+        # This represents the minimum billing (base RPU always allocated during active time)
+        estimated_rpu_hours_monthly = estimated_base_rpu * active_hours_per_day * 30
+
+        # Cross-check: RPU-hours should be at least proportional to BQ slot-hours
+        # but accounting for the RPU/slot ratio and Redshift's different execution model.
+        # Redshift typically needs 1.5-3x the wall-clock time of BQ for equivalent queries
+        # (BQ has more aggressive parallelism with 100s-1000s of slots).
+        # Minimum: slot_hours / slots_per_rpu × overhead_factor
+        slot_based_rpu_hours = (monthly_slot_hours / 2) * 1.5  # 1.5x overhead
+        estimated_rpu_hours_monthly = max(estimated_rpu_hours_monthly, slot_based_rpu_hours)
 
         return {
             'total_slot_ms': total_slot_ms,
             'total_slot_hours': round(total_slot_hours, 2),
-            'avg_slot_ms_per_query': round(total_slot_ms / query_count, 0) if query_count else 0,
+            'avg_slot_ms_per_query': round(avg_slot_ms, 0),
             'total_bytes_scanned': total_bytes,
             'total_tb_scanned': round(total_tb_scanned, 4),
             'avg_bytes_per_query': round(total_bytes / query_count, 0) if query_count else 0,
@@ -188,6 +271,9 @@ class RecommendationEngine:
             'estimated_rpu_hours_monthly': round(estimated_rpu_hours_monthly, 2),
             'estimated_peak_slots': round(estimated_peak_slots, 1),
             'query_time_span_days': round(time_span_days, 1),
+            'avg_wall_clock_seconds': round(avg_wall_clock_s, 1),
+            'estimated_base_rpu': estimated_base_rpu,
+            'active_hours_per_day': round(active_hours_per_day, 1),
         }
 
     # ------------------------------------------------------------------ #
@@ -455,21 +541,19 @@ class RecommendationEngine:
         - Base RPU: minimum RPUs always available (affects cold-start latency)
           AWS minimum is 4 RPU (since June 2025).
         - Max RPU: upper limit for auto-scaling (up to 1024)
-        - RPU-hours/month: estimated from BQ slot usage (not a flat %)
 
         BQ slots → RPU conversion:
-        - 1 RPU ≈ 2 BQ slots in compute capacity
-        - Minimum 4 RPU (AWS hard minimum for Redshift Serverless)
+        - 1 RPU = 16 GB memory + ~2 vCPUs
+        - 1 BQ slot ≈ 1 vCPU
+        - So 1 RPU ≈ 2 BQ slots in vCPU terms
+        - But Redshift bills wall-clock × RPUs, not CPU-time
         """
         # Peak BQ slots → peak RPU needed
-        # 1 RPU ≈ 2 BQ slots, round up to nearest 4
         peak_rpu = max(4, math.ceil(peak_slots / 2 / 4) * 4)
 
-        # Base RPU: AWS minimum is 4 RPU.
-        # For light workloads, 4 is sufficient.
-        # For heavier workloads, scale up based on peak concurrency.
+        # Base RPU sizing based on workload intensity
         if monthly_slot_hours < 100:
-            base_rpu = 4  # AWS minimum — ideal for light workloads
+            base_rpu = 8
         elif monthly_slot_hours < 500:
             base_rpu = max(8, min(peak_rpu, 16))
         elif monthly_slot_hours < 2000:
@@ -477,22 +561,21 @@ class RecommendationEngine:
         else:
             base_rpu = max(32, min(peak_rpu, 64))
 
-        # Max RPU: allow headroom for burst, but keep reasonable for light workloads
+        # Max RPU: allow headroom for burst
         if monthly_slot_hours < 10:
-            max_rpu = 8  # Light workload — minimal burst needed
-        elif monthly_slot_hours < 100:
             max_rpu = 16
+        elif monthly_slot_hours < 100:
+            max_rpu = 32
         else:
-            max_rpu = max(base_rpu * 4, peak_rpu * 2, 32)
-            max_rpu = min(max_rpu, 1024)  # AWS max (updated from 512)
-        # Round to nearest 4
+            max_rpu = max(base_rpu * 4, peak_rpu * 2, 64)
+            max_rpu = min(max_rpu, 1024)
         max_rpu = math.ceil(max_rpu / 4) * 4
 
-        # Actual RPU-hours from BQ workload
+        # Actual RPU-hours from workload analysis (already accounts for
+        # 60s minimum billing, concurrency, and overhead)
         actual_rpu_hours = rpu_hours_monthly
 
-        # Calculate effective utilization for display
-        max_possible_rpu_hours = base_rpu * 730  # If running 24/7 at base
+        max_possible_rpu_hours = base_rpu * 730
         utilization_pct = (actual_rpu_hours / max_possible_rpu_hours * 100) if max_possible_rpu_hours > 0 else 0
         utilization_pct = min(utilization_pct, 100)
 

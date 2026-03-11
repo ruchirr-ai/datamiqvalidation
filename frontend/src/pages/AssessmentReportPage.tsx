@@ -2031,6 +2031,18 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
                 <span className="tco-workload-stat-value">{wl.estimated_rpu_hours_monthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                 <span className="tco-workload-stat-label">Est. RPU-Hrs/Mo</span>
               </div>
+              {wl.avg_wall_clock_seconds != null && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.avg_wall_clock_seconds.toFixed(1)}s</span>
+                  <span className="tco-workload-stat-label">Avg Query Duration</span>
+                </div>
+              )}
+              {wl.active_hours_per_day != null && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.active_hours_per_day.toFixed(1)}</span>
+                  <span className="tco-workload-stat-label">Active Hrs/Day</span>
+                </div>
+              )}
               <div className="tco-workload-stat">
                 <span className="tco-workload-stat-value">{wl.query_time_span_days.toFixed(0)}</span>
                 <span className="tco-workload-stat-label">Days Analyzed</span>
