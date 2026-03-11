@@ -1101,6 +1101,8 @@ async def get_query_insights(
                 "bytes_scanned": q.bytes_scanned or 0,
                 "bytes_billed": q.bytes_scanned or 0,
                 "slot_milliseconds": q.slot_milliseconds or 0,
+                "slot_utilization": round((q.slot_milliseconds or 0) / 30000, 1) if (q.slot_milliseconds or 0) > 0 else 0,
+                "est_runtime_seconds": round(((q.slot_milliseconds or 0) / max(est_concurrent_slots, 1)) / 1000, 2) if (q.slot_milliseconds or 0) > 0 else 0,
                 "cache_hit": q.cache_hit or False,
                 "cache_hit_status": "Hit" if q.cache_hit else "Miss",
                 "referenced_tables": q.referenced_tables or [],
@@ -1109,6 +1111,38 @@ async def get_query_insights(
             for q in page_stats
         ]
         
+        # --- New metrics: concurrent queries, slot utilization, query runtime ---
+        # Estimate max concurrent queries using 1-minute windows
+        minute_buckets = {}
+        for q in query_stats:
+            if q.execution_time:
+                minute_key = q.execution_time.strftime('%Y-%m-%d %H:%M')
+                minute_buckets[minute_key] = minute_buckets.get(minute_key, 0) + 1
+        max_concurrent_queries = max(minute_buckets.values()) if minute_buckets else 0
+        avg_concurrent_queries = round(sum(minute_buckets.values()) / len(minute_buckets), 1) if minute_buckets else 0
+
+        # Slot utilization per query (slot_ms as proxy for slot usage)
+        slot_values = [q.slot_milliseconds or 0 for q in query_stats]
+        non_zero_slots = [s for s in slot_values if s > 0]
+        max_slot_ms = max(slot_values) if slot_values else 0
+        min_slot_ms = min(non_zero_slots) if non_zero_slots else 0
+        avg_slot_ms_per_query = round(total_slot_ms / total_queries, 0) if total_queries > 0 else 0
+
+        # Estimate query runtime from slot_ms
+        # BQ slot_ms = concurrent_slots × wall_clock_ms
+        # Estimate concurrent slots per query: avg_slot_ms / 30000 (assume ~30s avg)
+        est_concurrent_slots = max(1, min(avg_slot_ms_per_query / 30000, 2000)) if avg_slot_ms_per_query > 0 else 1
+        # wall_clock_ms ≈ slot_ms / concurrent_slots
+        max_query_runtime_seconds = round((max_slot_ms / max(est_concurrent_slots, 1)) / 1000, 2) if max_slot_ms > 0 else 0
+        min_query_runtime_seconds = round((min_slot_ms / max(est_concurrent_slots, 1)) / 1000, 2) if min_slot_ms > 0 else 0
+        avg_query_runtime_seconds = round((avg_slot_ms_per_query / max(est_concurrent_slots, 1)) / 1000, 2) if avg_slot_ms_per_query > 0 else 0
+
+        # Peak and avg slot utilization (estimated concurrent slots)
+        peak_slot_values = sorted(slot_values, reverse=True)[:max(1, int(len(slot_values) * 0.05))]
+        peak_slot_ms_avg = sum(peak_slot_values) / len(peak_slot_values) if peak_slot_values else 0
+        peak_slot_utilization = round(peak_slot_ms_avg / 30000, 1) if peak_slot_ms_avg > 0 else 0
+        avg_slot_utilization = round(est_concurrent_slots, 1)
+
         return {
             "assessment_id": assessment_id,
             "timeframe": timeframe,
@@ -1123,7 +1157,17 @@ async def get_query_insights(
                 "cache_hits": cache_hits,
                 "cache_misses": total_queries - cache_hits,
                 "read_queries": read_count,
-                "write_queries": write_count
+                "write_queries": write_count,
+                "max_concurrent_queries": max_concurrent_queries,
+                "avg_concurrent_queries": avg_concurrent_queries,
+                "max_slot_milliseconds": max_slot_ms,
+                "min_slot_milliseconds": min_slot_ms,
+                "avg_slot_ms_per_query": avg_slot_ms_per_query,
+                "max_query_runtime_seconds": max_query_runtime_seconds,
+                "min_query_runtime_seconds": min_query_runtime_seconds,
+                "avg_query_runtime_seconds": avg_query_runtime_seconds,
+                "peak_slot_utilization": peak_slot_utilization,
+                "avg_slot_utilization": avg_slot_utilization
             },
             "charts": {
                 "read_write_distribution": {

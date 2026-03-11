@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, TrendingUp, Clock, Database, CheckCircle, XCircle } from 'lucide-react';
+import { Activity, TrendingUp, Clock, Database, CheckCircle, XCircle, Zap, BarChart3, Users } from 'lucide-react';
 import './QueryInsightsSection.css';
 
 interface QueryInsight {
@@ -9,6 +9,8 @@ interface QueryInsight {
   bytes_scanned: number;
   bytes_billed: number;
   slot_milliseconds: number;
+  slot_utilization: number;
+  est_runtime_seconds: number;
   cache_hit: boolean;
   cache_hit_status: string;
   referenced_tables: string[];
@@ -27,6 +29,16 @@ interface QueryInsightsSummary {
   cache_misses: number;
   read_queries: number;
   write_queries: number;
+  max_concurrent_queries: number;
+  avg_concurrent_queries: number;
+  max_slot_milliseconds: number;
+  min_slot_milliseconds: number;
+  avg_slot_ms_per_query: number;
+  max_query_runtime_seconds: number;
+  min_query_runtime_seconds: number;
+  avg_query_runtime_seconds: number;
+  peak_slot_utilization: number;
+  avg_slot_utilization: number;
 }
 
 interface ConcurrentQueryData {
@@ -574,6 +586,61 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
         </div>
       </div>
 
+      {/* Additional Metrics Row */}
+      <div className="query-insights-summary" style={{ marginTop: '12px' }}>
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Users size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.max_concurrent_queries ?? 0}</div>
+            <div className="summary-label">Max Concurrent Queries</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Avg: {data.summary.avg_concurrent_queries ?? 0}/min
+            </div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <BarChart3 size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.peak_slot_utilization ?? 0}</div>
+            <div className="summary-label">Peak Slot Utilization</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Avg: {data.summary.avg_slot_utilization ?? 0} slots
+            </div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Zap size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{formatTime(data.summary.max_query_runtime_seconds ?? 0)}</div>
+            <div className="summary-label">Max Query Runtime</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Min: {formatTime(data.summary.min_query_runtime_seconds ?? 0)}
+            </div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Clock size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{formatTime(data.summary.avg_query_runtime_seconds ?? 0)}</div>
+            <div className="summary-label">Avg Query Runtime</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Avg Slot ms: {formatNumber(data.summary.avg_slot_ms_per_query ?? 0)}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Charts Section */}
       <div className="charts-section">
         {renderPieChart()}
@@ -626,8 +693,9 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
               <th>Execution Time</th>
               <th>Query Text</th>
               <th>Bytes Scanned</th>
-              <th>Bytes Billed</th>
               <th>Slot ms</th>
+              <th>Slot Util.</th>
+              <th>Est. Runtime</th>
               <th>Cache Hit</th>
               <th>User Email</th>
             </tr>
@@ -635,7 +703,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
           <tbody>
             {data.queries.length === 0 ? (
               <tr>
-                <td colSpan={8} className="empty-state-cell">
+                <td colSpan={9} className="empty-state-cell">
                   <div className="empty-state">
                     <Activity size={48} />
                     <p>{search ? `No queries matching "${search}"` : 'No query data available for the selected timeframe'}</p>
@@ -665,8 +733,9 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
                         </div>
                       </td>
                       <td>{formatBytes(query.bytes_scanned)}</td>
-                      <td>{formatBytes(query.bytes_billed)}</td>
                       <td>{formatNumber(query.slot_milliseconds)}</td>
+                      <td>{query.slot_utilization ?? 0} slots</td>
+                      <td>{formatTime(query.est_runtime_seconds ?? 0)}</td>
                       <td>
                         <span className={`cache-status ${query.cache_hit ? 'hit' : 'miss'}`}>
                           {query.cache_hit ? (
@@ -680,7 +749,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
                     </tr>
                     {isExpanded && (
                       <tr className="expanded-row">
-                        <td colSpan={8}>
+                        <td colSpan={9}>
                           <div className="expanded-content">
                             <div className="expanded-section">
                               <h4>Full Query</h4>

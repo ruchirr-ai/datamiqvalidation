@@ -1956,7 +1956,7 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
             {cmp.best_option === 'serverless' && <div className="rec-badge">Best Value</div>}
             <div className="rec-config-header"><Zap size={20} /><span>Serverless</span></div>
             <div className="rec-config-details">
-              <div className="rec-config-row"><span>Base RPU</span><span>{svls.base_rpu} <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>(AWS min)</span></span></div>
+              <div className="rec-config-row"><span>Base RPU</span><span>{svls.base_rpu}</span></div>
               <div className="rec-config-row"><span>Max RPU</span><span>{svls.max_rpu}</span></div>
               <div className="rec-config-row"><span>Est. RPU-hours/mo</span><span>{svls.est_rpu_hours_monthly?.toLocaleString()}</span></div>
               <div className="rec-config-row"><span>RPU Rate</span><span>${svls.rpu_hour_rate}/RPU-hr</span></div>
