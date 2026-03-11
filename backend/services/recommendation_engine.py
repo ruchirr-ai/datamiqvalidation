@@ -171,19 +171,36 @@ class RecommendationEngine:
             [q.get('slot_milliseconds', 0) for q in query_stats], reverse=True
         )
 
-        # Estimate average concurrent slots per query.
-        # For BQ on-demand, typical concurrency is 50-500 slots per query.
-        # We use a heuristic: avg_slot_ms / assumed_avg_duration_ms
-        # Conservative: assume avg query takes ~30 seconds wall-clock
         avg_slot_ms = total_slot_ms / query_count if query_count else 0
-        # Estimate concurrent slots: slot_ms / 30000ms (30s assumed avg duration)
-        # Clamp between 1 and 2000 (BQ on-demand max)
-        estimated_avg_concurrent_slots = max(1, min(avg_slot_ms / 30000, 2000))
 
-        # Peak concurrency: top 5% of queries
-        top_5pct_count = max(1, int(len(slot_values) * 0.05))
-        peak_slot_ms = sum(slot_values[:top_5pct_count]) / top_5pct_count if slot_values else 0
-        estimated_peak_slots = max(1, peak_slot_ms / 30000)
+        # --- Compute per-query concurrent slot utilisation early ---
+        # so we can use actual data for peak estimation instead of heuristics.
+        per_query_slots = []
+        for q in query_stats:
+            q_slot_ms = q.get('slot_milliseconds', 0)
+            if q_slot_ms <= 0:
+                continue
+            q_runtime_ms = q.get('total_elapsed_time_ms') or q.get('runtime_ms', 0)
+            if q_runtime_ms and q_runtime_ms > 0:
+                slots_used = q_slot_ms / q_runtime_ms
+            else:
+                slots_used = q_slot_ms / 30000  # assume 30s
+            per_query_slots.append(max(1, slots_used))
+
+        # Estimate average concurrent slots per query
+        if per_query_slots:
+            estimated_avg_concurrent_slots = sum(per_query_slots) / len(per_query_slots)
+        else:
+            estimated_avg_concurrent_slots = max(1, min(avg_slot_ms / 30000, 2000))
+
+        # Peak concurrency: use actual per-query P95 concurrent slots
+        # This is more accurate than the old heuristic (top-5% slot_ms / 30s)
+        if per_query_slots:
+            sorted_pq = sorted(per_query_slots)
+            p95_idx = int(len(sorted_pq) * 0.95)
+            estimated_peak_slots = max(1, sorted_pq[min(p95_idx, len(sorted_pq) - 1)])
+        else:
+            estimated_peak_slots = max(1, avg_slot_ms / 30000)
 
         # --- Redshift Serverless RPU-hour estimation ---
         # Step 1: Estimate wall-clock seconds per query
@@ -219,18 +236,33 @@ class RecommendationEngine:
 
         # Step 3: Convert BQ slots to RPUs for sizing
         # 1 RPU = 16 GB RAM + ~2 vCPUs. BQ slot ≈ 1 vCPU.
-        # But Redshift allocates RPUs at base_rpu minimum (e.g., 32).
-        # The RPU count during a query depends on complexity.
-        # For estimation: RPUs needed ≈ max(base_rpu, peak_slots / 2)
-        # We use a moderate estimate: the base RPU that would be configured.
-        if monthly_slot_hours < 100:
+        # Base RPU should reflect the typical concurrent slot usage,
+        # not just total monthly volume. Use P75 of per-query slots
+        # converted to RPUs (slots / 2), rounded up to nearest valid RPU.
+        if per_query_slots:
+            sorted_pq_rpu = sorted(per_query_slots)
+            p75_idx = int(len(sorted_pq_rpu) * 0.75)
+            p75_slots = sorted_pq_rpu[min(p75_idx, len(sorted_pq_rpu) - 1)]
+            # Convert slots to RPUs: 1 RPU ≈ 2 BQ slots
+            rpus_from_concurrency = max(8, math.ceil(p75_slots / 2))
+            # Round up to valid RPU values: 8, 16, 32, 48, 64, ...
+            valid_rpus = [8, 16, 32, 48, 64, 96, 128, 192, 256, 512]
             estimated_base_rpu = 8
-        elif monthly_slot_hours < 500:
-            estimated_base_rpu = 16
-        elif monthly_slot_hours < 2000:
-            estimated_base_rpu = 32
+            for rpu in valid_rpus:
+                if rpu >= rpus_from_concurrency:
+                    estimated_base_rpu = rpu
+                    break
+            else:
+                estimated_base_rpu = valid_rpus[-1]
         else:
-            estimated_base_rpu = 64
+            if monthly_slot_hours < 100:
+                estimated_base_rpu = 8
+            elif monthly_slot_hours < 500:
+                estimated_base_rpu = 16
+            elif monthly_slot_hours < 2000:
+                estimated_base_rpu = 32
+            else:
+                estimated_base_rpu = 64
 
         # Step 4: Calculate monthly RPU-hours
         # RPU-hours = (billed_seconds_per_hour / 3600) × RPUs × active_hours_per_day × 30
@@ -258,19 +290,7 @@ class RecommendationEngine:
         slot_based_rpu_hours = (monthly_slot_hours / 2) * 1.5  # 1.5x overhead
         estimated_rpu_hours_monthly = max(estimated_rpu_hours_monthly, slot_based_rpu_hours)
 
-        # --- Per-query concurrent slot utilisation ---
-        per_query_slots = []
-        for q in query_stats:
-            q_slot_ms = q.get('slot_milliseconds', 0)
-            if q_slot_ms <= 0:
-                continue
-            q_runtime_ms = q.get('total_elapsed_time_ms') or q.get('runtime_ms', 0)
-            if q_runtime_ms and q_runtime_ms > 0:
-                slots_used = q_slot_ms / q_runtime_ms
-            else:
-                slots_used = q_slot_ms / 30000  # assume 30s
-            per_query_slots.append(max(1, slots_used))
-
+        # --- Per-query concurrent slot stats (already computed above) ---
         if per_query_slots:
             max_concurrent_slots = round(max(per_query_slots), 1)
             min_concurrent_slots = round(min(per_query_slots), 1)
@@ -650,15 +670,11 @@ class RecommendationEngine:
         # Peak BQ slots → peak RPU needed
         peak_rpu = max(4, math.ceil(peak_slots / 2 / 4) * 4)
 
-        # Base RPU sizing based on workload intensity
-        if monthly_slot_hours < 100:
-            base_rpu = 8
-        elif monthly_slot_hours < 500:
-            base_rpu = max(8, min(peak_rpu, 16))
-        elif monthly_slot_hours < 2000:
-            base_rpu = max(16, min(peak_rpu, 32))
-        else:
-            base_rpu = max(32, min(peak_rpu, 64))
+        # Base RPU: sized from peak concurrent slots (not total volume)
+        # The base RPU should handle typical query concurrency without scaling
+        base_rpu = max(8, min(peak_rpu, 64))
+        # Round to valid RPU increment (multiples of 8)
+        base_rpu = math.ceil(base_rpu / 8) * 8
 
         # Max RPU: allow headroom for burst
         if monthly_slot_hours < 10:
