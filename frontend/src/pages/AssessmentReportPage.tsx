@@ -1692,6 +1692,8 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
   const [error, setError] = useState<string | null>(null);
   const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
   const [selectedTable, setSelectedTable] = useState<string | number>('all');
+  const [dskPage, setDskPage] = useState(1);
+  const [dskPageSize, setDskPageSize] = useState<string | number>(20);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -1744,20 +1746,35 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
         <div className="section-filters" style={{ marginBottom: 'var(--spacing-4)' }}>
           <SearchableSelect
             value={selectedDataset}
-            onChange={(v) => { setSelectedDataset(v); setSelectedTable('all'); }}
+            onChange={(v) => { setSelectedDataset(v); setSelectedTable('all'); setDskPage(1); }}
             options={datasetOptions}
             placeholder="All Datasets"
           />
           <SearchableSelect
             value={selectedTable}
-            onChange={setSelectedTable}
+            onChange={(v) => { setSelectedTable(v); setDskPage(1); }}
             options={tableOptions}
             placeholder="All Tables"
+          />
+          <SearchableSelect
+            value={dskPageSize}
+            onChange={(v) => { setDskPageSize(v); setDskPage(1); }}
+            options={[
+              { value: 20, label: '20 rows' },
+              { value: 50, label: '50 rows' },
+              { value: 100, label: '100 rows' },
+              { value: 200, label: '200 rows' },
+            ]}
+            placeholder="Rows per page"
           />
         </div>
         {filteredDsk.length === 0 ? (
           <div className="empty-state-small"><p>No table-level recommendations available.</p></div>
         ) : (
+          <>
+          <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>
+            Showing {Math.min((dskPage - 1) * Number(dskPageSize) + 1, filteredDsk.length)}–{Math.min(dskPage * Number(dskPageSize), filteredDsk.length)} of {filteredDsk.length} tables
+          </div>
           <div className="table-container">
             <table className="data-table">
               <thead>
@@ -1769,7 +1786,7 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
                 </tr>
               </thead>
               <tbody>
-                {filteredDsk.map((row, i) => (
+                {filteredDsk.slice((dskPage - 1) * Number(dskPageSize), dskPage * Number(dskPageSize)).map((row, i) => (
                   <tr key={i}>
                     <td className="font-mono font-medium">{row.table_name}</td>
                     <td><Badge variant={row.distkey === 'EVEN' ? 'default' : 'info'}>{row.distkey}</Badge></td>
@@ -1784,6 +1801,30 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
               </tbody>
             </table>
           </div>
+          {Math.ceil(filteredDsk.length / Number(dskPageSize)) > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '16px' }}>
+              <button
+                className="filter-btn"
+                disabled={dskPage <= 1}
+                onClick={() => setDskPage(dskPage - 1)}
+                style={{ padding: '6px 16px', cursor: dskPage <= 1 ? 'not-allowed' : 'pointer', opacity: dskPage <= 1 ? 0.5 : 1 }}
+              >
+                ← Previous
+              </button>
+              <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+                Page {dskPage} of {Math.ceil(filteredDsk.length / Number(dskPageSize))}
+              </span>
+              <button
+                className="filter-btn"
+                disabled={dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize))}
+                onClick={() => setDskPage(dskPage + 1)}
+                style={{ padding: '6px 16px', cursor: dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize)) ? 'not-allowed' : 'pointer', opacity: dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize)) ? 0.5 : 1 }}
+              >
+                Next →
+              </button>
+            </div>
+          )}
+          </>
         )}
 
         <div className="rec-info-box" style={{ marginTop: 'var(--spacing-6)' }}>
