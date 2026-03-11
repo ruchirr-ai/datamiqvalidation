@@ -752,14 +752,12 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                 {
                     "job_id": q.job_id,
                     "execution_time": q.execution_time.isoformat() if q.execution_time else None,
-                    "query_text": q.query_text[:500] if q.query_text else None,  # Truncate for response
                     "bytes_scanned": q.bytes_scanned,
                     "slot_milliseconds": q.slot_milliseconds,
                     "cache_hit": q.cache_hit,
-                    "referenced_tables": q.referenced_tables or [],
                     "user_email": q.user_email
                 }
-                for q in query_stats  # Return all query stats for complete user insights
+                for q in query_stats
             ],
             "security_policies": [
                 {
