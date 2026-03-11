@@ -64,23 +64,40 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
   const [timeframe, setTimeframe] = useState('all');
   const [expandedQuery, setExpandedQuery] = useState<number | null>(null);
   const [concurrentInterval, setConcurrentInterval] = useState<'hourly' | 'daily' | 'weekly'>('daily');
+  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [sortBy, setSortBy] = useState('bytes_scanned');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<{ total_filtered: number; total_pages: number } | null>(null);
 
   useEffect(() => {
     fetchQueryInsights();
-  }, [assessmentId, timeframe]);
+  }, [assessmentId, timeframe, search, sortBy, page]);
 
   const fetchQueryInsights = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/assessments/${assessmentId}/query-insights?timeframe=${timeframe}`);
+      const params = new URLSearchParams({ timeframe, sort_by: sortBy, page: String(page), page_size: '50' });
+      if (search) params.set('search', search);
+      const response = await fetch(`/api/assessments/${assessmentId}/query-insights?${params}`);
       if (!response.ok) throw new Error('Failed to fetch query insights');
       const result = await response.json();
       setData(result);
+      setPagination(result.pagination || null);
     } catch (error) {
-      console.error('Error fetching query insights:', error);
+      // silently fail
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = () => {
+    setPage(1);
+    setSearch(searchInput);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleSearch();
   };
 
   const formatTime = (seconds: number): string => {
@@ -565,6 +582,43 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
 
       {/* Query Table */}
       <div className="query-insights-table-container">
+        {/* Search & Sort Controls */}
+        <div className="query-table-controls">
+          <div className="query-search-box">
+            <input
+              type="text"
+              placeholder="Search by query, user, or job ID..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              className="query-search-input"
+            />
+            <button className="query-search-btn" onClick={handleSearch}>Search</button>
+            {search && (
+              <button className="query-search-clear" onClick={() => { setSearchInput(''); setSearch(''); setPage(1); }}>Clear</button>
+            )}
+          </div>
+          <div className="query-sort-box">
+            <span className="query-sort-label">Sort by:</span>
+            <select
+              value={sortBy}
+              onChange={(e) => { setSortBy(e.target.value); setPage(1); }}
+              className="query-sort-select"
+            >
+              <option value="bytes_scanned">Bytes Scanned (highest)</option>
+              <option value="slot_milliseconds">Slot Time (highest)</option>
+              <option value="execution_time">Most Recent</option>
+            </select>
+          </div>
+        </div>
+
+        {pagination && (
+          <div className="query-table-info">
+            Showing {Math.min((page - 1) * 50 + 1, pagination.total_filtered)}–{Math.min(page * 50, pagination.total_filtered)} of {pagination.total_filtered.toLocaleString()} queries
+            {search && <span className="query-search-tag"> matching "{search}"</span>}
+          </div>
+        )}
+
         <table className="query-insights-table">
           <thead>
             <tr>
@@ -584,7 +638,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
                 <td colSpan={8} className="empty-state-cell">
                   <div className="empty-state">
                     <Activity size={48} />
-                    <p>No query data available for the selected timeframe</p>
+                    <p>{search ? `No queries matching "${search}"` : 'No query data available for the selected timeframe'}</p>
                   </div>
                 </td>
               </tr>
@@ -616,13 +670,9 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
                       <td>
                         <span className={`cache-status ${query.cache_hit ? 'hit' : 'miss'}`}>
                           {query.cache_hit ? (
-                            <>
-                              <CheckCircle size={14} /> Hit
-                            </>
+                            <><CheckCircle size={14} /> Hit</>
                           ) : (
-                            <>
-                              <XCircle size={14} /> Miss
-                            </>
+                            <><XCircle size={14} /> Miss</>
                           )}
                         </span>
                       </td>
@@ -646,6 +696,29 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
             )}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        {pagination && pagination.total_pages > 1 && (
+          <div className="query-pagination">
+            <button
+              className="query-page-btn"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              ← Previous
+            </button>
+            <span className="query-page-info">
+              Page {page} of {pagination.total_pages}
+            </span>
+            <button
+              className="query-page-btn"
+              disabled={page >= pagination.total_pages}
+              onClick={() => setPage(page + 1)}
+            >
+              Next →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

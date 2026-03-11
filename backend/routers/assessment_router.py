@@ -983,6 +983,10 @@ async def get_assessment_tco(
 async def get_query_insights(
     assessment_id: int,
     timeframe: str = "all",  # all, 24h, 7d, 30d
+    search: str = "",
+    sort_by: str = "bytes_scanned",  # bytes_scanned, slot_milliseconds, execution_time
+    page: int = 1,
+    page_size: int = 50,
     db: Session = Depends(get_db)
 ):
     """
@@ -1064,11 +1068,36 @@ async def get_query_insights(
         daily_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_daily.items())]
         weekly_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_weekly.items())]
         
+        # Build query list with search filter
+        filtered_stats = query_stats
+        if search:
+            search_lower = search.lower()
+            filtered_stats = [q for q in query_stats if (
+                (q.query_text and search_lower in q.query_text.lower()) or
+                (q.user_email and search_lower in q.user_email.lower()) or
+                (q.job_id and search_lower in q.job_id.lower())
+            )]
+        
+        # Sort
+        if sort_by == "slot_milliseconds":
+            filtered_stats.sort(key=lambda q: q.slot_milliseconds or 0, reverse=True)
+        elif sort_by == "execution_time":
+            filtered_stats.sort(key=lambda q: q.execution_time or datetime.min, reverse=True)
+        else:  # bytes_scanned (default)
+            filtered_stats.sort(key=lambda q: q.bytes_scanned or 0, reverse=True)
+        
+        total_filtered = len(filtered_stats)
+        
+        # Paginate
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_stats = filtered_stats[start:end]
+        
         queries = [
             {
                 "job_id": q.job_id,
                 "execution_time": q.execution_time.isoformat() if q.execution_time else None,
-                "query_text": q.query_text,
+                "query_text": (q.query_text or '')[:500],
                 "bytes_scanned": q.bytes_scanned or 0,
                 "bytes_billed": q.bytes_scanned or 0,
                 "slot_milliseconds": q.slot_milliseconds or 0,
@@ -1077,7 +1106,7 @@ async def get_query_insights(
                 "referenced_tables": q.referenced_tables or [],
                 "user_email": q.user_email or "Unknown"
             }
-            for q in query_stats
+            for q in page_stats
         ]
         
         return {
@@ -1107,7 +1136,13 @@ async def get_query_insights(
                     "weekly": weekly_data
                 }
             },
-            "queries": queries
+            "queries": queries,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_filtered": total_filtered,
+                "total_pages": (total_filtered + page_size - 1) // page_size
+            }
         }
     except HTTPException:
         raise
