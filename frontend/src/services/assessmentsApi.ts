@@ -331,8 +331,13 @@ export interface BQCosts extends TCOCostBreakdown {
   };
   query: {
     queries_analyzed: number;
-    tb_scanned: number;
-    rate_per_tb: number;
+    estimated_monthly_queries?: number;
+    monthly_tb_scanned?: number;
+    tb_scanned?: number;
+    on_demand_monthly?: number;
+    slot_based_monthly?: number;
+    monthly_slot_hours?: number;
+    rate_per_tb?: number;
     pricing_model: string;
     monthly: number;
     annual: number;
@@ -365,15 +370,31 @@ export interface ServerlessCosts extends TCOCostBreakdown {
 export interface TCOComparison {
   bq_3yr_tco: number;
   provisioned_3yr_tco: number;
-  provisioned_3yr_ondemand?: number;
-  provisioned_3yr_ri1yr?: number;
-  provisioned_3yr_ri3yr?: number;
+  provisioned_ri1yr_3yr_tco?: number;
+  provisioned_ri3yr_3yr_tco?: number;
   serverless_3yr_tco: number;
   best_option: string;
   savings_amount: number;
   savings_pct: number;
   provisioned_viable?: boolean;
   provisioned_note?: string | null;
+}
+
+export interface WorkloadType {
+  pattern: string;
+  label: string;
+  description: string;
+  daily_queries: number;
+  daily_slot_hours: number;
+}
+
+export interface TCORecommendation {
+  choice: string;
+  confidence: string;
+  title: string;
+  reasons: string[];
+  annual_savings_vs_bq: number;
+  workload_pattern: WorkloadType;
 }
 
 export interface TCOData {
@@ -388,6 +409,15 @@ export interface TCOData {
     total: number;
   };
   comparison: TCOComparison;
+  workload_summary?: {
+    query_time_span_days: number;
+    monthly_slot_hours: number;
+    monthly_tb_scanned: number;
+    estimated_rpu_hours_monthly: number;
+    total_queries: number;
+    workload_type: WorkloadType;
+  };
+  recommendation?: TCORecommendation;
   cost_notes: string[];
 }
 

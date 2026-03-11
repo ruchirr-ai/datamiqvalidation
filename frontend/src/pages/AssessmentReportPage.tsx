@@ -9,7 +9,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   FileSearch, ArrowLeft, Database, Table as TableIcon, Eye, Code, 
   Brain, Activity, Shield, Users, TrendingUp, Lock, DollarSign,
-  Zap, Info, Server, Download
+  Zap, Info, Server, Download, CheckCircle, AlertTriangle, BarChart3
 } from 'lucide-react';
 import { Button, Badge } from '../components/ui';
 import { Select } from '../components/ui/Select';
@@ -1866,8 +1866,10 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
   if (loading) return <div className="section-content"><div style={{ padding: '40px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }}></div><p style={{ marginTop: '16px', color: 'var(--color-text-secondary)' }}>Calculating TCO...</p></div></div>;
   if (error || !data) return <div className="section-content"><p style={{ color: 'var(--color-error)', padding: '20px' }}>{error || 'No data'}</p></div>;
 
-  const { bigquery_costs: bq, provisioned_costs: prov, serverless_costs: svls, migration_costs: mig, comparison: cmp } = data;
-  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco) || 1;
+  const { bigquery_costs: bq, provisioned_costs: prov, serverless_costs: svls, migration_costs: mig, comparison: cmp, recommendation: rec, workload_summary: wl } = data;
+  const ri1yr3yr = cmp.provisioned_ri1yr_3yr_tco ?? cmp.provisioned_3yr_tco;
+  const ri3yr3yr = cmp.provisioned_ri3yr_3yr_tco ?? cmp.provisioned_3yr_tco;
+  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco, ri1yr3yr, ri3yr3yr) || 1;
 
   return (
     <div className="section-content">
@@ -1898,7 +1900,7 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
       {/* Provisioned not viable warning */}
       {cmp.provisioned_viable === false && cmp.provisioned_note && (
         <div className="rec-info-box" style={{ borderLeft: '4px solid #f59e0b', background: '#fffbeb' }}>
-          <div className="rec-info-title" style={{ color: '#b45309' }}>⚠️ Light Workload Detected</div>
+          <div className="rec-info-title" style={{ color: '#b45309' }}><AlertTriangle size={16} /> Light Workload Detected</div>
           <p style={{ margin: '4px 0 0', color: '#92400e', fontSize: '13px' }}>{cmp.provisioned_note}</p>
         </div>
       )}
@@ -1939,8 +1941,14 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
               <div className="rec-config-row"><span>Nodes</span><span>{prov.num_nodes}</span></div>
               <div className="rec-config-row"><span>Compute</span><span>{fmt(prov.compute_monthly)}/mo</span></div>
               <div className="rec-config-row"><span>Storage</span><span>{fmt(prov.storage_monthly)}/mo</span></div>
-              <div className="rec-config-row rec-config-row-total"><span>Total</span><span>{fmt(prov.monthly)}/mo</span></div>
-              <div className="rec-config-row"><span>Annual</span><span>{fmt(prov.annual)}</span></div>
+              <div className="rec-config-row rec-config-row-total"><span>On-Demand</span><span>{fmt(prov.monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Annual (On-Demand)</span><span>{fmt(prov.annual)}</span></div>
+              {prov.ri_1yr_monthly != null && (
+                <div className="rec-config-row"><span>1-Year RI</span><span>{fmt(prov.ri_1yr_monthly)}/mo</span></div>
+              )}
+              {prov.ri_3yr_monthly != null && (
+                <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(prov.ri_3yr_monthly)}/mo</span></div>
+              )}
             </div>
           </div>
           {/* Serverless */}
@@ -1973,8 +1981,22 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
           <div className="tco-bar-item">
             <div className="tco-bar-label-top">{fmt(cmp.provisioned_3yr_tco)}</div>
             <div className="tco-bar" style={{ height: `${Math.max((cmp.provisioned_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #3b82f6, #60a5fa)' }}></div>
-            <div className="tco-bar-label">Provisioned</div>
+            <div className="tco-bar-label">Prov. On-Demand</div>
           </div>
+          {cmp.provisioned_viable !== false && (
+            <>
+              <div className="tco-bar-item">
+                <div className="tco-bar-label-top">{fmt(ri1yr3yr)}</div>
+                <div className="tco-bar" style={{ height: `${Math.max((ri1yr3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #2563eb, #93c5fd)' }}></div>
+                <div className="tco-bar-label">Prov. 1-Yr RI</div>
+              </div>
+              <div className="tco-bar-item">
+                <div className="tco-bar-label-top">{fmt(ri3yr3yr)}</div>
+                <div className="tco-bar" style={{ height: `${Math.max((ri3yr3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #1d4ed8, #bfdbfe)' }}></div>
+                <div className="tco-bar-label">Prov. 3-Yr RI</div>
+              </div>
+            </>
+          )}
           <div className="tco-bar-item">
             <div className="tco-bar-label-top">{fmt(cmp.serverless_3yr_tco)}</div>
             <div className="tco-bar" style={{ height: `${Math.max((cmp.serverless_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #22c55e, #4ade80)' }}></div>
@@ -1982,6 +2004,64 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
           </div>
         </div>
       </div>
+
+      {/* Workload Summary */}
+      {wl && wl.workload_type && (
+        <div className="tco-section">
+          <h3 className="rec-section-title"><BarChart3 size={18} /> Workload Profile</h3>
+          <div className="tco-workload-card">
+            <div className="tco-workload-header">
+              <span className={`tco-workload-badge tco-workload-${wl.workload_type.pattern}`}>{wl.workload_type.label}</span>
+            </div>
+            <p className="tco-workload-desc">{wl.workload_type.description}</p>
+            <div className="tco-workload-stats">
+              <div className="tco-workload-stat">
+                <span className="tco-workload-stat-value">{wl.total_queries.toLocaleString()}</span>
+                <span className="tco-workload-stat-label">Total Queries</span>
+              </div>
+              <div className="tco-workload-stat">
+                <span className="tco-workload-stat-value">~{wl.workload_type.daily_queries.toLocaleString()}</span>
+                <span className="tco-workload-stat-label">Queries/Day</span>
+              </div>
+              <div className="tco-workload-stat">
+                <span className="tco-workload-stat-value">{wl.monthly_slot_hours.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                <span className="tco-workload-stat-label">Slot-Hours/Mo</span>
+              </div>
+              <div className="tco-workload-stat">
+                <span className="tco-workload-stat-value">{wl.estimated_rpu_hours_monthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                <span className="tco-workload-stat-label">Est. RPU-Hrs/Mo</span>
+              </div>
+              <div className="tco-workload-stat">
+                <span className="tco-workload-stat-value">{wl.query_time_span_days.toFixed(0)}</span>
+                <span className="tco-workload-stat-label">Days Analyzed</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recommendation */}
+      {rec && (
+        <div className="tco-section">
+          <h3 className="rec-section-title"><CheckCircle size={18} /> Recommendation</h3>
+          <div className={`tco-rec-card tco-rec-${rec.confidence}`}>
+            <div className="tco-rec-header">
+              <div className="tco-rec-title">{rec.title}</div>
+              <span className={`tco-rec-confidence tco-rec-confidence-${rec.confidence}`}>
+                {rec.confidence === 'high' ? 'High Confidence' : 'Medium Confidence'}
+              </span>
+            </div>
+            {rec.annual_savings_vs_bq > 0 && (
+              <div className="tco-rec-savings">
+                Estimated annual savings vs BigQuery: <strong>{fmt(rec.annual_savings_vs_bq)}</strong>
+              </div>
+            )}
+            <ul className="tco-rec-reasons">
+              {rec.reasons.map((r, i) => <li key={i}>{r}</li>)}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* Migration Cost */}
       <div className="rec-info-box">
