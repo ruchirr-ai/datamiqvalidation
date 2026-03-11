@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { SiMongodb, SiAmazondocumentdb, SiPostgresql, SiMysql, SiOracle, SiGooglecloud, SiAmazonredshift } from 'react-icons/si';
-import { Cable, Database } from 'lucide-react';
+import { Cable, Database, MoreVertical, Clock, Pencil, Trash2 } from 'lucide-react';
 import { Button, Badge, Dropdown, DropdownItem, Select, Avatar } from '../components/ui';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/DropdownMenu';
 import { CreateConnectionModal, ConnectionFormData } from '../components/connections/CreateConnectionModal';
 import { listConnections, createConnection, Connection, testConnection, api } from '../services/api';
 import { WorkspaceSelector } from '../components/WorkspaceSelector';
@@ -495,85 +496,28 @@ export const ConnectionsPage: React.FC = () => {
                   <td className="timestamp-cell">{formatDateTime(connection.last_tested_at)}</td>
                   <td>
                     <div className="connection-menu-container">
-                      <button 
-                        className="row-menu-btn" 
-                        aria-label="More options"
-                        onClick={(e) => {
-                          const button = e.currentTarget;
-                          const rect = button.getBoundingClientRect();
-                          const windowHeight = window.innerHeight;
-                          const menuHeight = 180; // Approximate menu height
-                          
-                          // Check if there's enough space below
-                          const spaceBelow = windowHeight - rect.bottom;
-                          const shouldOpenUpward = spaceBelow < menuHeight;
-                          
-                          // Calculate position
-                          const position = {
-                            right: window.innerWidth - rect.right,
-                            ...(shouldOpenUpward 
-                              ? { bottom: windowHeight - rect.top + 4 }
-                              : { top: rect.bottom + 4 }
-                            )
-                          };
-                          
-                          setMenuPosition(position);
-                          setOpenMenuId(openMenuId === connection.id ? null : connection.id);
-                        }}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                          <circle cx="8" cy="3" r="1.5" />
-                          <circle cx="8" cy="8" r="1.5" />
-                          <circle cx="8" cy="13" r="1.5" />
-                        </svg>
-                      </button>
-                      
-                      {openMenuId === connection.id && (
-                        <div 
-                          className={`connection-dropdown-menu ${menuPosition.bottom ? 'open-upward' : ''}`}
-                          style={{
-                            top: menuPosition.top ? `${menuPosition.top}px` : 'auto',
-                            bottom: menuPosition.bottom ? `${menuPosition.bottom}px` : 'auto',
-                            right: `${menuPosition.right}px`
-                          }}
-                        >
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              handleTestConnection(connection);
-                              setOpenMenuId(null);
-                            }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M14 8A6 6 0 1 1 2 8a6 6 0 0 1 12 0z" />
-                              <path d="M8 5v3l2 2" strokeLinecap="round" />
-                            </svg>
-                            Test Connection
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="row-menu-btn" aria-label="More options">
+                            <MoreVertical size={16} />
                           </button>
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => handleUpdateConnection(connection)}
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onSelect={() => handleTestConnection(connection)}>
+                            <Clock size={15} /> Test Connection
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handleUpdateConnection(connection)}>
+                            <Pencil size={15} /> Update Connection
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="ddm-item-danger"
+                            onSelect={() => setDeleteConfirmId(connection.id)}
                           >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Update Connection
-                          </button>
-                          <div className="dropdown-divider" />
-                          <button
-                            className="dropdown-menu-item dropdown-menu-item-danger"
-                            onClick={() => {
-                              setDeleteConfirmId(connection.id);
-                              setOpenMenuId(null);
-                            }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M3 4h10M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1M6 7v4M10 7v4M4 4h8v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4z" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Delete Connection
-                          </button>
-                        </div>
-                      )}
+                            <Trash2 size={15} /> Delete Connection
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </td>
                 </tr>
