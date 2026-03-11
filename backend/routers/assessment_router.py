@@ -1093,24 +1093,6 @@ async def get_query_insights(
         end = start + page_size
         page_stats = filtered_stats[start:end]
         
-        queries = [
-            {
-                "job_id": q.job_id,
-                "execution_time": q.execution_time.isoformat() if q.execution_time else None,
-                "query_text": (q.query_text or '')[:500],
-                "bytes_scanned": q.bytes_scanned or 0,
-                "bytes_billed": q.bytes_scanned or 0,
-                "slot_milliseconds": q.slot_milliseconds or 0,
-                "slot_utilization": round((q.slot_milliseconds or 0) / 30000, 1) if (q.slot_milliseconds or 0) > 0 else 0,
-                "est_runtime_seconds": round(((q.slot_milliseconds or 0) / max(est_concurrent_slots, 1)) / 1000, 2) if (q.slot_milliseconds or 0) > 0 else 0,
-                "cache_hit": q.cache_hit or False,
-                "cache_hit_status": "Hit" if q.cache_hit else "Miss",
-                "referenced_tables": q.referenced_tables or [],
-                "user_email": q.user_email or "Unknown"
-            }
-            for q in page_stats
-        ]
-        
         # --- New metrics: concurrent queries, slot utilization, query runtime ---
         # Estimate max concurrent queries using 1-minute windows
         minute_buckets = {}
@@ -1143,6 +1125,24 @@ async def get_query_insights(
         peak_slot_utilization = round(peak_slot_ms_avg / 30000, 1) if peak_slot_ms_avg > 0 else 0
         avg_slot_utilization = round(est_concurrent_slots, 1)
 
+        queries = [
+            {
+                "job_id": q.job_id,
+                "execution_time": q.execution_time.isoformat() if q.execution_time else None,
+                "query_text": (q.query_text or '')[:500],
+                "bytes_scanned": q.bytes_scanned or 0,
+                "bytes_billed": q.bytes_scanned or 0,
+                "slot_milliseconds": q.slot_milliseconds or 0,
+                "slot_utilization": round((q.slot_milliseconds or 0) / 30000, 1) if (q.slot_milliseconds or 0) > 0 else 0,
+                "est_runtime_seconds": round(((q.slot_milliseconds or 0) / max(est_concurrent_slots, 1)) / 1000, 2) if (q.slot_milliseconds or 0) > 0 else 0,
+                "cache_hit": q.cache_hit or False,
+                "cache_hit_status": "Hit" if q.cache_hit else "Miss",
+                "referenced_tables": q.referenced_tables or [],
+                "user_email": q.user_email or "Unknown"
+            }
+            for q in page_stats
+        ]
+        
         return {
             "assessment_id": assessment_id,
             "timeframe": timeframe,
