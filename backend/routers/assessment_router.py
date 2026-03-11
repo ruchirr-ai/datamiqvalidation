@@ -1116,7 +1116,7 @@ async def get_query_insights(
         est_concurrent_slots = max(1, min(avg_slot_ms_per_query / 30000, 2000)) if avg_slot_ms_per_query > 0 else 1
         # wall_clock_ms ≈ slot_ms / concurrent_slots
         max_query_runtime_seconds = round((max_slot_ms / max(est_concurrent_slots, 1)) / 1000, 2) if max_slot_ms > 0 else 0
-        min_query_runtime_seconds = round((min_slot_ms / max(est_concurrent_slots, 1)) / 1000, 2) if min_slot_ms > 0 else 0
+        min_query_runtime_seconds = round((min_slot_ms / max(est_concurrent_slots, 1)) / 1000, 4) if min_slot_ms > 0 else 0
         avg_query_runtime_seconds = round((avg_slot_ms_per_query / max(est_concurrent_slots, 1)) / 1000, 2) if avg_slot_ms_per_query > 0 else 0
 
         # Peak and avg slot utilization (estimated concurrent slots)

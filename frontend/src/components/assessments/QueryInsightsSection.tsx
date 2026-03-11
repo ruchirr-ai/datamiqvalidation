@@ -117,10 +117,14 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
       return `${(seconds * 1000).toFixed(0)}ms`;
     } else if (seconds < 60) {
       return `${seconds.toFixed(2)}s`;
-    } else {
+    } else if (seconds < 3600) {
       const minutes = Math.floor(seconds / 60);
-      const remainingSeconds = seconds % 60;
-      return `${minutes}m ${remainingSeconds.toFixed(0)}s`;
+      const remainingSeconds = Math.floor(seconds % 60);
+      return `${minutes}m ${remainingSeconds}s`;
+    } else {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      return `${hours}h ${minutes}m`;
     }
   };
 
