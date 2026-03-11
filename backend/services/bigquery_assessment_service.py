@@ -836,7 +836,7 @@ class BigQueryAssessmentService:
             state,
             error_result
         FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.JOBS_BY_PROJECT`
-        WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 180 DAY)
+        WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
             AND job_type = 'QUERY'
             AND state = 'DONE'
         ORDER BY creation_time DESC

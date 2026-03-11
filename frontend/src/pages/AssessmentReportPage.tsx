@@ -403,57 +403,6 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
   <div className="section-content">
     <h2 className="section-heading">Assessment Summary</h2>
     
-    {/* Table of Contents */}
-    <div className="table-of-contents">
-      <h3 className="toc-heading">Quick Navigation</h3>
-      <div className="toc-grid">
-        <button className="toc-item" onClick={() => setActiveTab('datasets')}>
-          <Database size={16} />
-          <span>Datasets ({report.assessment.total_datasets})</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('tables')}>
-          <TableIcon size={16} />
-          <span>Tables ({report.assessment.total_tables})</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('columns')}>
-          <TableIcon size={16} />
-          <span>Columns</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('views')}>
-          <Eye size={16} />
-          <span>Views ({report.assessment.total_views})</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('stored-procedures')}>
-          <Code size={16} />
-          <span>Stored Procedures ({report.assessment.total_routines})</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('ml-models')}>
-          <Brain size={16} />
-          <span>ML Models ({report.assessment.total_ml_models})</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('query-insights')}>
-          <Activity size={16} />
-          <span>Query Insights</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('user-insights')}>
-          <Users size={16} />
-          <span>User Insights</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('security')}>
-          <Shield size={16} />
-          <span>Security Policies</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('recommendations')}>
-          <TrendingUp size={16} />
-          <span>Recommendations</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('tco')}>
-          <DollarSign size={16} />
-          <span>TCO Analysis</span>
-        </button>
-      </div>
-    </div>
-    
     {/* Summary Cards */}
     <div className="summary-grid">
       <div className="summary-card">
