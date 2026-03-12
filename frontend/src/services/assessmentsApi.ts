@@ -358,17 +358,21 @@ export interface ProvisionedCosts extends TCOCostBreakdown {
   vcpu_total?: number;
   memory_gb_total?: number;
   sizing_basis?: {
-    avg_vcpus_needed: number;
-    peak_vcpus: number;
-    peak_slots: number;
-    monthly_slot_hours: number;
-    vcpus_per_node: number;
-    nodes_for_compute: number;
-    nodes_for_storage: number;
-    nodes_for_peak: number;
-    sizing_driver: string;
+    avg_vcpus_needed?: number;
+    peak_vcpus?: number;
+    avg_slots?: number;
+    peak_slots?: number;
+    base_memory_gib?: number;
+    monthly_slot_hours?: number;
+    vcpus_per_node?: number;
+    slices_per_node?: number;
+    nodes_for_compute?: number;
+    nodes_for_storage?: number;
+    peak_to_base_ratio?: number;
+    sizing_driver?: string;
   };
   sizing_rationale?: string[];
+  concurrency_scaling?: boolean;
 }
 
 export interface ServerlessCosts extends TCOCostBreakdown {

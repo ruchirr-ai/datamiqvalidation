@@ -1982,6 +1982,7 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
               <div className="rec-config-row"><span>Nodes</span><span>{prov.num_nodes}</span></div>
               {prov.vcpu_total && <div className="rec-config-row"><span>Total vCPUs</span><span>{prov.vcpu_total}</span></div>}
               {prov.memory_gb_total && <div className="rec-config-row"><span>Total Memory</span><span>{prov.memory_gb_total} GB</span></div>}
+              {prov.concurrency_scaling && <div className="rec-config-row"><span>Concurrency Scaling</span><span style={{ color: '#22c55e' }}>Enabled</span></div>}
               <div className="rec-config-row"><span>Compute</span><span>{fmt(prov.compute_monthly)}/mo</span></div>
               <div className="rec-config-row"><span>Storage</span><span>{fmt(prov.storage_monthly)}/mo</span></div>
               <div className="rec-config-row rec-config-row-total"><span>On-Demand</span><span>{fmt(prov.monthly)}/mo</span></div>

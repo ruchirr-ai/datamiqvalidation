@@ -436,9 +436,11 @@ class RecommendationEngine:
         rpu_hours_monthly = workload.get('estimated_rpu_hours_monthly', 0)
         peak_slots = workload.get('estimated_peak_slots', 1)
 
+        avg_slots = workload.get('avg_concurrent_slots', peak_slots)
+
         # --- Provisioned Cluster Recommendation ---
         provisioned = self._recommend_provisioned(
-            total_size_gb, total_queries, monthly_slot_hours, peak_slots
+            total_size_gb, total_queries, monthly_slot_hours, peak_slots, avg_slots
         )
 
         # --- Serverless Recommendation ---
@@ -534,33 +536,35 @@ class RecommendationEngine:
 
     def _recommend_provisioned(
         self, size_gb: float, query_count: int,
-        monthly_slot_hours: float, peak_slots: float
+        monthly_slot_hours: float, peak_slots: float,
+        avg_slots: float = 0
     ) -> Dict:
         """
         Recommend provisioned cluster configuration.
 
-        Mapping methodology (BQ Slots → Redshift RA3):
-        - 1 BQ slot = 1 GiB memory equivalent
-        - Peak BQ slots determines the memory footprint needed
-        - RA3 node selection based on memory:
-            ra3.xlplus:   32 GiB/node → up to ~500 slots (16 nodes)
-            ra3.4xlarge:  96 GiB/node → up to ~1,800 slots (19 nodes)
-            ra3.16xlarge: 384 GiB/node → up to ~5,000 slots (13 nodes)
+        Sizing approach:
+        - Base cluster sized for SUSTAINED workload (avg concurrent slots),
+          not the absolute peak. This keeps node count practical.
+        - Concurrency scaling handles burst/peak traffic automatically
+          by spinning up transient clusters on demand.
+        - Mapping: 1 BQ slot ≈ 1 GiB memory equivalent.
 
         Node specs (official AWS docs):
           ra3.xlplus:   4 vCPU, 32 GiB RAM, 2 slices/node, 2-32 nodes
           ra3.4xlarge:  12 vCPU, 96 GiB RAM, 4 slices/node, 2-32 nodes
           ra3.16xlarge: 48 vCPU, 384 GiB RAM, 16 slices/node, 2-128 nodes
         """
-        # Memory needed = peak BQ slots × 1 GiB per slot
-        memory_needed_gib = max(32, math.ceil(peak_slots))
+        # Size base cluster for sustained load (avg slots with headroom)
+        # Use avg_slots × 1.5 headroom factor, but cap at peak
+        base_slots = avg_slots if avg_slots > 0 else peak_slots
+        base_memory_gib = max(32, math.ceil(base_slots * 1.5))
+        base_memory_gib = min(base_memory_gib, math.ceil(peak_slots))
 
-        # Try each RA3 node type, prefer the smallest that keeps node count reasonable
-        # ra3.xlplus (32 GiB/node): use for up to ~500 slots (16 nodes)
-        # ra3.4xlarge (96 GiB/node): use for ~600-1,800 slots
-        # ra3.16xlarge (384 GiB/node): use for ~2,000+ slots
+        # Also ensure minimum for data volume (1 node per ~200 GB)
+        min_nodes_for_storage = max(2, math.ceil(size_gb / 200))
+
         ra3_options = [
-            ('ra3.xlplus', 32, 16),    # (type, mem_per_node, max_preferred_nodes)
+            ('ra3.xlplus', 32, 16),
             ('ra3.4xlarge', 96, 19),
             ('ra3.16xlarge', 384, 13),
         ]
@@ -569,28 +573,37 @@ class RecommendationEngine:
         num_nodes = 2
 
         for nt, mem_per_node, max_pref in ra3_options:
-            nodes = max(2, math.ceil(memory_needed_gib / mem_per_node))
+            nodes = max(2, math.ceil(base_memory_gib / mem_per_node))
+            nodes = max(nodes, min_nodes_for_storage)
             if nodes <= max_pref:
                 node_type = nt
                 num_nodes = nodes
                 break
         else:
-            # Fallback: use ra3.16xlarge with as many nodes as needed
             node_type = 'ra3.16xlarge'
-            num_nodes = max(2, math.ceil(memory_needed_gib / 384))
+            num_nodes = max(2, math.ceil(base_memory_gib / 384))
 
         specs = self.NODE_TYPES[node_type]
         num_nodes = min(num_nodes, specs['max_nodes'])
 
-        # Build rationale
+        # Concurrency scaling recommendation
+        needs_concurrency_scaling = peak_slots > (base_memory_gib * 1.2)
+        peak_to_base_ratio = round(peak_slots / max(base_memory_gib, 1), 1)
+
         rationale_parts = [
-            f"Peak BQ slots: {peak_slots:.0f} → {memory_needed_gib} GiB memory needed "
-            f"(1 GiB per BQ slot)",
+            f"Avg BQ slots: {avg_slots:.0f}, Peak BQ slots: {peak_slots:.0f}",
+            f"Base cluster sized for sustained load ({base_memory_gib} GiB) "
+            f"with concurrency scaling for peak bursts",
             f"Selected {node_type} ({specs['memory_gb']} GiB/node) × {num_nodes} nodes "
             f"= {specs['memory_gb'] * num_nodes} GiB total RAM",
             f"Total slices: {specs['slices_per_node'] * num_nodes} "
             f"({specs['slices_per_node']} slices/node × {num_nodes} nodes)",
         ]
+        if needs_concurrency_scaling:
+            rationale_parts.append(
+                f"Concurrency scaling enabled: peak ({peak_slots:.0f} slots) is "
+                f"{peak_to_base_ratio}× base capacity — burst traffic handled automatically"
+            )
 
         return {
             'node_type': node_type,
@@ -599,15 +612,17 @@ class RecommendationEngine:
             'vcpu_total': specs['vcpu'] * num_nodes,
             'memory_gb_total': specs['memory_gb'] * num_nodes,
             'use_case': specs['use_case'],
+            'concurrency_scaling': needs_concurrency_scaling,
             'sizing_basis': {
+                'avg_slots': round(avg_slots, 1),
                 'peak_slots': round(peak_slots, 1),
-                'memory_needed_gib': memory_needed_gib,
+                'base_memory_gib': base_memory_gib,
                 'monthly_slot_hours': round(monthly_slot_hours, 1),
                 'slices_per_node': specs['slices_per_node'],
                 'nodes_for_compute': num_nodes,
-                'nodes_for_storage': 2,
-                'nodes_for_peak': num_nodes,
-                'sizing_driver': 'memory',
+                'nodes_for_storage': min_nodes_for_storage,
+                'peak_to_base_ratio': peak_to_base_ratio,
+                'sizing_driver': 'sustained_workload',
             },
             'sizing_rationale': rationale_parts,
         }
