@@ -1137,11 +1137,14 @@ async def get_query_insights(
         min_query_runtime_seconds = round((min_slot_ms / max(est_concurrent_slots, 1)) / 1000, 4) if min_slot_ms > 0 else 0
         avg_query_runtime_seconds = round(avg_wall_clock_s, 2)
 
-        # Peak and avg slot utilization (estimated concurrent slots)
-        # Peak = top 5% of queries by slot_ms, averaged, divided by 30s assumed duration
-        peak_slot_values = sorted(slot_values, reverse=True)[:max(1, int(len(slot_values) * 0.05))]
-        peak_slot_ms_avg = sum(peak_slot_values) / len(peak_slot_values) if peak_slot_values else 0
-        peak_slot_utilization = round(peak_slot_ms_avg / 30000, 1) if peak_slot_ms_avg > 0 else 0
+        # Peak and avg slot utilization (estimated concurrent slots per query)
+        # Peak = max concurrent slots used by any single query
+        # This is the true peak parallelism needed for Redshift sizing
+        if per_query_concurrent_slots:
+            peak_slot_utilization = round(max(per_query_concurrent_slots), 1)
+        else:
+            # Fallback: use raw slot_ms / 30s for the heaviest query
+            peak_slot_utilization = round(max_slot_ms / 30000, 1) if max_slot_ms > 0 else 0
         avg_slot_utilization = round(est_concurrent_slots, 1)
 
         # Avg execution time = average slot-time per query (total CPU time / queries)
@@ -1149,23 +1152,37 @@ async def get_query_insights(
         # slot-time = concurrent_slots × wall_clock, so slot-time > wall-clock for parallel queries.
         avg_execution_time_seconds = (avg_slot_ms_per_query / 1000) if avg_slot_ms_per_query > 0 else 0
 
-        queries = [
-            {
+        queries = []
+        for q in page_stats:
+            q_slot_ms = q.slot_milliseconds or 0
+            # Compute per-query slot utilization using actual runtime when available
+            q_runtime_ms = 0
+            if q.query_metadata and isinstance(q.query_metadata, dict):
+                q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
+            if q_slot_ms > 0 and q_runtime_ms and q_runtime_ms > 0:
+                q_slot_util = round(max(1, q_slot_ms / q_runtime_ms), 1)
+                q_est_runtime = round((q_slot_ms / max(q_slot_ms / q_runtime_ms, 1)) / 1000, 2)
+            elif q_slot_ms > 0:
+                q_slot_util = round(q_slot_ms / 30000, 1)
+                q_est_runtime = round((q_slot_ms / max(est_concurrent_slots, 1)) / 1000, 2)
+            else:
+                q_slot_util = 0
+                q_est_runtime = 0
+
+            queries.append({
                 "job_id": q.job_id,
                 "execution_time": q.execution_time.isoformat() if q.execution_time else None,
                 "query_text": (q.query_text or '')[:500],
                 "bytes_scanned": q.bytes_scanned or 0,
                 "bytes_billed": q.bytes_scanned or 0,
-                "slot_milliseconds": q.slot_milliseconds or 0,
-                "slot_utilization": round((q.slot_milliseconds or 0) / 30000, 1) if (q.slot_milliseconds or 0) > 0 else 0,
-                "est_runtime_seconds": round(((q.slot_milliseconds or 0) / max(est_concurrent_slots, 1)) / 1000, 2) if (q.slot_milliseconds or 0) > 0 else 0,
+                "slot_milliseconds": q_slot_ms,
+                "slot_utilization": q_slot_util,
+                "est_runtime_seconds": q_est_runtime,
                 "cache_hit": q.cache_hit or False,
                 "cache_hit_status": "Hit" if q.cache_hit else "Miss",
                 "referenced_tables": q.referenced_tables or [],
                 "user_email": q.user_email or "Unknown"
-            }
-            for q in page_stats
-        ]
+            })
         
         return {
             "assessment_id": assessment_id,

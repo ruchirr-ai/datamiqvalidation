@@ -204,13 +204,14 @@ class RecommendationEngine:
         else:
             estimated_avg_concurrent_slots = max(1, min(avg_slot_ms / 30000, 2000))
 
-        # Peak slot utilization: top 5% of queries by slot_ms, averaged,
-        # then divided by assumed 30s wall-clock. This matches the Query
-        # Insights "Peak Slot Utilization" metric shown in the UI.
-        # It represents the system-wide peak slots in use (not per-query).
-        top_5pct_count = max(1, int(len(slot_values) * 0.05))
-        peak_slot_ms_avg = sum(slot_values[:top_5pct_count]) / top_5pct_count if slot_values else 0
-        estimated_peak_slots = max(1, peak_slot_ms_avg / 30000) if peak_slot_ms_avg > 0 else 1
+        # Peak slot utilization: max concurrent slots used by any single query.
+        # This is the true peak parallelism and drives Redshift sizing
+        # (1 BQ slot = 1 GiB memory). Must match the Query Insights UI metric.
+        if per_query_slots:
+            estimated_peak_slots = max(per_query_slots)
+        else:
+            # Fallback: use raw slot_ms / 30s for the heaviest query
+            estimated_peak_slots = max(1, slot_values[0] / 30000) if slot_values else 1
 
         # --- Redshift Serverless RPU-hour estimation ---
         # Step 1: Estimate wall-clock seconds per query
