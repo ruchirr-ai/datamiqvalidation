@@ -193,6 +193,20 @@
   transform: translateY(-1px);
 }
 
+.summary-card-clickable {
+  cursor: pointer;
+}
+
+.summary-card-clickable:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 4px 12px rgba(0, 112, 224, 0.15);
+  transform: translateY(-2px);
+}
+
+.summary-card-clickable:active {
+  transform: translateY(0);
+}
+
 .summary-icon {
   display: flex;
   align-items: center;

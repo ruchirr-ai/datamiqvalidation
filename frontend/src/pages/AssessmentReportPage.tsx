@@ -406,7 +406,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
     
     {/* Summary Cards */}
     <div className="summary-grid">
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('datasets')}>
         <div className="summary-icon" style={{ background: '#EFF6FF', color: '#2563EB' }}>
           <Database size={24} />
         </div>
@@ -416,7 +416,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('tables')}>
         <div className="summary-icon" style={{ background: '#F0FDF4', color: '#16A34A' }}>
           <TableIcon size={24} />
         </div>
@@ -426,7 +426,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('views')}>
         <div className="summary-icon" style={{ background: '#FEF3C7', color: '#CA8A04' }}>
           <Eye size={24} />
         </div>
@@ -436,7 +436,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('stored-procedures')}>
         <div className="summary-icon" style={{ background: '#FCE7F3', color: '#DB2777' }}>
           <Code size={24} />
         </div>
@@ -446,7 +446,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('ml-spark-models')}>
         <div className="summary-icon" style={{ background: '#EDE9FE', color: '#7C3AED' }}>
           <Brain size={24} />
         </div>
@@ -456,7 +456,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('ml-spark-models')}>
         <div className="summary-icon" style={{ background: '#FFF7ED', color: '#EA580C' }}>
           <Activity size={24} />
         </div>
