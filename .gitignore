@@ -68,6 +68,10 @@ frontend/dist/
 htmlcov/
 .pytest_cache/
 .tox/
+.hypothesis/
+
+# Virtual environments (additional)
+.venv/
 
 # Secrets (extra safety)
 secrets/

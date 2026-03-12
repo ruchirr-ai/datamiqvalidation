@@ -26,6 +26,8 @@ import { PathwayATestPage } from './pages/PathwayATestPage';
 import { BQExportTestPage } from './pages/BQExportTestPage';
 import { StandaloneConverterPage } from './pages/StandaloneConverterPage';
 import { BatchConverterPage } from './pages/BatchConverterPage';
+import { ValidationDashboardPage } from './pages/ValidationDashboardPage';
+import { ValidationDetailPage } from './pages/ValidationDetailPage';
 import { WorkspacesPage } from './pages/WorkspacesPage';
 import { CopyHistoryPage } from './pages/CopyHistoryPage';
 import { TaskHistoryPage } from './pages/TaskHistoryPage';
@@ -137,6 +139,7 @@ const AppContent: React.FC = () => {
   // Determine current page context for ChatAgent
   const getCurrentPageContext = () => {
     const path = location.pathname;
+    if (path.includes('/validations')) return 'validations';
     if (path.includes('/assessments')) return 'assessments';
     if (path.includes('/connections')) return 'connections';
     if (path.includes('/migrations')) return 'migrations';
@@ -183,6 +186,8 @@ const AppContent: React.FC = () => {
                   <Route path="/migrations/bq-export-test" element={<BQExportTestPage />} />
                   <Route path="/converter" element={<StandaloneConverterPage />} />
                   <Route path="/converter/batch" element={<BatchConverterPage />} />
+                  <Route path="/validations" element={<ValidationDashboardPage />} />
+                  <Route path="/validations/:runId" element={<ValidationDetailPage />} />
                   <Route path="/monitoring/copy-history" element={<CopyHistoryPage />} />
                   <Route path="/monitoring/task-history" element={<TaskHistoryPage />} />
                   <Route path="/jobs" element={<JobsPage />} />
