@@ -29,6 +29,224 @@
   color: var(--color-text-secondary);
 }
 
+/* Actions area */
+.batch-history__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Refresh button */
+.batch-history .batch-history__refresh-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #66748C !important;
+  background: #fff !important;
+  border: 1px solid #E5E7EB !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  white-space: nowrap !important;
+}
+
+.batch-history .batch-history__refresh-btn:hover {
+  background: #EFF5FF !important;
+  color: #1F2937 !important;
+  border-color: #2A6BDB !important;
+}
+
+/* Manage History / Cancel button */
+.batch-history .batch-history__manage-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 6px 14px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #1F2937 !important;
+  background: #fff !important;
+  border: 1px solid #E5E7EB !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  white-space: nowrap !important;
+}
+
+.batch-history .batch-history__manage-btn:hover {
+  background: #EFF5FF !important;
+  border-color: #2A6BDB !important;
+  color: #2A6BDB !important;
+}
+
+/* Delete Selected button */
+.batch-history .batch-history__delete-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 6px 14px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #DC2626 !important;
+  background: #fff !important;
+  border: 1px solid #DC2626 !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  white-space: nowrap !important;
+}
+
+.batch-history .batch-history__delete-btn:hover:not(:disabled) {
+  background: #DC2626 !important;
+  color: #fff !important;
+}
+
+.batch-history .batch-history__delete-btn:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+}
+
+/* View Logs button */
+.batch-history .batch-history__view-logs-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #2A6BDB !important;
+  background: transparent !important;
+  border: 1px solid #2A6BDB !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  white-space: nowrap !important;
+}
+
+.batch-history .batch-history__view-logs-btn:hover {
+  background: #EFF5FF !important;
+}
+
+/* Retry button */
+.batch-history .batch-history__retry-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 6px 14px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  color: #2A6BDB !important;
+  background: #fff !important;
+  border: 1px solid #2A6BDB !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.batch-history .batch-history__retry-btn:hover {
+  background: #EFF5FF !important;
+}
+
+/* Confirmation dialog overlay */
+.batch-history .batch-history__confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.batch-history .batch-history__confirm-dialog {
+  background: #fff;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+}
+
+.batch-history .batch-history__confirm-dialog p {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: #1F2937;
+  line-height: 1.5;
+}
+
+.batch-history .batch-history__confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.batch-history .batch-history__confirm-actions button {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 8px 16px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  white-space: nowrap !important;
+}
+
+.batch-history .batch-history__confirm-actions button:first-child {
+  color: #66748C !important;
+  background: #fff !important;
+  border: 1px solid #E5E7EB !important;
+}
+
+.batch-history .batch-history__confirm-actions button:first-child:hover {
+  background: #EFF5FF !important;
+  border-color: #66748C !important;
+}
+
+.batch-history .batch-history__confirm-delete-btn {
+  color: #fff !important;
+  background: #DC2626 !important;
+  border: 1px solid #DC2626 !important;
+}
+
+.batch-history .batch-history__confirm-delete-btn:hover:not(:disabled) {
+  background: #B91C1C !important;
+  border-color: #B91C1C !important;
+}
+
+.batch-history .batch-history__confirm-delete-btn:disabled {
+  opacity: 0.6 !important;
+  cursor: not-allowed !important;
+}
+
+/* Pagination buttons */
+.batch-history .batch-history__page-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  background: transparent !important;
+  border: 1px solid #E5E7EB !important;
+  border-radius: 6px !important;
+  color: #66748C !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.batch-history .batch-history__page-btn:hover:not(:disabled) {
+  background: #EFF5FF !important;
+  color: #1F2937 !important;
+}
+
+.batch-history .batch-history__page-btn:disabled {
+  opacity: 0.4 !important;
+  cursor: not-allowed !important;
+}
+
 /* Table */
 .batch-history__table {
   width: 100%;
@@ -107,13 +325,34 @@
   color: var(--color-error);
 }
 
+/* Asset name */
+.batch-history__asset-name {
+  font-weight: var(--font-weight-medium);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-history__asset-name--empty {
+  color: var(--color-text-disabled);
+  font-style: italic;
+  font-weight: var(--font-weight-normal);
+}
+
+/* Asset type */
+.batch-history__asset-type {
+  color: var(--color-text-secondary);
+}
+
 /* Date */
 .batch-history__date {
   color: var(--color-text-secondary);
   white-space: nowrap;
 }
 
-/* Empty state */
+/* Loading, empty, error states */
+.batch-history__loading,
 .batch-history__empty {
   display: flex;
   flex-direction: column;
@@ -123,6 +362,88 @@
   gap: 8px;
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
+}
+
+.batch-history__error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 20px;
+  gap: 8px;
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+}
+
+/* Expanded job detail */
+.batch-history__detail-row td {
+  padding: 0 !important;
+  background: var(--color-bg-secondary, #F7F7F7);
+}
+
+.batch-history__jobs {
+  padding: 16px 20px;
+}
+
+.batch-history__jobs-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  margin: 0 0 12px;
+}
+
+.batch-history__jobs-loading,
+.batch-history__jobs-empty {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  padding: 8px 0;
+}
+
+.batch-history__jobs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-xs);
+}
+
+.batch-history__jobs-table th {
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.batch-history__jobs-table td {
+  padding: 8px 12px;
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-divider);
+  vertical-align: middle;
+}
+
+/* Checkbox column */
+.batch-history__checkbox-col {
+  width: 40px;
+  text-align: center;
+}
+
+/* Pagination */
+.batch-history__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  border-top: 1px solid var(--color-divider);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.batch-history__page-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* Responsive */

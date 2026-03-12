@@ -1,7 +1,7 @@
 """create validation tables
 
-Revision ID: 029
-Revises: 028
+Revision ID: 031
+Revises: 030
 Create Date: 2026-03-15
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
 # revision identifiers, used by Alembic.
-revision = '029'
-down_revision = '028'
+revision = '031'
+down_revision = '030'
 branch_labels = None
 depends_on = None
 
