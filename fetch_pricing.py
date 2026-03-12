@@ -51,17 +51,22 @@ with urllib.request.urlopen(full_pricing_url) as resp:
 products = pricing_data.get("products", {})
 terms = pricing_data.get("terms", {})
 
-# Debug: list all product families
+# Debug: list all product families and usage types
 families = set()
+usage_types = set()
 sample_attrs = None
 for sku, product in products.items():
     attrs = product.get("attributes", {})
     families.add(attrs.get("productFamily", ""))
-    if not sample_attrs and "ra3" in str(attrs).lower():
+    ut = attrs.get("usagetype", "")
+    if "ra3" in ut.lower():
+        usage_types.add(ut)
+    if not sample_attrs and "ra3" in str(attrs).lower() and "Node" in ut:
         sample_attrs = attrs
 print(f"Product families found: {sorted(families)}")
+print(f"RA3 usage types: {sorted(usage_types)}")
 if sample_attrs:
-    print(f"Sample RA3 product attributes: {json.dumps(sample_attrs, indent=2)}")
+    print(f"Sample RA3 compute product: {json.dumps(sample_attrs, indent=2)}")
 
 # Find ra3 node products in us-east-1
 target_types = ["ra3.xlplus", "ra3.4xlarge", "ra3.16xlarge"]
@@ -71,16 +76,18 @@ for sku, product in products.items():
     attrs = product.get("attributes", {})
     instance_type = attrs.get("instanceType", "")
     location = attrs.get("location", "")
-    product_family = attrs.get("productFamily", "")
+    usage_type = attrs.get("usagetype", "")
     
-    # Only match Compute Instance products (not Concurrency Scaling, Storage, etc.)
+    # Match compute node entries (not concurrency scaling, not free tier)
     if (instance_type in target_types 
         and "Virginia" in location 
-        and product_family == "Compute Instance"):
+        and "Node" in usage_type
+        and "CS" not in usage_type
+        and "Free" not in usage_type):
         found_products[instance_type] = {
             "sku": sku,
             "location": location,
-            "product_family": product_family,
+            "usage_type": usage_type,
             "instance_type": instance_type,
             "vcpu": attrs.get("vcpu"),
             "memory": attrs.get("memory"),
