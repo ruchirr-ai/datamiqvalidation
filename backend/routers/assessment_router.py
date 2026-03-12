@@ -919,6 +919,7 @@ async def get_assessment_tco(
 
         assessment_dict = {
             'total_size_mb': assessment.total_size_mb or 0,
+            'assessment_data': assessment.assessment_data or {},
         }
         tables_list = [
             {
