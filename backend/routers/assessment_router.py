@@ -837,6 +837,7 @@ async def get_assessment_recommendations(assessment_id: int, db: Session = Depen
             'total_size_mb': assessment.total_size_mb or 0,
             'total_tables': assessment.total_tables or 0,
             'total_datasets': assessment.total_datasets or 0,
+            'assessment_data': assessment.assessment_data or {},
         }
         tables_list = [
             {
@@ -868,6 +869,7 @@ async def get_assessment_recommendations(assessment_id: int, db: Session = Depen
                 'bytes_scanned': q.bytes_scanned or 0,
                 'slot_milliseconds': q.slot_milliseconds or 0,
                 'user_email': q.user_email,
+                'query_metadata': q.query_metadata or {},
                 'execution_time': q.execution_time.isoformat() if q.execution_time else None,
             }
             for q in query_stats
@@ -1182,6 +1184,13 @@ async def get_query_insights(
         else:
             peak_slot_utilization = 0
             avg_slot_utilization = round(est_concurrent_slots, 1)
+
+        # Override with JOBS_TIMELINE data if available (most accurate source)
+        assessment_data = assessment.assessment_data or {}
+        slot_timeline = assessment_data.get('slot_timeline') or {}
+        if slot_timeline.get('peak_concurrent_slots', 0) > 0:
+            peak_slot_utilization = round(slot_timeline['peak_concurrent_slots'], 1)
+            avg_slot_utilization = round(slot_timeline.get('avg_concurrent_slots', avg_slot_utilization), 1)
 
         # Avg execution time = average slot-time per query (total CPU time / queries)
         # This differs from avg_query_runtime_seconds which is estimated wall-clock time.

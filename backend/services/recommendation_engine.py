@@ -81,6 +81,15 @@ class RecommendationEngine:
         # Compute workload metrics from BQ query stats
         workload = self._analyze_workload(query_stats)
 
+        # Override peak/avg slots with JOBS_TIMELINE data if available
+        assessment_data = assessment.get('assessment_data') or {}
+        slot_timeline = assessment_data.get('slot_timeline') or {}
+        if slot_timeline.get('peak_concurrent_slots', 0) > 0:
+            workload['estimated_peak_slots'] = slot_timeline['peak_concurrent_slots']
+            workload['avg_concurrent_slots'] = slot_timeline.get('avg_concurrent_slots', workload.get('avg_concurrent_slots', 0))
+            workload['p95_concurrent_slots'] = slot_timeline.get('p95_concurrent_slots', 0)
+            workload['slot_timeline_source'] = 'JOBS_TIMELINE_BY_PROJECT'
+
         # 1. Query classification
         query_classification = self._classify_queries(query_stats)
 

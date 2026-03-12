@@ -118,7 +118,14 @@ class AssessmentRepository:
                 assessment.total_size_mb = total_size_mb
             
             self.db.commit()
-    
+
+    def update_assessment_data(self, assessment_id: int, data: dict):
+        """Update the assessment_data JSONB field."""
+        assessment = self.get_by_id(assessment_id)
+        if assessment:
+            assessment.assessment_data = data
+            self.db.commit()
+
     def delete_assessment(self, assessment_id: int):
         """Delete assessment (cascade will delete all related metadata)"""
         assessment = self.get_by_id(assessment_id)

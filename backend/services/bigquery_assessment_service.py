@@ -134,6 +134,15 @@ class BigQueryAssessmentService:
                 repo.bulk_create_query_stats(assessment_id, query_stats_data)
             print(f"✓ Collected {len(query_stats_data)} query statistics")
 
+            # 6b. Collect slot timeline from JOBS_TIMELINE_BY_PROJECT
+            print("Step 6b/14: Collecting slot timeline...")
+            slot_timeline = await self.collect_slot_timeline()
+            # Store in assessment_data JSON field
+            existing_data = repo.get_by_id(assessment_id).assessment_data or {}
+            existing_data['slot_timeline'] = slot_timeline
+            repo.update_assessment_data(assessment_id, existing_data)
+            print(f"✓ Slot timeline collected")
+
             # 7. Collect ML models (REST API only — no INFORMATION_SCHEMA equivalent)
             print("Step 7/14: Collecting ML models...")
             ml_models_data = await self.collect_ml_models()
@@ -883,6 +892,57 @@ class BigQueryAssessmentService:
             query_stats = await self._collect_query_stats_rest_api()
 
         return query_stats
+
+    async def collect_slot_timeline(self) -> Dict:
+        """
+        Query JOBS_TIMELINE_BY_PROJECT to get actual concurrent slot usage
+        over time. This is the most accurate source for peak/avg slot metrics.
+        Returns peak_concurrent_slots, avg_concurrent_slots, and timeline data.
+        """
+        region = self._detect_region()
+        result = {
+            'peak_concurrent_slots': 0,
+            'avg_concurrent_slots': 0,
+            'p95_concurrent_slots': 0,
+            'timeline_source': 'JOBS_TIMELINE_BY_PROJECT',
+        }
+
+        query = f"""
+        SELECT
+            period_start,
+            SUM(period_slot_ms) / 1000 AS concurrent_slots_used
+        FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.JOBS_TIMELINE_BY_PROJECT`
+        WHERE
+            job_creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+            AND period_start >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+        GROUP BY period_start
+        ORDER BY concurrent_slots_used DESC
+        """
+
+        try:
+            print(f"  Querying JOBS_TIMELINE_BY_PROJECT for slot timeline (region-{region})...")
+            query_job = self.client.query(query)
+            rows = list(query_job.result())
+
+            if rows:
+                slot_values = [float(r.concurrent_slots_used or 0) for r in rows]
+                result['peak_concurrent_slots'] = round(max(slot_values), 1)
+                result['avg_concurrent_slots'] = round(
+                    sum(slot_values) / len(slot_values), 1
+                )
+                # P95
+                sorted_vals = sorted(slot_values)
+                p95_idx = int(len(sorted_vals) * 0.95)
+                result['p95_concurrent_slots'] = round(sorted_vals[min(p95_idx, len(sorted_vals) - 1)], 1)
+                result['timeline_periods_count'] = len(rows)
+
+            print(f"  ✓ Slot timeline: peak={result['peak_concurrent_slots']}, "
+                  f"avg={result['avg_concurrent_slots']}, p95={result['p95_concurrent_slots']}")
+        except Exception as e:
+            print(f"  ⚠ JOBS_TIMELINE_BY_PROJECT failed: {e}")
+            print(f"  Will fall back to sweep-line estimation from JOBS data")
+
+        return result
 
     async def _collect_query_stats_rest_api(self) -> List[Dict]:
         """Fallback: collect query statistics via BigQuery REST API (client.list_jobs)."""
