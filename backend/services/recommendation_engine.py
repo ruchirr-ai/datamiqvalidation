@@ -578,8 +578,10 @@ class RecommendationEngine:
             target_memory_gib = max(32, math.ceil(peak_slots * 0.7))
             use_concurrency_scaling = peak_slots > (target_memory_gib * 1.3)
         
-        # Ensure minimum for data volume (1 node per ~200 GB)
-        min_nodes_for_storage = max(2, math.ceil(size_gb / 200))
+        # Ensure minimum for data volume
+        # For RA3 nodes, storage is managed (decoupled from compute), so storage
+        # rarely drives node count. Use actual storage capacity per node type.
+        # For DC2 nodes, storage is local SSD, so it can drive node count.
         
         # Evaluate all viable node type combinations
         # Format: (node_type, memory_per_node, hourly_cost_per_node, max_recommended_nodes)
@@ -595,8 +597,12 @@ class RecommendationEngine:
         for node_type, mem_per_node, hourly_cost, max_nodes in ra3_options:
             # Calculate nodes needed for compute
             nodes_for_compute = max(2, math.ceil(target_memory_gib / mem_per_node))
-            # Ensure we meet storage requirements
-            nodes_needed = max(nodes_for_compute, min_nodes_for_storage)
+            
+            # Calculate nodes needed for storage using actual node storage capacity
+            node_storage_gb = self.NODE_TYPES[node_type]['storage_gb']
+            nodes_for_storage = max(2, math.ceil(size_gb / node_storage_gb)) if node_storage_gb > 0 else 2
+            
+            nodes_needed = max(nodes_for_compute, nodes_for_storage)
             
             # Skip if exceeds max nodes for this type
             if nodes_needed > max_nodes:
@@ -616,6 +622,8 @@ class RecommendationEngine:
                 best_option = {
                     'node_type': node_type,
                     'num_nodes': nodes_needed,
+                    'nodes_for_compute': nodes_for_compute,
+                    'nodes_for_storage': nodes_for_storage,
                     'total_memory': total_memory,
                     'total_slices': total_slices,
                     'monthly_cost': monthly_cost,
@@ -679,8 +687,8 @@ class RecommendationEngine:
                 'base_memory_gib': target_memory_gib,
                 'monthly_slot_hours': round(monthly_slot_hours, 1),
                 'slices_per_node': specs['slices_per_node'],
-                'nodes_for_compute': num_nodes,
-                'nodes_for_storage': min_nodes_for_storage,
+                'nodes_for_compute': best_option['nodes_for_compute'] if best_option else num_nodes,
+                'nodes_for_storage': best_option['nodes_for_storage'] if best_option else 2,
                 'peak_to_base_ratio': peak_to_base_ratio,
                 'peak_to_avg_ratio': round(peak_to_avg_ratio, 1),
                 'sizing_driver': 'cost_optimized_for_peak' if peak_to_avg_ratio <= 3 else 'sustained_with_bursts',
