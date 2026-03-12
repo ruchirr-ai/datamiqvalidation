@@ -129,7 +129,7 @@ export const AssessmentsPage: React.FC = () => {
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status.toLowerCase()) {
+    switch (status.trim().toLowerCase()) {
       case 'completed':
         return <Badge variant="success">Completed</Badge>;
       case 'running':
@@ -274,7 +274,7 @@ export const AssessmentsPage: React.FC = () => {
                   <td>
                     <div className="assessment-name-cell">
                       <FileSearch size={16} style={{ color: '#66748C', flexShrink: 0 }} />
-                      {assessment.status === 'completed' ? (
+                      {assessment.status?.trim() === 'completed' ? (
                         <span 
                           className="assessment-name assessment-name-link"
                           onClick={() => handleViewReport(assessment.id)}
@@ -312,13 +312,13 @@ export const AssessmentsPage: React.FC = () => {
                             <ClipboardList size={15} /> View Logs
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            disabled={assessment.status !== 'completed'}
+                            disabled={assessment.status?.trim() !== 'completed'}
                             onSelect={() => handleViewReport(assessment.id)}
                           >
                             <FileText size={15} /> View Report
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            disabled={assessment.status !== 'completed'}
+                            disabled={assessment.status?.trim() !== 'completed'}
                             onSelect={() => handleDownloadReport(assessment)}
                           >
                             <Download size={15} /> Download Report

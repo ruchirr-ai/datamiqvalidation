@@ -281,7 +281,7 @@ export const AssessmentReportPage: React.FC = () => {
             <FileSearch size={24} />
             {report.assessment.name}
           </h1>
-          <Badge variant={report.assessment.status === 'completed' ? 'success' : 'warning'}>
+          <Badge variant={report.assessment.status?.trim() === 'completed' ? 'success' : 'warning'}>
             {report.assessment.status}
           </Badge>
         </div>
