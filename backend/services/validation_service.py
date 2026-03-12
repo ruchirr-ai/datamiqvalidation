@@ -401,25 +401,62 @@ class ValidationService:
             else {}
         )
 
-        # Override database/schema from migration config if available
-        # (the migration knows the exact Redshift database and schema it loaded into)
+        # Override database/schema using the same naming convention as
+        # pathway_c's _execute_load_stage:
+        #   database = source_project_id.replace('-', '_').lower()
+        #   schema   = source_dataset
+        # The migration's target_database/target_schema fields are often
+        # stale placeholders (e.g. "target_db" / "public") and do NOT
+        # reflect the actual Redshift database created during migration.
         if migration:
-            if migration.target_database:
-                target_conn_params["database"] = migration.target_database
+            # First try checkpoint_data.load_summary (gold standard — set
+            # by pathway_c after a successful load).
+            load_summary = (migration.checkpoint_data or {}).get("load_summary", {})
+            actual_db = load_summary.get("database_name")
+            actual_schema = load_summary.get("schema_name")
+
+            if not actual_db and migration.source_project_id:
+                actual_db = migration.source_project_id.replace("-", "_").lower()
+            if not actual_schema and migration.source_dataset:
+                actual_schema = migration.source_dataset
+
+            if actual_db:
+                target_conn_params["database"] = actual_db
                 logger.info(
-                    f"Using migration target_database: {migration.target_database}",
+                    f"Using computed Redshift database: {actual_db}",
                     extra={"run_id": run_id},
                 )
-            if migration.target_schema:
-                dataset_name = migration.target_schema
+            if actual_schema:
+                dataset_name = actual_schema
                 logger.info(
-                    f"Using migration target_schema as dataset: {migration.target_schema}",
+                    f"Using computed Redshift schema / BQ dataset: {actual_schema}",
                     extra={"run_id": run_id},
                 )
 
         type_mapping_overrides = run.type_mapping_overrides or {}
         batch_size = run.batch_size or 10000
         total_tables = len(table_results)
+
+        # Log connection details for debugging (no secrets)
+        logger.info(
+            "Validation connection details",
+            extra={
+                "run_id": run_id,
+                "target_host": target_conn_params.get("host", "N/A"),
+                "target_port": target_conn_params.get("port", "N/A"),
+                "target_database": target_conn_params.get("database", "N/A"),
+                "target_username": target_conn_params.get("username", "N/A"),
+                "source_has_credentials": bool(
+                    source_conn_params.get("credentials_json")
+                    or source_conn_params.get("service_account_key")
+                    or source_conn_params.get("credentials")
+                ),
+                "source_project_id": source_conn_params.get("project_id")
+                    or source_conn_params.get("projectId")
+                    or "N/A",
+                "dataset_name": dataset_name,
+            },
+        )
 
         # 7. Process each table sequentially ------------------------------
         tables_passed = 0
