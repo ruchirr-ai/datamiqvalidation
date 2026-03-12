@@ -652,6 +652,55 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
         </div>
       </div>
 
+      {/* Compute & Data Metrics Row */}
+      <div className="query-insights-summary" style={{ marginTop: '12px' }}>
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Zap size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{((data.summary.total_slot_milliseconds ?? 0) / 3600000).toFixed(1)}h</div>
+            <div className="summary-label">Total Slot Hours</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Total BQ compute consumption
+            </div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Database size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.total_query_count > 0 ? formatBytes(data.summary.total_bytes_scanned / data.summary.total_query_count) : '0 B'}</div>
+            <div className="summary-label">Avg Bytes Scanned / Query</div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Users size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.active_users_count ?? 0}</div>
+            <div className="summary-label">Active Users</div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Activity size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.total_query_count > 0 ? ((data.summary.cache_hits / data.summary.total_query_count) * 100).toFixed(1) : 0}%</div>
+            <div className="summary-label">Cache Hits</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              {formatNumber(data.summary.cache_hits)} hits / {formatNumber(data.summary.cache_misses)} misses
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Charts Section */}
       <div className="charts-section">
         {renderPieChart()}

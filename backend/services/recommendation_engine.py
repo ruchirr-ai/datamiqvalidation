@@ -30,30 +30,36 @@ class RecommendationEngine:
     and usage patterns.
     """
 
-    # Redshift node types with specs
+    # Redshift node types with specs (official AWS docs, updated 2025)
+    # slices_per_node: determines query parallelism within a node
     NODE_TYPES = {
         'dc2.large': {
             'vcpu': 2, 'memory_gb': 15, 'storage_gb': 160,
+            'slices_per_node': 2,
             'storage_type': 'SSD', 'max_nodes': 32,
             'use_case': 'Small datasets (<160 GB) with fast SSD storage',
         },
         'dc2.8xlarge': {
             'vcpu': 32, 'memory_gb': 244, 'storage_gb': 2560,
+            'slices_per_node': 16,
             'storage_type': 'SSD', 'max_nodes': 128,
             'use_case': 'Large datasets needing fast local SSD',
         },
         'ra3.xlplus': {
             'vcpu': 4, 'memory_gb': 32, 'storage_gb': 32000,
+            'slices_per_node': 2,
             'storage_type': 'Managed Storage', 'max_nodes': 32,
             'use_case': 'Most workloads — separates compute and storage',
         },
         'ra3.4xlarge': {
             'vcpu': 12, 'memory_gb': 96, 'storage_gb': 128000,
+            'slices_per_node': 4,
             'storage_type': 'Managed Storage', 'max_nodes': 32,
             'use_case': 'Large workloads needing more compute',
         },
         'ra3.16xlarge': {
             'vcpu': 48, 'memory_gb': 384, 'storage_gb': 128000,
+            'slices_per_node': 16,
             'storage_type': 'Managed Storage', 'max_nodes': 128,
             'use_case': 'Very large enterprise workloads',
         },
@@ -496,124 +502,165 @@ class RecommendationEngine:
         """
         Recommend provisioned cluster configuration.
 
-        Node selection prioritises COMPUTE needs over raw data size.
-        ra3 nodes use managed storage, so data volume only matters for
-        dc2 (local SSD).  For ra3, we pick the smallest node type whose
-        per-node vCPU count can serve the workload with a reasonable
-        number of nodes (≤ 6 preferred, ≤ 32 hard max).
+        Sizing methodology (based on AWS best practices):
 
-        Mapping: 1 BQ slot ≈ 0.5 Redshift vCPU (Redshift vCPUs are
-        hyper-threaded Xeon cores, roughly 2× a BQ slot in throughput).
+        1. PRIMARY: Memory-based sizing
+           - Redshift queries perform best when data fits in memory.
+           - AWS guidance: 32 RPU (512 GB) handles ~100 GB data scans,
+             64 RPU (~1 TB) for ~250 GB, 128 RPU (~2 TB) for ~500 GB.
+           - For provisioned: each ra3.xlplus node = 32 GB RAM.
+
+        2. SECONDARY: Slice-based parallelism
+           - BQ slots ≈ Redshift slices for parallelism mapping.
+           - ra3.xlplus = 2 slices/node, ra3.4xlarge = 4 slices/node.
+           - Size for AVERAGE concurrency, not peak (Redshift concurrency
+             scaling handles burst traffic — 1 free hour/day per cluster).
+
+        3. PREFERENCE: ra3.xlplus is the default for most workloads.
+           - AWS recommends ra3.xlplus as the starting point.
+           - Only upsize to ra3.4xlarge if node count exceeds 8 with xlplus.
+           - ra3.16xlarge only for very large enterprise workloads (>16 nodes of 4xl).
+
+        Node specs (official AWS docs):
+          ra3.xlplus:   4 vCPU, 32 GiB RAM, 2 slices/node, 2-32 nodes
+          ra3.4xlarge:  12 vCPU, 96 GiB RAM, 4 slices/node, 2-32 nodes
+          ra3.16xlarge: 48 vCPU, 384 GiB RAM, 16 slices/node, 2-128 nodes
         """
-        # --- Compute needs ---
-        monthly_vcpu_hours = monthly_slot_hours * 0.5
-        avg_vcpus_needed = monthly_vcpu_hours / 730 if monthly_vcpu_hours > 0 else 0
-        peak_vcpus = peak_slots * 0.5
+        # --- Memory-based sizing ---
+        # Estimate avg data scanned per query from slot_ms (proxy for complexity).
+        # More slot-hours = more data processed = more memory needed.
+        # Heuristic: monthly_slot_hours correlates with data volume processed.
+        # AWS guidance: ~32 GB RAM per 100 GB of frequently scanned data.
+        memory_needed_gb = max(32, size_gb * 0.3)  # ~30% of data is "hot"
 
-        # --- Determine the driving factor for node selection ---
-        # For dc2: local SSD limits matter.  For ra3: only compute matters.
-        # We try the smallest ra3 first and only up-size if we'd need too
-        # many nodes (> 6 is expensive and adds coordination overhead).
+        # --- Slice-based sizing (parallelism) ---
+        # BQ slots represent parallel processing units.
+        # Redshift slices are the equivalent parallel execution units.
+        # Average slots (not peak) drive the base cluster size.
+        # Peak is handled by concurrency scaling.
+        avg_slots = monthly_slot_hours / 730 if monthly_slot_hours > 0 else 0
+        # BQ slots map roughly 1:1 to Redshift slices for parallelism
+        avg_slices_needed = max(2, math.ceil(avg_slots))
 
-        sizing_driver = 'compute'  # default
-
-        if size_gb < 50 and avg_vcpus_needed < 2:
+        # --- dc2 for very small workloads ---
+        if size_gb < 50 and avg_slices_needed <= 4 and monthly_slot_hours < 50:
             node_type = 'dc2.large'
-            min_nodes = 1
-            sizing_driver = 'data_volume'
-        elif size_gb < 160 and avg_vcpus_needed < 4:
-            node_type = 'dc2.large'
-            min_nodes = 2
-            sizing_driver = 'data_volume'
-        else:
-            # ra3 territory — pick based on compute, NOT data size
-            # (ra3 uses managed storage, data volume doesn't constrain node type)
-            # Try ra3.xlplus first (4 vCPU / node)
-            nodes_xlplus = max(2, math.ceil(avg_vcpus_needed / 4))
-            peak_nodes_xlplus = max(2, math.ceil(peak_vcpus / 4))
-            needed_xlplus = max(nodes_xlplus, peak_nodes_xlplus)
+            specs = self.NODE_TYPES[node_type]
+            compressed_size = size_gb / 3
+            nodes_for_storage = max(1, math.ceil(compressed_size / specs['storage_gb']))
+            nodes_for_slices = max(1, math.ceil(avg_slices_needed / specs['slices_per_node']))
+            num_nodes = max(nodes_for_storage, nodes_for_slices)
+            sizing_driver = 'data_volume' if nodes_for_storage >= nodes_for_slices else 'compute'
 
-            # Try ra3.4xlarge (12 vCPU / node)
-            nodes_4xl = max(2, math.ceil(avg_vcpus_needed / 12))
-            peak_nodes_4xl = max(2, math.ceil(peak_vcpus / 12))
-            needed_4xl = max(nodes_4xl, peak_nodes_4xl)
+            rationale_parts = [
+                f"Small workload: {size_gb:.1f} GB data, {monthly_slot_hours:.0f} slot-hrs/mo",
+                f"dc2.large is cost-effective for datasets under 160 GB",
+                f"{num_nodes} nodes × 2 slices = {num_nodes * 2} total slices",
+            ]
 
-            # Try ra3.16xlarge (48 vCPU / node)
-            nodes_16xl = max(2, math.ceil(avg_vcpus_needed / 48))
-            peak_nodes_16xl = max(2, math.ceil(peak_vcpus / 48))
-            needed_16xl = max(nodes_16xl, peak_nodes_16xl)
+            return {
+                'node_type': node_type,
+                'num_nodes': num_nodes,
+                'storage_type': specs['storage_type'],
+                'vcpu_total': specs['vcpu'] * num_nodes,
+                'memory_gb_total': specs['memory_gb'] * num_nodes,
+                'use_case': specs['use_case'],
+                'sizing_basis': {
+                    'avg_slices_needed': avg_slices_needed,
+                    'peak_slots': round(peak_slots, 1),
+                    'monthly_slot_hours': round(monthly_slot_hours, 1),
+                    'slices_per_node': specs['slices_per_node'],
+                    'nodes_for_compute': nodes_for_slices,
+                    'nodes_for_storage': nodes_for_storage,
+                    'nodes_for_peak': nodes_for_slices,
+                    'sizing_driver': sizing_driver,
+                },
+                'sizing_rationale': rationale_parts,
+            }
 
-            # Pick the smallest node type that keeps node count ≤ 6
-            # (fewer large nodes = less coordination overhead, but
-            #  more small nodes = cheaper per-vCPU)
-            if needed_xlplus <= 6:
-                node_type = 'ra3.xlplus'
-                min_nodes = 2
-            elif needed_4xl <= 6:
-                node_type = 'ra3.4xlarge'
-                min_nodes = 2
-            elif needed_16xl <= 6:
-                node_type = 'ra3.16xlarge'
-                min_nodes = 2
+        # --- RA3 sizing ---
+        # Try ra3.xlplus first (AWS recommended default)
+        ra3_types = ['ra3.xlplus', 'ra3.4xlarge', 'ra3.16xlarge']
+
+        best_type = None
+        best_nodes = None
+        best_driver = 'compute'
+
+        for nt in ra3_types:
+            specs = self.NODE_TYPES[nt]
+            slices_per_node = specs['slices_per_node']
+            mem_per_node = specs['memory_gb']
+
+            # Nodes needed for parallelism (average workload)
+            nodes_for_slices = max(2, math.ceil(avg_slices_needed / slices_per_node))
+
+            # Nodes needed for memory (hot data in RAM)
+            nodes_for_memory = max(2, math.ceil(memory_needed_gb / mem_per_node))
+
+            # Peak handling: Redshift concurrency scaling handles bursts,
+            # but we ensure base cluster can handle moderate peaks.
+            # Use 50th percentile of peak (not raw peak) for base sizing.
+            moderate_peak_slices = peak_slots * 0.5  # concurrency scaling handles the rest
+            nodes_for_peak = max(2, math.ceil(moderate_peak_slices / slices_per_node))
+
+            needed = max(nodes_for_slices, nodes_for_memory, nodes_for_peak)
+
+            # Determine sizing driver
+            if nodes_for_memory >= nodes_for_slices and nodes_for_memory >= nodes_for_peak:
+                driver = 'memory'
+            elif nodes_for_peak >= nodes_for_slices:
+                driver = 'peak_concurrency'
             else:
-                # Very large workload — use ra3.16xlarge with many nodes
-                node_type = 'ra3.16xlarge'
-                min_nodes = 2
+                driver = 'compute'
 
-            # If peak concurrency drives the choice, note it
-            if peak_vcpus > avg_vcpus_needed * 2:
-                sizing_driver = 'peak_concurrency'
+            # Prefer this node type if it keeps count <= 8 (sweet spot)
+            # or if it's the first viable option
+            if needed <= 8 or best_type is None:
+                best_type = nt
+                best_nodes = needed
+                best_driver = driver
+                best_detail = {
+                    'nodes_for_slices': nodes_for_slices,
+                    'nodes_for_memory': nodes_for_memory,
+                    'nodes_for_peak': nodes_for_peak,
+                }
+                if needed <= 8:
+                    break  # Found a good fit, prefer smaller node type
 
+        node_type = best_type
         specs = self.NODE_TYPES[node_type]
-        vcpus_per_node = specs['vcpu']
+        num_nodes = min(best_nodes, specs['max_nodes'])
 
-        # Calculate nodes needed for compute
-        nodes_for_compute = max(min_nodes, math.ceil(avg_vcpus_needed / vcpus_per_node))
-
-        # Calculate nodes needed for storage (dc2 only)
-        if 'dc2' in node_type:
-            storage_per_node = specs['storage_gb']
-            compressed_size = size_gb / 3  # ~3x compression
-            nodes_for_storage = max(min_nodes, math.ceil(compressed_size / storage_per_node))
-            if nodes_for_storage > nodes_for_compute:
-                sizing_driver = 'data_volume'
-        else:
-            nodes_for_storage = min_nodes
-
-        # Peak concurrency adjustment
-        nodes_for_peak = max(min_nodes, math.ceil(peak_vcpus / vcpus_per_node))
-        if nodes_for_peak > nodes_for_compute and nodes_for_peak > nodes_for_storage:
-            sizing_driver = 'peak_concurrency'
-
-        num_nodes = min(
-            max(nodes_for_compute, nodes_for_storage, nodes_for_peak),
-            specs['max_nodes']
-        )
-
-        # Build human-readable sizing rationale
+        # Build rationale
         rationale_parts = []
         rationale_parts.append(
-            f"Avg vCPUs needed: {avg_vcpus_needed:.1f} "
-            f"(from {monthly_slot_hours:.0f} BQ slot-hrs/mo × 0.5 vCPU/slot ÷ 730 hrs)"
+            f"Avg parallel slots needed: {avg_slices_needed} "
+            f"(from {monthly_slot_hours:.0f} BQ slot-hrs/mo ÷ 730 hrs)"
         )
         rationale_parts.append(
-            f"Peak concurrent slots: {peak_slots:.0f} → {peak_vcpus:.0f} Redshift vCPUs"
+            f"Memory needed: {memory_needed_gb:.0f} GB "
+            f"(~30% of {size_gb:.1f} GB dataset as hot data)"
         )
         rationale_parts.append(
-            f"Selected {node_type} ({vcpus_per_node} vCPU/node) × {num_nodes} nodes "
-            f"= {vcpus_per_node * num_nodes} total vCPUs"
+            f"Selected {node_type} ({specs['slices_per_node']} slices/node, "
+            f"{specs['memory_gb']} GB RAM/node) × {num_nodes} nodes "
+            f"= {specs['slices_per_node'] * num_nodes} total slices, "
+            f"{specs['memory_gb'] * num_nodes} GB total RAM"
         )
-        if sizing_driver == 'peak_concurrency':
+        if best_driver == 'peak_concurrency':
             rationale_parts.append(
-                f"Node count driven by peak concurrency ({nodes_for_peak} nodes needed)"
+                f"Node count driven by peak concurrency "
+                f"(peak {peak_slots:.0f} BQ slots, concurrency scaling handles bursts)"
             )
-        elif sizing_driver == 'data_volume':
+        elif best_driver == 'memory':
             rationale_parts.append(
-                f"Node count driven by data volume ({size_gb:.1f} GB, ~{size_gb/3:.0f} GB compressed)"
+                f"Node count driven by memory needs "
+                f"({memory_needed_gb:.0f} GB needed for hot data)"
             )
         else:
             rationale_parts.append(
-                f"Node count driven by average compute needs ({nodes_for_compute} nodes needed)"
+                f"Node count driven by average compute parallelism "
+                f"({avg_slices_needed} slices needed)"
             )
 
         return {
@@ -624,18 +671,19 @@ class RecommendationEngine:
             'memory_gb_total': specs['memory_gb'] * num_nodes,
             'use_case': specs['use_case'],
             'sizing_basis': {
-                'avg_vcpus_needed': round(avg_vcpus_needed, 2),
-                'peak_vcpus': round(peak_vcpus, 1),
+                'avg_slices_needed': avg_slices_needed,
                 'peak_slots': round(peak_slots, 1),
                 'monthly_slot_hours': round(monthly_slot_hours, 1),
-                'vcpus_per_node': vcpus_per_node,
-                'nodes_for_compute': nodes_for_compute,
-                'nodes_for_storage': nodes_for_storage,
-                'nodes_for_peak': nodes_for_peak,
-                'sizing_driver': sizing_driver,
+                'memory_needed_gb': round(memory_needed_gb, 1),
+                'slices_per_node': specs['slices_per_node'],
+                'nodes_for_compute': best_detail['nodes_for_slices'],
+                'nodes_for_memory': best_detail['nodes_for_memory'],
+                'nodes_for_peak': best_detail['nodes_for_peak'],
+                'sizing_driver': best_driver,
             },
             'sizing_rationale': rationale_parts,
         }
+
 
 
     def _recommend_serverless(

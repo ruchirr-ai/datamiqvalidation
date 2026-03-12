@@ -83,21 +83,27 @@ export function renderQueryInsights(ctx: PDFContext, qs: AssessmentReportQuerySt
 
   // ── Top 10 Recent Queries with Highest Slot Utilization ──
   // Sort by most recent first, then take top 10 by slot utilization
-  const recentSorted = [...qs]
-    .sort((a, b) => {
-      const ta = a.execution_time ? new Date(a.execution_time).getTime() : 0;
-      const tb = b.execution_time ? new Date(b.execution_time).getTime() : 0;
-      return tb - ta;
-    });
-  // From the most recent queries, pick top 10 by slot_milliseconds
-  const topRecent = recentSorted
+  const topRecent = [...qs]
     .sort((a, b) => (b.slot_milliseconds || 0) - (a.slot_milliseconds || 0))
     .slice(0, 10);
 
   checkPage(ctx, 20);
-  subHeading(ctx, 'Top 10 Queries (Most Recent, Highest Slot Utilization)');
+  subHeading(ctx, 'Top 10 Queries (Highest Slot Utilization)');
+
+  // Estimate avg concurrent slots for runtime calculation
+  const perQuerySlots: number[] = [];
+  qs.forEach(q => {
+    const slotMs = q.slot_milliseconds || 0;
+    if (slotMs <= 0) return;
+    const runtimeMs = (q as any).query_metadata?.total_elapsed_time_ms || 0;
+    perQuerySlots.push(Math.max(1, runtimeMs > 0 ? slotMs / runtimeMs : slotMs / 30000));
+  });
+  const estConcurrentSlots = perQuerySlots.length > 0
+    ? perQuerySlots.reduce((a, b) => a + b, 0) / perQuerySlots.length
+    : 1;
+
   drawCustomTable(ctx,
-    ['#', 'Execution Time', 'User', 'Query', 'Scanned', 'Slot Time', 'Cache'],
+    ['#', 'Job ID', 'Execution Time', 'Query', 'Scanned', 'Slot ms', 'Slot Util.', 'Est. Runtime', 'Cache', 'User'],
     topRecent.map((q, i) => {
       let execTime = 'N/A';
       if (q.execution_time) {
@@ -106,25 +112,34 @@ export function renderQueryInsights(ctx: PDFContext, qs: AssessmentReportQuerySt
           execTime = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         } catch { execTime = 'N/A'; }
       }
+      const slotMs = q.slot_milliseconds || 0;
+      const slotUtil = slotMs > 0 ? (slotMs / 30000).toFixed(1) + ' slots' : '0';
+      const estRuntime = slotMs > 0 ? fmtSlot(slotMs / Math.max(estConcurrentSlots, 1)) : 'N/A';
       return [
         String(i + 1),
+        q.job_id || 'N/A',
         execTime,
-        q.user_email || 'N/A',
         sanitize(q.query_text || 'N/A'),
         q.bytes_scanned ? fmtSize(q.bytes_scanned / (1024 * 1024)) : 'N/A',
-        q.slot_milliseconds ? fmtSlot(q.slot_milliseconds) : 'N/A',
+        slotMs ? slotMs.toLocaleString() : '0',
+        slotUtil,
+        estRuntime,
         q.cache_hit ? 'Yes' : 'No',
+        q.user_email || 'N/A',
       ];
     }),
     {
-      0: { cellWidth: 7 },
-      1: { cellWidth: 28 },
-      2: { cellWidth: 30 },
-      3: { cellWidth: 'auto', fontSize: 5.5 },
-      4: { cellWidth: 18 },
+      0: { cellWidth: 6 },
+      1: { cellWidth: 22, fontSize: 5 },
+      2: { cellWidth: 22 },
+      3: { cellWidth: 'auto', fontSize: 5 },
+      4: { cellWidth: 14 },
       5: { cellWidth: 16 },
-      6: { cellWidth: 10 },
+      6: { cellWidth: 12 },
+      7: { cellWidth: 14 },
+      8: { cellWidth: 8 },
+      9: { cellWidth: 22, fontSize: 5 },
     },
-    { fontSize: 6 },
+    { fontSize: 5.5 },
   );
 }
