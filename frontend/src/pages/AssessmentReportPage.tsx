@@ -1918,9 +1918,12 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
         <h2 className="section-heading" style={{ margin: 0 }}>TCO Analysis</h2>
         <div className="tco-region-select">
           <label>AWS Region:</label>
-          <select value={selectedRegion} onChange={e => setSelectedRegion(e.target.value)} className="filter-select">
-            {regions.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-          </select>
+          <SearchableSelect
+            value={selectedRegion}
+            onChange={(val) => setSelectedRegion(val as string)}
+            options={regions.map(r => ({ value: r.value, label: r.label }))}
+            placeholder="Select region..."
+          />
         </div>
       </div>
 
