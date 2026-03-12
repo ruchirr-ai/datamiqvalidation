@@ -361,16 +361,36 @@ class ValidationService:
         assessment_id = assessment.id if assessment else None
 
         # 6. Decrypt connection credentials -------------------------------
+        #    Use the MIGRATION's target connection (same creds the migration
+        #    used) rather than the validation run's target_connection_id,
+        #    which may point to a different or stale connection.
         source_conn = (
             self.db.query(Connection)
             .filter(Connection.id == run.source_connection_id)
             .first()
         )
+
+        # Prefer migration's target_connection_id over the run's
+        migration_target_conn_id = (
+            migration.target_connection_id if migration else None
+        )
+        effective_target_conn_id = migration_target_conn_id or run.target_connection_id
+
         target_conn = (
             self.db.query(Connection)
-            .filter(Connection.id == run.target_connection_id)
+            .filter(Connection.id == effective_target_conn_id)
             .first()
         )
+
+        if effective_target_conn_id != run.target_connection_id:
+            logger.info(
+                "Using migration's target connection instead of run's",
+                extra={
+                    "run_target_connection_id": run.target_connection_id,
+                    "migration_target_connection_id": effective_target_conn_id,
+                    "run_id": run_id,
+                },
+            )
 
         source_conn_params = (
             source_conn.connection_params if source_conn else {}
@@ -380,6 +400,22 @@ class ValidationService:
             if target_conn
             else {}
         )
+
+        # Override database/schema from migration config if available
+        # (the migration knows the exact Redshift database and schema it loaded into)
+        if migration:
+            if migration.target_database:
+                target_conn_params["database"] = migration.target_database
+                logger.info(
+                    f"Using migration target_database: {migration.target_database}",
+                    extra={"run_id": run_id},
+                )
+            if migration.target_schema:
+                dataset_name = migration.target_schema
+                logger.info(
+                    f"Using migration target_schema as dataset: {migration.target_schema}",
+                    extra={"run_id": run_id},
+                )
 
         type_mapping_overrides = run.type_mapping_overrides or {}
         batch_size = run.batch_size or 10000
