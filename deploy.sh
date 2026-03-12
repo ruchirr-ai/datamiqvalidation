@@ -1,7 +1,7 @@
 #!/bin/bash
 # DataMIQ Deploy Script
 # Usage: ssh into EC2 and run: sudo /opt/datamiq/deploy.sh
-# Or from local: ssh -i <pem> ec2-user@44.223.17.119 "sudo /opt/datamiq/deploy.sh"
+# Or from local: ssh -i <pem> ec2-user@54.156.223.137 "sudo bash /opt/datamiq/deploy.sh"
 
 set -e
 
