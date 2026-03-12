@@ -266,30 +266,30 @@ class TCOEngine:
             return fallback_pricing
         
         try:
-            # Fetch live pricing
-            node_type = provisioned_config.get('node_type', 'ra3.xlplus')
+            # Fetch all Redshift pricing for this region in one call
+            all_pricing = self.pricing_service.get_all_redshift_pricing(aws_region)
             
-            # Get provisioned node pricing
-            node_price = self.pricing_service.get_redshift_node_pricing(node_type, aws_region)
-            
-            # Get serverless RPU pricing
-            serverless_price = self.pricing_service.get_redshift_serverless_pricing(aws_region)
-            
-            # Get managed storage pricing
-            storage_price = self.pricing_service.get_managed_storage_pricing(aws_region)
-            
-            # Build pricing dict with live prices where available
+            # Build pricing dict with live prices where available, fallback for missing
             live_pricing = {
                 'label': fallback_pricing['label'],
                 'provisioned': fallback_pricing['provisioned'].copy(),
-                'serverless_per_rpu_hour': serverless_price if serverless_price else fallback_pricing['serverless_per_rpu_hour'],
-                'managed_storage_per_gb_month': storage_price if storage_price else fallback_pricing['managed_storage_per_gb_month'],
+                'serverless_per_rpu_hour': fallback_pricing['serverless_per_rpu_hour'],
+                'managed_storage_per_gb_month': fallback_pricing['managed_storage_per_gb_month'],
             }
             
-            # Update the specific node type price if fetched successfully
-            if node_price:
-                live_pricing['provisioned'][node_type] = node_price
-                logger.info(f"Using live AWS pricing for {node_type} in {aws_region}: ${node_price}/hr")
+            # Update provisioned node prices from live data
+            for nt, price in all_pricing.get('provisioned', {}).items():
+                live_pricing['provisioned'][nt] = price
+                logger.info(f"Live AWS pricing for {nt} in {aws_region}: ${price}/hr")
+            
+            # Update serverless and storage prices if available
+            if all_pricing.get('serverless_per_rpu_hour'):
+                live_pricing['serverless_per_rpu_hour'] = all_pricing['serverless_per_rpu_hour']
+                logger.info(f"Live serverless pricing in {aws_region}: ${all_pricing['serverless_per_rpu_hour']}/RPU-hr")
+            
+            if all_pricing.get('managed_storage_per_gb_month'):
+                live_pricing['managed_storage_per_gb_month'] = all_pricing['managed_storage_per_gb_month']
+                logger.info(f"Live storage pricing in {aws_region}: ${all_pricing['managed_storage_per_gb_month']}/GB-mo")
             
             return live_pricing
             
@@ -328,7 +328,6 @@ class TCOEngine:
 
         # Get region pricing (with live AWS API or fallback)
         region_pricing = self._get_region_pricing(aws_region, provisioned_config)
-        region_pricing = REDSHIFT_PRICING.get(aws_region, REDSHIFT_PRICING['us-east-1'])
 
         # 1. Current BigQuery costs (extrapolated to monthly)
         bq_costs = self._calculate_bq_costs(
