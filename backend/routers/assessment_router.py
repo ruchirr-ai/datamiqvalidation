@@ -1034,7 +1034,7 @@ async def get_query_insights(
         cache_hit_rate = (cache_hits / total_queries * 100) if total_queries > 0 else 0
         
         avg_execution_time_ms = (total_slot_ms / total_queries) if total_queries > 0 else 0
-        avg_execution_time_seconds = avg_execution_time_ms / 1000
+        avg_slot_ms_raw = avg_execution_time_ms  # Save for later use
         
         unique_users = set(q.user_email for q in query_stats if q.user_email)
         active_users_count = len(unique_users)
@@ -1083,6 +1083,10 @@ async def get_query_insights(
             filtered_stats.sort(key=lambda q: q.slot_milliseconds or 0, reverse=True)
         elif sort_by == "execution_time":
             filtered_stats.sort(key=lambda q: q.execution_time or datetime.min, reverse=True)
+        elif sort_by == "est_runtime":
+            # Sort by estimated wall-clock runtime (slot_ms / concurrent_slots)
+            # Higher slot_ms with lower concurrency = longer runtime
+            filtered_stats.sort(key=lambda q: q.slot_milliseconds or 0, reverse=True)
         else:  # bytes_scanned (default)
             filtered_stats.sort(key=lambda q: q.bytes_scanned or 0, reverse=True)
         
@@ -1110,20 +1114,40 @@ async def get_query_insights(
         min_slot_ms = min(non_zero_slots) if non_zero_slots else 0
         avg_slot_ms_per_query = round(total_slot_ms / total_queries, 0) if total_queries > 0 else 0
 
-        # Estimate query runtime from slot_ms
-        # BQ slot_ms = concurrent_slots × wall_clock_ms
-        # Estimate concurrent slots per query: avg_slot_ms / 30000 (assume ~30s avg)
-        est_concurrent_slots = max(1, min(avg_slot_ms_per_query / 30000, 2000)) if avg_slot_ms_per_query > 0 else 1
-        # wall_clock_ms ≈ slot_ms / concurrent_slots
+        # Compute per-query concurrent slots using actual runtime when available
+        per_query_concurrent_slots = []
+        for q in query_stats:
+            q_slot_ms = q.slot_milliseconds or 0
+            if q_slot_ms <= 0:
+                continue
+            # Try to get actual runtime from query_metadata
+            q_runtime_ms = 0
+            if q.query_metadata and isinstance(q.query_metadata, dict):
+                q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
+            if q_runtime_ms and q_runtime_ms > 0:
+                per_query_concurrent_slots.append(max(1, q_slot_ms / q_runtime_ms))
+            else:
+                per_query_concurrent_slots.append(max(1, q_slot_ms / 30000))
+
+        est_concurrent_slots = (sum(per_query_concurrent_slots) / len(per_query_concurrent_slots)) if per_query_concurrent_slots else 1
+
+        # Estimate query runtime
+        avg_wall_clock_s = (avg_slot_ms_per_query / max(est_concurrent_slots, 1)) / 1000 if avg_slot_ms_per_query > 0 else 0
         max_query_runtime_seconds = round((max_slot_ms / max(est_concurrent_slots, 1)) / 1000, 2) if max_slot_ms > 0 else 0
         min_query_runtime_seconds = round((min_slot_ms / max(est_concurrent_slots, 1)) / 1000, 4) if min_slot_ms > 0 else 0
-        avg_query_runtime_seconds = round((avg_slot_ms_per_query / max(est_concurrent_slots, 1)) / 1000, 2) if avg_slot_ms_per_query > 0 else 0
+        avg_query_runtime_seconds = round(avg_wall_clock_s, 2)
 
         # Peak and avg slot utilization (estimated concurrent slots)
+        # Peak = top 5% of queries by slot_ms, averaged, divided by 30s assumed duration
         peak_slot_values = sorted(slot_values, reverse=True)[:max(1, int(len(slot_values) * 0.05))]
         peak_slot_ms_avg = sum(peak_slot_values) / len(peak_slot_values) if peak_slot_values else 0
         peak_slot_utilization = round(peak_slot_ms_avg / 30000, 1) if peak_slot_ms_avg > 0 else 0
         avg_slot_utilization = round(est_concurrent_slots, 1)
+
+        # Avg execution time = average slot-time per query (total CPU time / queries)
+        # This differs from avg_query_runtime_seconds which is estimated wall-clock time.
+        # slot-time = concurrent_slots × wall_clock, so slot-time > wall-clock for parallel queries.
+        avg_execution_time_seconds = (avg_slot_ms_per_query / 1000) if avg_slot_ms_per_query > 0 else 0
 
         queries = [
             {

@@ -81,52 +81,49 @@ export function renderQueryInsights(ctx: PDFContext, qs: AssessmentReportQuerySt
     `Peak Hour: ${peakHour} (${peakConcurrent} queries)`,
   ], 'Data Volume & Compute Summary', C.PRIMARY_L);
 
-  // ── Top 10 heaviest ──
-  checkPage(ctx, 20);
-  subHeading(ctx, 'Top 10 Heaviest Queries (by Slot Time)');
-  const heaviest = [...qs].sort((a, b) => (b.slot_milliseconds || 0) - (a.slot_milliseconds || 0)).slice(0, 10);
-  drawCustomTable(ctx,
-    ['#', 'User', 'Query', 'Scanned', 'Slot Time', 'Cache'],
-    heaviest.map((q, i) => [
-      String(i + 1),
-      q.user_email || 'N/A',
-      sanitize(q.query_text || 'N/A'),
-      q.bytes_scanned ? fmtSize(q.bytes_scanned / (1024 * 1024)) : 'N/A',
-      q.slot_milliseconds ? fmtSlot(q.slot_milliseconds) : 'N/A',
-      q.cache_hit ? 'Yes' : 'No',
-    ]),
-    {
-      0: { cellWidth: 8 },
-      1: { cellWidth: 35 },
-      2: { cellWidth: 'auto', fontSize: 5.5 },
-      3: { cellWidth: 20 },
-      4: { cellWidth: 18 },
-      5: { cellWidth: 12 },
-    },
-    { fontSize: 6 },
-  );
+  // ── Top 10 Recent Queries with Highest Slot Utilization ──
+  // Sort by most recent first, then take top 10 by slot utilization
+  const recentSorted = [...qs]
+    .sort((a, b) => {
+      const ta = a.execution_time ? new Date(a.execution_time).getTime() : 0;
+      const tb = b.execution_time ? new Date(b.execution_time).getTime() : 0;
+      return tb - ta;
+    });
+  // From the most recent queries, pick top 10 by slot_milliseconds
+  const topRecent = recentSorted
+    .sort((a, b) => (b.slot_milliseconds || 0) - (a.slot_milliseconds || 0))
+    .slice(0, 10);
 
-  // ── Top 10 data-intensive ──
   checkPage(ctx, 20);
-  subHeading(ctx, 'Top 10 Most Data-Intensive Queries (by Bytes Scanned)');
-  const dataHeavy = [...qs].sort((a, b) => (b.bytes_scanned || 0) - (a.bytes_scanned || 0)).slice(0, 10);
+  subHeading(ctx, 'Top 10 Queries (Most Recent, Highest Slot Utilization)');
   drawCustomTable(ctx,
-    ['#', 'User', 'Query', 'Scanned', 'Slot Time', 'Cache'],
-    dataHeavy.map((q, i) => [
-      String(i + 1),
-      q.user_email || 'N/A',
-      sanitize(q.query_text || 'N/A'),
-      q.bytes_scanned ? fmtSize(q.bytes_scanned / (1024 * 1024)) : 'N/A',
-      q.slot_milliseconds ? fmtSlot(q.slot_milliseconds) : 'N/A',
-      q.cache_hit ? 'Yes' : 'No',
-    ]),
+    ['#', 'Execution Time', 'User', 'Query', 'Scanned', 'Slot Time', 'Cache'],
+    topRecent.map((q, i) => {
+      let execTime = 'N/A';
+      if (q.execution_time) {
+        try {
+          const d = new Date(q.execution_time);
+          execTime = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        } catch { execTime = 'N/A'; }
+      }
+      return [
+        String(i + 1),
+        execTime,
+        q.user_email || 'N/A',
+        sanitize(q.query_text || 'N/A'),
+        q.bytes_scanned ? fmtSize(q.bytes_scanned / (1024 * 1024)) : 'N/A',
+        q.slot_milliseconds ? fmtSlot(q.slot_milliseconds) : 'N/A',
+        q.cache_hit ? 'Yes' : 'No',
+      ];
+    }),
     {
-      0: { cellWidth: 8 },
-      1: { cellWidth: 35 },
-      2: { cellWidth: 'auto', fontSize: 5.5 },
-      3: { cellWidth: 20 },
+      0: { cellWidth: 7 },
+      1: { cellWidth: 28 },
+      2: { cellWidth: 30 },
+      3: { cellWidth: 'auto', fontSize: 5.5 },
       4: { cellWidth: 18 },
-      5: { cellWidth: 12 },
+      5: { cellWidth: 16 },
+      6: { cellWidth: 10 },
     },
     { fontSize: 6 },
   );

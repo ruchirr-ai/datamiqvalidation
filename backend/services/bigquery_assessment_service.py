@@ -834,7 +834,8 @@ class BigQueryAssessmentService:
             referenced_tables,
             user_email,
             state,
-            error_result
+            error_result,
+            TIMESTAMP_DIFF(end_time, start_time, MILLISECOND) as total_elapsed_time_ms
         FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.JOBS_BY_PROJECT`
         WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
             AND job_type = 'QUERY'
@@ -869,7 +870,10 @@ class BigQueryAssessmentService:
                     'slot_milliseconds': row.slot_milliseconds or 0,
                     'cache_hit': row.cache_hit or False,
                     'referenced_tables': referenced_tables,
-                    'user_email': row.user_email
+                    'user_email': row.user_email,
+                    'query_metadata': {
+                        'total_elapsed_time_ms': row.total_elapsed_time_ms or 0,
+                    },
                 })
 
             print(f"  ✓ Collected {len(query_stats)} query statistics from INFORMATION_SCHEMA (region-{region})")

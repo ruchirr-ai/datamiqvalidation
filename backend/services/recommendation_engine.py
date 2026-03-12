@@ -180,7 +180,12 @@ class RecommendationEngine:
             q_slot_ms = q.get('slot_milliseconds', 0)
             if q_slot_ms <= 0:
                 continue
+            # Try to get actual runtime from query_metadata first
             q_runtime_ms = q.get('total_elapsed_time_ms') or q.get('runtime_ms', 0)
+            if not q_runtime_ms:
+                meta = q.get('query_metadata') or {}
+                if isinstance(meta, dict):
+                    q_runtime_ms = meta.get('total_elapsed_time_ms', 0)
             if q_runtime_ms and q_runtime_ms > 0:
                 slots_used = q_slot_ms / q_runtime_ms
             else:
@@ -193,14 +198,13 @@ class RecommendationEngine:
         else:
             estimated_avg_concurrent_slots = max(1, min(avg_slot_ms / 30000, 2000))
 
-        # Peak concurrency: use actual per-query P95 concurrent slots
-        # This is more accurate than the old heuristic (top-5% slot_ms / 30s)
-        if per_query_slots:
-            sorted_pq = sorted(per_query_slots)
-            p95_idx = int(len(sorted_pq) * 0.95)
-            estimated_peak_slots = max(1, sorted_pq[min(p95_idx, len(sorted_pq) - 1)])
-        else:
-            estimated_peak_slots = max(1, avg_slot_ms / 30000)
+        # Peak slot utilization: top 5% of queries by slot_ms, averaged,
+        # then divided by assumed 30s wall-clock. This matches the Query
+        # Insights "Peak Slot Utilization" metric shown in the UI.
+        # It represents the system-wide peak slots in use (not per-query).
+        top_5pct_count = max(1, int(len(slot_values) * 0.05))
+        peak_slot_ms_avg = sum(slot_values[:top_5pct_count]) / top_5pct_count if slot_values else 0
+        estimated_peak_slots = max(1, peak_slot_ms_avg / 30000) if peak_slot_ms_avg > 0 else 1
 
         # --- Redshift Serverless RPU-hour estimation ---
         # Step 1: Estimate wall-clock seconds per query
@@ -236,33 +240,19 @@ class RecommendationEngine:
 
         # Step 3: Convert BQ slots to RPUs for sizing
         # 1 RPU = 16 GB RAM + ~2 vCPUs. BQ slot ≈ 1 vCPU.
-        # Base RPU should reflect the typical concurrent slot usage,
-        # not just total monthly volume. Use P75 of per-query slots
-        # converted to RPUs (slots / 2), rounded up to nearest valid RPU.
-        if per_query_slots:
-            sorted_pq_rpu = sorted(per_query_slots)
-            p75_idx = int(len(sorted_pq_rpu) * 0.75)
-            p75_slots = sorted_pq_rpu[min(p75_idx, len(sorted_pq_rpu) - 1)]
-            # Convert slots to RPUs: 1 RPU ≈ 2 BQ slots
-            rpus_from_concurrency = max(8, math.ceil(p75_slots / 2))
-            # Round up to valid RPU values: 8, 16, 32, 48, 64, ...
-            valid_rpus = [8, 16, 32, 48, 64, 96, 128, 192, 256, 512]
-            estimated_base_rpu = 8
-            for rpu in valid_rpus:
-                if rpu >= rpus_from_concurrency:
-                    estimated_base_rpu = rpu
-                    break
-            else:
-                estimated_base_rpu = valid_rpus[-1]
+        # Base RPU should handle the average concurrent slot usage.
+        # Peak slots are handled by auto-scaling (up to max_rpu).
+        # Use avg concurrent slots converted to RPUs (slots / 2).
+        rpus_from_avg = max(8, math.ceil(estimated_avg_concurrent_slots / 2))
+        # Round up to valid RPU values: 8, 16, 32, 48, 64, ...
+        valid_rpus = [8, 16, 32, 48, 64, 96, 128, 192, 256, 512]
+        estimated_base_rpu = 8
+        for rpu in valid_rpus:
+            if rpu >= rpus_from_avg:
+                estimated_base_rpu = rpu
+                break
         else:
-            if monthly_slot_hours < 100:
-                estimated_base_rpu = 8
-            elif monthly_slot_hours < 500:
-                estimated_base_rpu = 16
-            elif monthly_slot_hours < 2000:
-                estimated_base_rpu = 32
-            else:
-                estimated_base_rpu = 64
+            estimated_base_rpu = valid_rpus[-1]
 
         # Step 4: Calculate monthly RPU-hours
         # RPU-hours = (billed_seconds_per_hour / 3600) × RPUs × active_hours_per_day × 30

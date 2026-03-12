@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, TrendingUp, Clock, Database, CheckCircle, XCircle, Zap, BarChart3, Users } from 'lucide-react';
+import { Activity, TrendingUp, Clock, Database, CheckCircle, XCircle, Zap, BarChart3, Users, ChevronDown } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuLabel, DropdownMenuSeparator,
+} from '../ui/DropdownMenu';
 import './QueryInsightsSection.css';
 
 interface QueryInsight {
@@ -353,7 +357,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
     return (
       <div className="chart-card line-chart-card">
         <div className="chart-header">
-          <h3 className="chart-title">Concurrent Queries Over Time</h3>
+          <h3 className="chart-title">Query Volume Over Time</h3>
           <div className="interval-filter">
             <button
               className={`interval-btn ${concurrentInterval === 'hourly' ? 'active' : ''}`}
@@ -489,7 +493,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
               fontFamily="Inter, sans-serif"
               transform={`rotate(-90 20 ${height / 2})`}
             >
-              Queries
+              Query Count
             </text>
           </svg>
         </div>
@@ -565,7 +569,10 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
           </div>
           <div className="summary-content">
             <div className="summary-value">{formatTime(data.summary.avg_execution_time_seconds)}</div>
-            <div className="summary-label">Avg Execution Time</div>
+            <div className="summary-label">Avg Slot Time / Query</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Total CPU time per query
+            </div>
           </div>
         </div>
 
@@ -600,7 +607,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
             <div className="summary-value">{data.summary.max_concurrent_queries ?? 0}</div>
             <div className="summary-label">Max Concurrent Queries</div>
             <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
-              Avg: {data.summary.avg_concurrent_queries ?? 0}/min
+              Per minute window · Avg: {data.summary.avg_concurrent_queries ?? 0}/min
             </div>
           </div>
         </div>
@@ -639,7 +646,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
             <div className="summary-value">{formatTime(data.summary.avg_query_runtime_seconds ?? 0)}</div>
             <div className="summary-label">Avg Query Runtime</div>
             <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
-              Avg Slot ms: {formatNumber(data.summary.avg_slot_ms_per_query ?? 0)}
+              Est. wall-clock time · Avg Slot ms: {formatNumber(data.summary.avg_slot_ms_per_query ?? 0)}
             </div>
           </div>
         </div>
@@ -671,15 +678,27 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
           </div>
           <div className="query-sort-box">
             <span className="query-sort-label">Sort by:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => { setSortBy(e.target.value); setPage(1); }}
-              className="query-sort-select"
-            >
-              <option value="bytes_scanned">Bytes Scanned (highest)</option>
-              <option value="slot_milliseconds">Slot Time (highest)</option>
-              <option value="execution_time">Most Recent</option>
-            </select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="query-sort-trigger">
+                  {sortBy === 'bytes_scanned' ? 'Bytes Scanned (highest)' :
+                   sortBy === 'slot_milliseconds' ? 'Slot Time (highest)' :
+                   sortBy === 'execution_time' ? 'Most Recent' :
+                   'Execution Time (longest)'}
+                  <ChevronDown size={14} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Sort queries by</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => { setSortBy(v); setPage(1); }}>
+                  <DropdownMenuRadioItem value="bytes_scanned">Bytes Scanned (highest)</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="slot_milliseconds">Slot Time (highest)</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="execution_time">Most Recent</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="est_runtime">Execution Time (longest)</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
