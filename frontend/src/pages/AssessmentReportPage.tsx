@@ -1320,23 +1320,16 @@ const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
         {/* Time Filter */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>Time Frame:</span>
-          <select
+          <Select
             value={timeFilter}
-            onChange={(e) => setTimeFilter(e.target.value)}
-            style={{
-              padding: '6px 12px',
-              borderRadius: '6px',
-              border: '1px solid var(--color-divider)',
-              fontSize: '14px',
-              backgroundColor: 'var(--color-bg-surface)',
-              cursor: 'pointer',
-            }}
-          >
-            <option value="all">All Time</option>
-            <option value="24h">Last 24 Hours</option>
-            <option value="7d">Last 7 Days</option>
-            <option value="30d">Last 30 Days</option>
-          </select>
+            onChange={(val) => setTimeFilter(val as string)}
+            options={[
+              { value: 'all', label: 'All Time' },
+              { value: '24h', label: 'Last 24 Hours' },
+              { value: '7d', label: 'Last 7 Days' },
+              { value: '30d', label: 'Last 30 Days' },
+            ]}
+          />
         </div>
       </div>
       
