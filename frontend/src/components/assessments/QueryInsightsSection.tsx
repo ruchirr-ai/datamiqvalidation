@@ -692,11 +692,8 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
             <Activity size={24} />
           </div>
           <div className="summary-content">
-            <div className="summary-value">{data.summary.total_query_count > 0 ? ((data.summary.cache_hits / data.summary.total_query_count) * 100).toFixed(1) : 0}%</div>
-            <div className="summary-label">Cache Hits</div>
-            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
-              {formatNumber(data.summary.cache_hits)} hits / {formatNumber(data.summary.cache_misses)} misses
-            </div>
+            <div className="summary-value">{formatNumber(data.summary.read_queries)}/{formatNumber(data.summary.write_queries)}</div>
+            <div className="summary-label">Read / Write Queries</div>
           </div>
         </div>
       </div>
