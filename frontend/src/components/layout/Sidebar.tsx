@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Cable } from 'lucide-react';
+import { Cable, Sun, Moon } from 'lucide-react';
 import { Logo } from '../ui/Logo';
+import { useTheme } from '../../contexts/ThemeContext';
 import './Sidebar.css';
 
 interface NavItem {
@@ -36,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [menuPositions, setMenuPositions] = useState<Record<string, number>>({});
+  const { theme, toggleTheme } = useTheme();
 
   // Detect mobile screen size
   React.useEffect(() => {
@@ -354,6 +356,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <nav className="sidebar-nav" aria-label="Primary navigation">
         {navigationItems.map(item => renderNavItem(item))}
       </nav>
+
+      {/* Theme Toggle */}
+      <div className="sidebar-theme-toggle">
+        <button
+          className="theme-toggle-btn"
+          onClick={toggleTheme}
+          aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          title={theme === 'light' ? 'Dark mode' : 'Light mode'}
+        >
+          {theme === 'light' ? (
+            <Moon size={18} strokeWidth={1.5} />
+          ) : (
+            <Sun size={18} strokeWidth={1.5} />
+          )}
+          {!isCollapsed && (
+            <span className="theme-toggle-label">
+              {theme === 'light' ? 'Dark mode' : 'Light mode'}
+            </span>
+          )}
+        </button>
+      </div>
 
       {/* Account Block */}
       <div className="sidebar-footer">

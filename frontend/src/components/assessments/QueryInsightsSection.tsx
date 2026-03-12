@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, TrendingUp, Clock, Database, CheckCircle, XCircle } from 'lucide-react';
+import { Activity, TrendingUp, Clock, Database, CheckCircle, XCircle, Zap, BarChart3, Users, ChevronDown } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuLabel, DropdownMenuSeparator,
+} from '../ui/DropdownMenu';
 import './QueryInsightsSection.css';
 
 interface QueryInsight {
@@ -9,6 +13,8 @@ interface QueryInsight {
   bytes_scanned: number;
   bytes_billed: number;
   slot_milliseconds: number;
+  slot_utilization: number;
+  est_runtime_seconds: number;
   cache_hit: boolean;
   cache_hit_status: string;
   referenced_tables: string[];
@@ -27,6 +33,16 @@ interface QueryInsightsSummary {
   cache_misses: number;
   read_queries: number;
   write_queries: number;
+  max_concurrent_queries: number;
+  avg_concurrent_queries: number;
+  max_slot_milliseconds: number;
+  min_slot_milliseconds: number;
+  avg_slot_ms_per_query: number;
+  max_query_runtime_seconds: number;
+  min_query_runtime_seconds: number;
+  avg_query_runtime_seconds: number;
+  peak_slot_utilization: number;
+  avg_slot_utilization: number;
 }
 
 interface ConcurrentQueryData {
@@ -64,23 +80,40 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
   const [timeframe, setTimeframe] = useState('all');
   const [expandedQuery, setExpandedQuery] = useState<number | null>(null);
   const [concurrentInterval, setConcurrentInterval] = useState<'hourly' | 'daily' | 'weekly'>('daily');
+  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [sortBy, setSortBy] = useState('bytes_scanned');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState<{ total_filtered: number; total_pages: number } | null>(null);
 
   useEffect(() => {
     fetchQueryInsights();
-  }, [assessmentId, timeframe]);
+  }, [assessmentId, timeframe, search, sortBy, page]);
 
   const fetchQueryInsights = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/assessments/${assessmentId}/query-insights?timeframe=${timeframe}`);
+      const params = new URLSearchParams({ timeframe, sort_by: sortBy, page: String(page), page_size: '50' });
+      if (search) params.set('search', search);
+      const response = await fetch(`/api/assessments/${assessmentId}/query-insights?${params}`);
       if (!response.ok) throw new Error('Failed to fetch query insights');
       const result = await response.json();
       setData(result);
+      setPagination(result.pagination || null);
     } catch (error) {
-      console.error('Error fetching query insights:', error);
+      // silently fail
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = () => {
+    setPage(1);
+    setSearch(searchInput);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') handleSearch();
   };
 
   const formatTime = (seconds: number): string => {
@@ -88,10 +121,14 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
       return `${(seconds * 1000).toFixed(0)}ms`;
     } else if (seconds < 60) {
       return `${seconds.toFixed(2)}s`;
-    } else {
+    } else if (seconds < 3600) {
       const minutes = Math.floor(seconds / 60);
-      const remainingSeconds = seconds % 60;
-      return `${minutes}m ${remainingSeconds.toFixed(0)}s`;
+      const remainingSeconds = Math.floor(seconds % 60);
+      return `${minutes}m ${remainingSeconds}s`;
+    } else {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      return `${hours}h ${minutes}m`;
     }
   };
 
@@ -320,7 +357,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
     return (
       <div className="chart-card line-chart-card">
         <div className="chart-header">
-          <h3 className="chart-title">Concurrent Queries Over Time</h3>
+          <h3 className="chart-title">Query Volume Over Time</h3>
           <div className="interval-filter">
             <button
               className={`interval-btn ${concurrentInterval === 'hourly' ? 'active' : ''}`}
@@ -456,7 +493,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
               fontFamily="Inter, sans-serif"
               transform={`rotate(-90 20 ${height / 2})`}
             >
-              Queries
+              Query Count
             </text>
           </svg>
         </div>
@@ -532,7 +569,10 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
           </div>
           <div className="summary-content">
             <div className="summary-value">{formatTime(data.summary.avg_execution_time_seconds)}</div>
-            <div className="summary-label">Avg Execution Time</div>
+            <div className="summary-label">Avg Slot Time / Query</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Total CPU time per query
+            </div>
           </div>
         </div>
 
@@ -557,6 +597,107 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
         </div>
       </div>
 
+      {/* Additional Metrics Row */}
+      <div className="query-insights-summary" style={{ marginTop: '12px' }}>
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Users size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.max_concurrent_queries ?? 0}</div>
+            <div className="summary-label">Max Concurrent Queries</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Per minute window · Avg: {data.summary.avg_concurrent_queries ?? 0}/min
+            </div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <BarChart3 size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.peak_slot_utilization ?? 0}</div>
+            <div className="summary-label">Peak Slot Utilization</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Avg: {data.summary.avg_slot_utilization ?? 0} slots
+            </div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Zap size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{formatTime(data.summary.max_query_runtime_seconds ?? 0)}</div>
+            <div className="summary-label">Max Query Runtime</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Min: {formatTime(data.summary.min_query_runtime_seconds ?? 0)}
+            </div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Clock size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{formatTime(data.summary.avg_query_runtime_seconds ?? 0)}</div>
+            <div className="summary-label">Avg Query Runtime</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Est. wall-clock time · Avg Slot ms: {formatNumber(data.summary.avg_slot_ms_per_query ?? 0)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Compute & Data Metrics Row */}
+      <div className="query-insights-summary" style={{ marginTop: '12px' }}>
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Zap size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{((data.summary.total_slot_milliseconds ?? 0) / 3600000).toFixed(1)}h</div>
+            <div className="summary-label">Total Slot Hours</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Total BQ compute consumption
+            </div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Database size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.total_query_count > 0 ? formatBytes(data.summary.total_bytes_scanned / data.summary.total_query_count) : '0 B'}</div>
+            <div className="summary-label">Avg Bytes Scanned / Query</div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Users size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.active_users_count ?? 0}</div>
+            <div className="summary-label">Active Users</div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Activity size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{formatNumber(data.summary.read_queries)}/{formatNumber(data.summary.write_queries)}</div>
+            <div className="summary-label">Read / Write Queries</div>
+          </div>
+        </div>
+      </div>
+
       {/* Charts Section */}
       <div className="charts-section">
         {renderPieChart()}
@@ -565,6 +706,55 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
 
       {/* Query Table */}
       <div className="query-insights-table-container">
+        {/* Search & Sort Controls */}
+        <div className="query-table-controls">
+          <div className="query-search-box">
+            <input
+              type="text"
+              placeholder="Search by query, user, or job ID..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              className="query-search-input"
+            />
+            <button className="query-search-btn" onClick={handleSearch}>Search</button>
+            {search && (
+              <button className="query-search-clear" onClick={() => { setSearchInput(''); setSearch(''); setPage(1); }}>Clear</button>
+            )}
+          </div>
+          <div className="query-sort-box">
+            <span className="query-sort-label">Sort by:</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="query-sort-trigger">
+                  {sortBy === 'bytes_scanned' ? 'Bytes Scanned (highest)' :
+                   sortBy === 'slot_milliseconds' ? 'Slot Time (highest)' :
+                   sortBy === 'execution_time' ? 'Most Recent' :
+                   'Execution Time (longest)'}
+                  <ChevronDown size={14} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>Sort queries by</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => { setSortBy(v); setPage(1); }}>
+                  <DropdownMenuRadioItem value="bytes_scanned">Bytes Scanned (highest)</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="slot_milliseconds">Slot Time (highest)</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="execution_time">Most Recent</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="est_runtime">Execution Time (longest)</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {pagination && (
+          <div className="query-table-info">
+            Showing {Math.min((page - 1) * 50 + 1, pagination.total_filtered)}–{Math.min(page * 50, pagination.total_filtered)} of {pagination.total_filtered.toLocaleString()} queries
+            {search && <span className="query-search-tag"> matching "{search}"</span>}
+          </div>
+        )}
+
         <table className="query-insights-table">
           <thead>
             <tr>
@@ -572,8 +762,9 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
               <th>Execution Time</th>
               <th>Query Text</th>
               <th>Bytes Scanned</th>
-              <th>Bytes Billed</th>
               <th>Slot ms</th>
+              <th>Slot Util.</th>
+              <th>Est. Runtime</th>
               <th>Cache Hit</th>
               <th>User Email</th>
             </tr>
@@ -581,10 +772,10 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
           <tbody>
             {data.queries.length === 0 ? (
               <tr>
-                <td colSpan={8} className="empty-state-cell">
+                <td colSpan={9} className="empty-state-cell">
                   <div className="empty-state">
                     <Activity size={48} />
-                    <p>No query data available for the selected timeframe</p>
+                    <p>{search ? `No queries matching "${search}"` : 'No query data available for the selected timeframe'}</p>
                   </div>
                 </td>
               </tr>
@@ -611,18 +802,15 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
                         </div>
                       </td>
                       <td>{formatBytes(query.bytes_scanned)}</td>
-                      <td>{formatBytes(query.bytes_billed)}</td>
                       <td>{formatNumber(query.slot_milliseconds)}</td>
+                      <td>{query.slot_utilization ?? 0} slots</td>
+                      <td>{formatTime(query.est_runtime_seconds ?? 0)}</td>
                       <td>
                         <span className={`cache-status ${query.cache_hit ? 'hit' : 'miss'}`}>
                           {query.cache_hit ? (
-                            <>
-                              <CheckCircle size={14} /> Hit
-                            </>
+                            <><CheckCircle size={14} /> Hit</>
                           ) : (
-                            <>
-                              <XCircle size={14} /> Miss
-                            </>
+                            <><XCircle size={14} /> Miss</>
                           )}
                         </span>
                       </td>
@@ -630,7 +818,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
                     </tr>
                     {isExpanded && (
                       <tr className="expanded-row">
-                        <td colSpan={8}>
+                        <td colSpan={9}>
                           <div className="expanded-content">
                             <div className="expanded-section">
                               <h4>Full Query</h4>
@@ -646,6 +834,29 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
             )}
           </tbody>
         </table>
+
+        {/* Pagination */}
+        {pagination && pagination.total_pages > 1 && (
+          <div className="query-pagination">
+            <button
+              className="query-page-btn"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              ← Previous
+            </button>
+            <span className="query-page-info">
+              Page {page} of {pagination.total_pages}
+            </span>
+            <button
+              className="query-page-btn"
+              disabled={page >= pagination.total_pages}
+              onClick={() => setPage(page + 1)}
+            >
+              Next →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

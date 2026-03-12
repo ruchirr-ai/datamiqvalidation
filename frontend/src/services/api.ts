@@ -65,8 +65,8 @@ class ApiClient {
 
       // Handle 401 Unauthorized - token expired or invalid
       if (response.status === 401) {
-        // Clear token and redirect to login (only if not already on login page)
         localStorage.removeItem('auth_token');
+        // Only redirect if not already on login page (prevents refresh loop)
         if (!window.location.pathname.startsWith('/login')) {
           window.location.href = '/login';
         }

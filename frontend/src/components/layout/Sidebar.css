@@ -34,6 +34,33 @@
   --footer-padding-bottom: 16px;
 }
 
+/* Dark Mode Overrides */
+[data-theme="dark"] {
+  --sidebar-bg: var(--color-bg-secondary);
+  --sidebar-surface: var(--color-bg-surface);
+  --sidebar-text-primary: var(--color-text-primary);
+  --sidebar-text-secondary: var(--color-text-primary);
+  --sidebar-divider: var(--color-divider);
+  --sidebar-selected-bg: var(--color-selected-bg);
+  --sidebar-hover-bg: var(--color-hover-bg);
+  --sidebar-selected-text: var(--color-primary);
+  --sidebar-focus-ring: var(--color-focus-ring);
+  --sidebar-disabled-text: var(--color-text-disabled);
+}
+
+[data-theme="dark"] .account-role {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .user-menu-item.signout span,
+[data-theme="dark"] .user-menu-item.signout svg {
+  color: var(--color-error);
+}
+
+[data-theme="dark"] .user-menu-item.signout:hover {
+  background: var(--color-error-bg);
+}
+
 /* Sidebar Container */
 .sidebar {
   width: var(--sidebar-width);
@@ -261,6 +288,56 @@
 /* Navigation Children */
 .nav-children {
   margin-top: 2px;
+}
+
+/* Theme Toggle */
+.sidebar-theme-toggle {
+  padding: 0 var(--sidebar-padding-x);
+  margin-bottom: 4px;
+}
+
+.theme-toggle-btn {
+  width: 100%;
+  height: var(--nav-row-height);
+  display: flex;
+  align-items: center;
+  gap: var(--gap-icon-label);
+  padding: 0 var(--pill-padding-left);
+  border: none;
+  background: transparent;
+  color: var(--sidebar-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: var(--pill-radius);
+  transition: all 0.15s ease;
+  font-family: var(--font-family);
+}
+
+.theme-toggle-btn:hover {
+  background: var(--sidebar-hover-bg);
+}
+
+.theme-toggle-btn:focus-visible {
+  outline: 2px solid var(--sidebar-focus-ring);
+  outline-offset: 2px;
+}
+
+.theme-toggle-btn svg {
+  flex-shrink: 0;
+}
+
+.theme-toggle-label {
+  white-space: nowrap;
+}
+
+.collapsed .theme-toggle-btn {
+  justify-content: center;
+  padding: 0;
+}
+
+.collapsed .theme-toggle-label {
+  display: none;
 }
 
 /* Sidebar Footer */
@@ -514,6 +591,19 @@
 @media (max-width: 767px) {
   .sidebar {
     width: var(--sidebar-collapsed-width);
+  }
+
+  .sidebar-theme-toggle {
+    padding: 0;
+  }
+
+  .theme-toggle-btn {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .theme-toggle-label {
+    display: none;
   }
   
   /* Hide text elements on mobile but keep items clickable */

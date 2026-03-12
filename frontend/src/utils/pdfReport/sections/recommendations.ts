@@ -1,7 +1,7 @@
 import type { RecommendationsData } from '../../../services/assessmentsApi';
 import type { PDFContext } from '../types';
 import { C } from '../types';
-import { newPage, sectionHeading, subHeading, drawCard, drawTable, drawDivider, sanitize } from '../helpers';
+import { newPage, sectionHeading, subHeading, drawCard, drawDivider, sanitize } from '../helpers';
 
 export function renderRecommendations(ctx: PDFContext, rec: RecommendationsData): void {
   newPage(ctx);
@@ -48,16 +48,6 @@ export function renderRecommendations(ctx: PDFContext, rec: RecommendationsData)
   }
 
   drawDivider(ctx);
-
-  if (rec.dist_sort_keys?.length > 0) {
-    subHeading(ctx, 'Distribution & Sort Keys');
-    drawTable(ctx,
-      ['Table', 'Dist Key', 'Sort Key', 'Reasoning'],
-      rec.dist_sort_keys.map(d => [
-        d.table_name, d.distkey, d.sortkey, sanitize(d.reasoning?.join('; ') || ''),
-      ]),
-    );
-  }
 
   if (rec.architecture?.strategies?.length > 0) {
     subHeading(ctx, 'Architecture Strategies');

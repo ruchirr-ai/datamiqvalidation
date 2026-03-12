@@ -18,6 +18,11 @@ from typing import Dict, List, Any, Optional
 logger = logging.getLogger(__name__)
 
 
+def _fmt(n: float) -> str:
+    """Format a number as a dollar amount."""
+    return f'${n:,.2f}'
+
+
 # AWS Redshift pricing by region (USD/hour per node for Provisioned,
 # USD/RPU-hour for Serverless). Prices as of early 2026.
 REDSHIFT_PRICING = {
@@ -304,6 +309,8 @@ class TCOEngine:
                 'bq_3yr_tco': round(bq_3yr, 2),
                 'provisioned_3yr_tco': round(prov_3yr, 2),
                 'serverless_3yr_tco': round(svls_3yr, 2),
+                'provisioned_ri1yr_3yr_tco': round(provisioned_costs['ri_1yr_annual'] * 3 + migration_costs['total'], 2),
+                'provisioned_ri3yr_3yr_tco': round(provisioned_costs['ri_3yr_annual'] * 3 + migration_costs['total'], 2),
                 'best_option': best_redshift,
                 'savings_amount': round(savings, 2),
                 'savings_pct': round(savings_pct, 1),
@@ -315,7 +322,22 @@ class TCOEngine:
                 'monthly_slot_hours': round(monthly_slot_hours, 2),
                 'monthly_tb_scanned': round(monthly_tb_scanned, 4),
                 'estimated_rpu_hours_monthly': round(rpu_hours_monthly, 1),
+                'total_queries': total_queries,
+                'workload_type': self._classify_workload(monthly_slot_hours, total_queries, query_time_span_days),
+                'avg_wall_clock_seconds': workload_metrics.get('avg_wall_clock_seconds', 0),
+                'active_hours_per_day': workload_metrics.get('active_hours_per_day', 0),
+                'estimated_base_rpu': workload_metrics.get('estimated_base_rpu', 8),
+                'max_concurrent_slots': workload_metrics.get('max_concurrent_slots', 0),
+                'min_concurrent_slots': workload_metrics.get('min_concurrent_slots', 0),
+                'avg_concurrent_slots': workload_metrics.get('avg_concurrent_slots', 0),
+                'median_concurrent_slots': workload_metrics.get('median_concurrent_slots', 0),
+                'estimated_peak_slots': workload_metrics.get('estimated_peak_slots', 0),
             },
+            'recommendation': self._generate_recommendation(
+                bq_costs, provisioned_costs, serverless_costs,
+                monthly_slot_hours, rpu_hours_monthly, total_queries,
+                query_time_span_days, total_size_gb, provisioned_viable
+            ),
             'cost_notes': self._generate_cost_notes(
                 bq_costs, provisioned_costs, serverless_costs,
                 migration_costs, provisioned_config, region_pricing,
@@ -417,7 +439,7 @@ class TCOEngine:
         ri_3yr_monthly = compute_monthly * 0.25 + storage_monthly
         ri_3yr_annual = ri_3yr_monthly * 12
 
-        return {
+        result = {
             'node_type': node_type,
             'num_nodes': num_nodes,
             'hourly_per_node': round(hourly_per_node, 3),
@@ -432,28 +454,44 @@ class TCOEngine:
             'ri_3yr_annual': round(ri_3yr_annual, 2),
         }
 
+        # Pass through sizing justification from recommendation engine
+        if 'sizing_basis' in config:
+            result['sizing_basis'] = config['sizing_basis']
+        if 'sizing_rationale' in config:
+            result['sizing_rationale'] = config['sizing_rationale']
+        if 'vcpu_total' in config:
+            result['vcpu_total'] = config['vcpu_total']
+        if 'memory_gb_total' in config:
+            result['memory_gb_total'] = config['memory_gb_total']
+
+        return result
+
     def _calculate_serverless_costs(
         self, config: Dict, size_gb: float, pricing: Dict,
         actual_rpu_hours_monthly: float
     ) -> Dict:
         """
-        Calculate Redshift Serverless costs using ACTUAL workload data.
+        Calculate Redshift Serverless costs using workload-derived RPU-hours.
 
-        Instead of flat utilization %, we use:
-        - actual_rpu_hours_monthly: derived from BQ slot_milliseconds
-        - Minimum charge: if queries run, at least base_rpu * query_duration
+        Redshift Serverless billing model:
+        - Billed per RPU-hour on a per-second basis
+        - 60-second minimum charge per warehouse activation
+        - Base RPU is the minimum always allocated during active queries
+        - Auto-scales up to max RPU based on query complexity
+        - No charge when idle (no queries running)
+        - Storage billed separately (same RMS rate as provisioned)
         """
         base_rpu = config.get('base_rpu', 8)
         max_rpu = config.get('max_rpu', 32)
         rpu_hour_rate = pricing['serverless_per_rpu_hour']
 
         # Use actual RPU-hours from workload analysis
-        # Minimum: if there are any queries, at least 1 RPU-hour
+        # This already accounts for 60s minimum billing and concurrency
         rpu_hours_month = max(actual_rpu_hours_monthly, 0)
 
         compute_monthly = rpu_hours_month * rpu_hour_rate
 
-        # Storage
+        # Storage (same RMS pricing as provisioned)
         storage_monthly = size_gb * pricing['managed_storage_per_gb_month']
 
         total_monthly = compute_monthly + storage_monthly
@@ -495,8 +533,9 @@ class TCOEngine:
             f'BigQuery costs extrapolated from {query_span_days:.0f} days of captured query data to monthly estimates.',
             f'BQ query cost uses the higher of On-Demand (${BQ_QUERY_ON_DEMAND_PER_TB}/TB) or Editions (${BQ_EDITIONS_STANDARD_PER_SLOT_HOUR}/slot-hour) pricing.',
             f'BQ monthly compute: {monthly_slot_hours:.1f} slot-hours/month estimated from INFORMATION_SCHEMA.JOBS.',
-            f'Redshift Provisioned 3-year TCO uses 1-Year RI pricing (40% discount). On-demand and 3-Year RI (75% discount) also shown for comparison.',
-            f'Redshift Serverless: {svls.get("est_rpu_hours_monthly", 0):.1f} RPU-hours/month derived from BQ slot usage (1 RPU ≈ 2 BQ slots).',
+            f'Redshift Provisioned shows On-Demand, 1-Year RI (40% discount), and 3-Year RI (75% discount) pricing.',
+            f'Redshift Serverless RPU-hours account for 60-second minimum billing per activation, query concurrency, and a 1.5× overhead factor vs BQ slot-hours.',
+            f'Redshift Serverless: {svls.get("est_rpu_hours_monthly", 0):.1f} RPU-hours/month estimated from BQ workload analysis.',
             f'Data transfer cost (${migration["total"]:.2f}) is a one-time GCP egress expense included in Redshift 3-year TCO.',
             f'Pricing for region: {region} ({pricing["label"]}).',
         ]
@@ -507,3 +546,104 @@ class TCOEngine:
                 'actual costs may be higher.'
             )
         return notes
+
+    def _classify_workload(self, monthly_slot_hours: float, total_queries: int, span_days: float) -> Dict:
+        """Classify workload pattern for recommendation context."""
+        daily_queries = total_queries / max(span_days, 1)
+        daily_slot_hours = monthly_slot_hours / 30
+
+        if monthly_slot_hours < 10:
+            pattern = 'sporadic'
+            label = 'Sporadic / Light'
+            desc = 'Very low compute usage — queries run infrequently with minimal resource consumption.'
+        elif monthly_slot_hours < 100:
+            pattern = 'light'
+            label = 'Light / Intermittent'
+            desc = 'Moderate query activity with periods of inactivity. Workload is not continuous.'
+        elif monthly_slot_hours < 1000:
+            if daily_queries > 200:
+                pattern = 'steady'
+                label = 'Steady / Consistent'
+                desc = 'Regular query activity throughout the day. Workload is predictable and consistent.'
+            else:
+                pattern = 'bursty'
+                label = 'Bursty / Variable'
+                desc = 'Concentrated query bursts with idle periods. Workload varies significantly.'
+        else:
+            pattern = 'heavy'
+            label = 'Heavy / Continuous'
+            desc = 'High compute usage with sustained query activity. Workload runs near-continuously.'
+
+        return {
+            'pattern': pattern,
+            'label': label,
+            'description': desc,
+            'daily_queries': round(daily_queries, 0),
+            'daily_slot_hours': round(daily_slot_hours, 2),
+        }
+
+    def _generate_recommendation(
+        self, bq, prov, svls, monthly_slot_hours, rpu_hours_monthly,
+        total_queries, span_days, size_gb, provisioned_viable
+    ) -> Dict:
+        """Generate a clear recommendation with reasoning based on workload analysis."""
+        daily_queries = total_queries / max(span_days, 1)
+        workload = self._classify_workload(monthly_slot_hours, total_queries, span_days)
+        pattern = workload['pattern']
+
+        # Determine recommendation
+        if not provisioned_viable or pattern in ('sporadic', 'light'):
+            choice = 'serverless'
+            confidence = 'high'
+        elif pattern == 'heavy' and size_gb > 500:
+            choice = 'provisioned'
+            confidence = 'high'
+        elif pattern == 'steady' and monthly_slot_hours > 500:
+            choice = 'provisioned'
+            confidence = 'medium'
+        elif svls['monthly'] < prov['monthly'] * 0.7:
+            choice = 'serverless'
+            confidence = 'high'
+        elif prov['ri_1yr_monthly'] < svls['monthly']:
+            choice = 'provisioned'
+            confidence = 'medium'
+        else:
+            choice = 'serverless'
+            confidence = 'medium'
+
+        # Build reasoning
+        reasons = []
+        if choice == 'serverless':
+            reasons.append(f'Serverless monthly cost ({_fmt(svls["monthly"])}) is lower than Provisioned on-demand ({_fmt(prov["monthly"])}).')
+            if pattern in ('sporadic', 'light'):
+                reasons.append(f'Workload is {workload["label"].lower()} — pay-per-query avoids paying for idle compute.')
+            if daily_queries < 100:
+                reasons.append(f'Low query frequency (~{daily_queries:.0f}/day) means a 24/7 cluster would be underutilized.')
+            if monthly_slot_hours < 100:
+                reasons.append(f'Only {monthly_slot_hours:.1f} slot-hours/month of compute — Serverless auto-scales to match.')
+            reasons.append('No cluster management overhead. Auto-scales RPUs based on query complexity.')
+            if rpu_hours_monthly > 0:
+                reasons.append(f'Estimated {rpu_hours_monthly:.0f} RPU-hours/month at ${svls.get("rpu_hour_rate", 0.375)}/RPU-hr.')
+        else:
+            reasons.append(f'Provisioned with 1-Year RI ({_fmt(prov["ri_1yr_monthly"])}/mo) is cost-effective for this workload.')
+            if pattern in ('steady', 'heavy'):
+                reasons.append(f'Workload is {workload["label"].lower()} — dedicated resources provide predictable performance.')
+            if monthly_slot_hours >= 500:
+                reasons.append(f'High compute usage ({monthly_slot_hours:.1f} slot-hours/month) justifies dedicated cluster.')
+            if size_gb >= 500:
+                reasons.append(f'Large dataset ({size_gb:.1f} GB) benefits from dedicated compute and managed storage.')
+            reasons.append('Reserved Instance pricing offers up to 75% savings over on-demand.')
+            reasons.append('Full control over concurrency scaling and WLM queues.')
+
+        # Cost comparison summary
+        savings_vs_bq_svls = bq['annual'] - svls['annual']
+        savings_vs_bq_prov_ri = bq['annual'] - prov['ri_1yr_annual']
+
+        return {
+            'choice': choice,
+            'confidence': confidence,
+            'title': f'{"Redshift Serverless" if choice == "serverless" else "Redshift Provisioned (RI)"} Recommended',
+            'reasons': reasons,
+            'annual_savings_vs_bq': round(savings_vs_bq_svls if choice == 'serverless' else savings_vs_bq_prov_ri, 2),
+            'workload_pattern': workload,
+        }

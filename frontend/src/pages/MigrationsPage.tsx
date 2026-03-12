@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Badge, Dropdown, DropdownItem, Select, Avatar } from '../components/ui';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/DropdownMenu';
+import { Play, XCircle, ClipboardList, Pencil, Trash2, MoreVertical } from 'lucide-react';
 import { bqRedshiftApi, Migration as BQMigration } from '../services/bqRedshiftApi';
 import { WorkspaceSelector } from '../components/WorkspaceSelector';
 import { useWorkspace } from '../contexts/WorkspaceContext';
@@ -24,7 +26,6 @@ export const MigrationsPage: React.FC = () => {
   const [rowsPerPage, setRowsPerPage] = useState(15);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [menuPosition, setMenuPosition] = useState<{ top?: number; bottom?: number; right: number }>({ right: 0 });
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [restartConfirmMigration, setRestartConfirmMigration] = useState<Migration | null>(null);
   const [editingMigration, setEditingMigration] = useState<Migration | null>(null);
@@ -481,119 +482,46 @@ export const MigrationsPage: React.FC = () => {
                 <td className="timestamp-cell">{formatDateTime(migration.lastRunAt)}</td>
                 <td>
                   <div className="migration-menu-container">
-                    <button 
-                      className="row-menu-btn" 
-                      aria-label="More options"
-                      onClick={(e) => {
-                        const button = e.currentTarget;
-                        const rect = button.getBoundingClientRect();
-                        const windowHeight = window.innerHeight;
-                        const menuHeight = 180; // Approximate menu height
-                        
-                        // Check if there's enough space below
-                        const spaceBelow = windowHeight - rect.bottom;
-                        const shouldOpenUpward = spaceBelow < menuHeight;
-                        
-                        // Calculate position
-                        const position = {
-                          right: window.innerWidth - rect.right,
-                          ...(shouldOpenUpward 
-                            ? { bottom: windowHeight - rect.top + 4 }
-                            : { top: rect.bottom + 4 }
-                          )
-                        };
-                        
-                        setMenuPosition(position);
-                        setOpenMenuId(openMenuId === migration.id ? null : migration.id);
-                      }}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                        <circle cx="8" cy="3" r="1.5" />
-                        <circle cx="8" cy="8" r="1.5" />
-                        <circle cx="8" cy="13" r="1.5" />
-                      </svg>
-                    </button>
-                    
-                    {openMenuId === migration.id && (
-                      <div 
-                        className={`migration-dropdown-menu ${menuPosition.bottom ? 'open-upward' : ''}`}
-                        style={{
-                          top: menuPosition.top ? `${menuPosition.top}px` : 'auto',
-                          bottom: menuPosition.bottom ? `${menuPosition.bottom}px` : 'auto',
-                          right: `${menuPosition.right}px`
-                        }}
-                      >
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button className="row-menu-btn" aria-label="More options">
+                          <MoreVertical size={16} />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
                         {(migration.status === 'pending' || migration.status === 'ready') && (
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => handleRunMigration(migration)}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M5 3l8 5-8 5V3z" fill="currentColor" />
-                            </svg>
-                            Run Migration
-                          </button>
+                          <DropdownMenuItem onSelect={() => handleRunMigration(migration)}>
+                            <Play size={15} /> Run Migration
+                          </DropdownMenuItem>
                         )}
                         {(migration.status === 'paused' || migration.status === 'failed' || migration.status === 'cancelled' || migration.status === 'completed') && (
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              setSelectedMigrationForRun(migration);
-                              setShowRunOptions(true);
-                              setOpenMenuId(null);
-                            }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M5 3l8 5-8 5V3z" fill="currentColor" />
-                            </svg>
-                            Run Migration
-                          </button>
+                          <DropdownMenuItem onSelect={() => {
+                            setSelectedMigrationForRun(migration);
+                            setShowRunOptions(true);
+                          }}>
+                            <Play size={15} /> Run Migration
+                          </DropdownMenuItem>
                         )}
                         {migration.status === 'running' && (
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => handleCancelMigration(migration)}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <circle cx="8" cy="8" r="6" />
-                              <path d="M6 6l4 4M10 6l-4 4" strokeLinecap="round" />
-                            </svg>
-                            Cancel Migration
-                          </button>
+                          <DropdownMenuItem onSelect={() => handleCancelMigration(migration)}>
+                            <XCircle size={15} /> Cancel Migration
+                          </DropdownMenuItem>
                         )}
-                        <button
-                          className="dropdown-menu-item"
-                          onClick={() => handleViewLogs(migration)}
+                        <DropdownMenuItem onSelect={() => handleViewLogs(migration)}>
+                          <ClipboardList size={15} /> View Logs
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => handleUpdateMigration(migration)}>
+                          <Pencil size={15} /> Edit Migration
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="ddm-item-danger"
+                          onSelect={() => setDeleteConfirmId(migration.id)}
                         >
-                          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <path d="M3 4h10M3 8h10M3 12h6" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          View Logs
-                        </button>
-                        <button
-                          className="dropdown-menu-item"
-                          onClick={() => handleUpdateMigration(migration)}
-                        >
-                          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <path d="M11.5 2.5l2 2L6 12H4v-2l7.5-7.5z" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          Edit Migration
-                        </button>
-                        <div className="dropdown-divider" />
-                        <button
-                          className="dropdown-menu-item dropdown-menu-item-danger"
-                          onClick={() => {
-                            setDeleteConfirmId(migration.id);
-                            setOpenMenuId(null);
-                          }}
-                        >
-                          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                            <path d="M3 4h10M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1M6 7v4M10 7v4M4 4h8v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4z" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                          Delete Migration
-                        </button>
-                      </div>
-                    )}
+                          <Trash2 size={15} /> Delete Migration
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </td>
               </tr>

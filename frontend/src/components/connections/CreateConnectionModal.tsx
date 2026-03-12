@@ -290,6 +290,8 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
       type: prev.type,
       database: dbValue,
     }));
+    // Clear test success when changing database type
+    setTestSuccess(false);
   };
 
   return (

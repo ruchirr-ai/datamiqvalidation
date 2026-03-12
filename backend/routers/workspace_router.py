@@ -121,6 +121,11 @@ def _get_workspace_stats(db: Session) -> Dict[str, Any]:
             stats["members"] = 1
     except Exception as e:
         logger.error(f"Failed to get workspace stats: {e}")
+        # Rollback to clear any failed transaction state
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
     return stats
 

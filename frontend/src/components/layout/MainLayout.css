@@ -2,7 +2,7 @@
 .main-layout {
   display: flex;
   min-height: 100vh;
-  background: #FAFAFA;
+  background: var(--color-bg-primary);
 }
 
 /* Main Content Area */
@@ -12,7 +12,7 @@
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background: #FFFFFF;
+  background: var(--color-bg-surface);
   transition: margin-left 0.2s ease;
 }
 
@@ -25,7 +25,7 @@
   flex: 1;
   padding: 24px;
   overflow-y: auto;
-  background: #FFFFFF;
+  background: var(--color-bg-surface);
 }
 
 /* Responsive */

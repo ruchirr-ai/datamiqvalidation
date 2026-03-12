@@ -14,8 +14,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSearch, Database } from 'lucide-react';
+import { FileSearch, Database, Play, FileText, Download, Pencil, Trash2, MoreVertical, ClipboardList } from 'lucide-react';
 import { Button, Badge, Select } from '../components/ui';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/DropdownMenu';
 import { CreateAssessmentModal, EditAssessmentModal, ViewLogsModal } from '../components/assessments';
 import { listAssessments, deleteAssessment, runAssessment, Assessment } from '../services/assessmentsApi';
 import { WorkspaceSelector } from '../components/WorkspaceSelector';
@@ -294,124 +295,46 @@ export const AssessmentsPage: React.FC = () => {
                   <td className="timestamp-cell">{formatDateTime(assessment.completed_at)}</td>
                   <td>
                     <div className="assessment-menu-container">
-                      <button 
-                        className="row-menu-btn" 
-                        aria-label="More options"
-                        onClick={(e) => {
-                          const button = e.currentTarget;
-                          const rect = button.getBoundingClientRect();
-                          const windowHeight = window.innerHeight;
-                          const menuHeight = 120;
-                          
-                          const spaceBelow = windowHeight - rect.bottom;
-                          const shouldOpenUpward = spaceBelow < menuHeight;
-                          
-                          const position = {
-                            right: window.innerWidth - rect.right,
-                            ...(shouldOpenUpward 
-                              ? { bottom: windowHeight - rect.top + 4 }
-                              : { top: rect.bottom + 4 }
-                            )
-                          };
-                          
-                          setMenuPosition(position);
-                          setOpenMenuId(openMenuId === assessment.id ? null : assessment.id);
-                        }}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                          <circle cx="8" cy="3" r="1.5" />
-                          <circle cx="8" cy="8" r="1.5" />
-                          <circle cx="8" cy="13" r="1.5" />
-                        </svg>
-                      </button>
-                      
-                      {openMenuId === assessment.id && (
-                        <div 
-                          className={`assessment-dropdown-menu ${menuPosition.bottom ? 'open-upward' : ''}`}
-                          style={{
-                            top: menuPosition.top ? `${menuPosition.top}px` : 'auto',
-                            bottom: menuPosition.bottom ? `${menuPosition.bottom}px` : 'auto',
-                            right: `${menuPosition.right}px`
-                          }}
-                        >
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              handleRunAssessment(assessment.id);
-                              setOpenMenuId(null);
-                            }}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="row-menu-btn" aria-label="More options">
+                            <MoreVertical size={16} />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
                             disabled={assessment.status === 'running'}
+                            onSelect={() => handleRunAssessment(assessment.id)}
                           >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M5 3l8 5-8 5V3z" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Run Assessment
-                          </button>
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              handleViewLogs(assessment.id);
-                              setOpenMenuId(null);
-                            }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M2 4h12M2 8h12M2 12h8" strokeLinecap="round" />
-                            </svg>
-                            View Logs
-                          </button>
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              handleViewReport(assessment.id);
-                              setOpenMenuId(null);
-                            }}
+                            <Play size={15} /> Run Assessment
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handleViewLogs(assessment.id)}>
+                            <ClipboardList size={15} /> View Logs
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             disabled={assessment.status !== 'completed'}
+                            onSelect={() => handleViewReport(assessment.id)}
                           >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7M9 2l4 4M9 2v4h4" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            View Report
-                          </button>
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              handleDownloadReport(assessment);
-                              setOpenMenuId(null);
-                            }}
+                            <FileText size={15} /> View Report
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             disabled={assessment.status !== 'completed'}
+                            onSelect={() => handleDownloadReport(assessment)}
                           >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M8 2v8M5 7l3 3 3-3M3 12h10" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Download Report
-                          </button>
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              handleEditAssessment(assessment.id);
-                              setOpenMenuId(null);
-                            }}
+                            <Download size={15} /> Download Report
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handleEditAssessment(assessment.id)}>
+                            <Pencil size={15} /> Edit Assessment
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="ddm-item-danger"
+                            onSelect={() => setDeleteConfirmId(assessment.id)}
                           >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M11 2l3 3-9 9H2v-3l9-9z" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Edit Assessment
-                          </button>
-                          <div className="dropdown-divider" />
-                          <button
-                            className="dropdown-menu-item dropdown-menu-item-danger"
-                            onClick={() => {
-                              setDeleteConfirmId(assessment.id);
-                              setOpenMenuId(null);
-                            }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M3 4h10M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1M6 7v4M10 7v4M4 4h8v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4z" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Delete Assessment
-                          </button>
-                        </div>
-                      )}
+                            <Trash2 size={15} /> Delete Assessment
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </td>
                 </tr>

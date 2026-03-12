@@ -35,6 +35,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   });
 
   const fetchWorkspaces = useCallback(async () => {
+    // Don't fetch if no auth token (prevents 401 loop on login page)
+    if (!localStorage.getItem('auth_token')) return;
     try {
       const data = await api.get<any[]>('/api/workspaces/');
       setWorkspaces(data.map(w => ({ id: w.id, name: w.name, slug: w.slug })));

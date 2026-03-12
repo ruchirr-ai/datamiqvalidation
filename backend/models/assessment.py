@@ -2,7 +2,7 @@
 Assessment models for BigQuery metadata extraction and analysis.
 """
 
-from sqlalchemy import Column, Integer, String, Text, Boolean, TIMESTAMP, BigInteger, ARRAY, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, Text, Boolean, Float, TIMESTAMP, BigInteger, ARRAY, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -48,6 +48,7 @@ class Assessment(Base):
     ml_models = relationship("AssessmentMLModel", back_populates="assessment", cascade="all, delete-orphan")
     security_policies = relationship("AssessmentSecurity", back_populates="assessment", cascade="all, delete-orphan")
     sharded_tables = relationship("AssessmentShardedTable", back_populates="assessment", cascade="all, delete-orphan")
+    indexes = relationship("AssessmentIndex", back_populates="assessment", cascade="all, delete-orphan")
     logs = relationship("AssessmentLog", back_populates="assessment", cascade="all, delete-orphan")
     
     __table_args__ = (
@@ -320,4 +321,37 @@ class AssessmentShardedTable(Base):
     __table_args__ = (
         Index('idx_assessment_sharded_assessment', 'assessment_id'),
         Index('idx_assessment_sharded_unique', 'assessment_id', 'shard_group', unique=True),
+    )
+
+
+class AssessmentIndex(Base):
+    """Database indexes for tables and views."""
+
+    __tablename__ = 'assessment_indexes'
+
+    id = Column(Integer, primary_key=True, index=True)
+    assessment_id = Column(Integer, ForeignKey('assessments.id', ondelete='CASCADE'), nullable=False)
+    table_id = Column(Integer, nullable=True)
+    schema_name = Column(String(255), nullable=True)
+    table_name = Column(String(255), nullable=True)
+    object_type = Column(String(50), nullable=True, default='TABLE')
+    index_name = Column(String(255), nullable=False)
+    index_type = Column(String(50), nullable=True)
+    is_unique = Column(Boolean, default=False)
+    is_primary_key = Column(Boolean, default=False)
+    is_clustered = Column(Boolean, default=False)
+    key_columns = Column(Text, nullable=True)
+    included_columns = Column(Text, nullable=True)
+    filter_definition = Column(Text, nullable=True)
+    size_mb = Column(Float, default=0.0)
+    row_count = Column(BigInteger, default=0)
+    index_metadata = Column(JSONB, nullable=True)
+
+    # Relationships
+    assessment = relationship("Assessment", back_populates="indexes")
+
+    __table_args__ = (
+        Index('idx_assessment_indexes_assessment', 'assessment_id'),
+        Index('idx_assessment_indexes_table', 'table_id'),
+        Index('idx_assessment_indexes_name', 'index_name'),
     )

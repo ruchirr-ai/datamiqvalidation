@@ -9,9 +9,11 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   FileSearch, ArrowLeft, Database, Table as TableIcon, Eye, Code, 
   Brain, Activity, Shield, Users, TrendingUp, Lock, DollarSign,
-  Zap, Info, CheckCircle, Server, Download
+  Zap, Info, Server, Download, CheckCircle, AlertTriangle, BarChart3
 } from 'lucide-react';
 import { Button, Badge } from '../components/ui';
+import { Select } from '../components/ui/Select';
+import { SearchableSelect } from '../components/ui/SearchableSelect';
 import { 
   getAssessmentReport, AssessmentFullReport,
   getAssessmentRecommendations, RecommendationsData,
@@ -19,9 +21,113 @@ import {
   getTCORegions, AWSRegion
 } from '../services/assessmentsApi';
 import QueryInsightsSection from '../components/assessments/QueryInsightsSection';
+import { SQLServerTablesSection } from '../components/assessments/SQLServerTablesSection';
+import { SQLServerViewsSection } from '../components/assessments/SQLServerViewsSection';
+import { SQLServerRoutinesSection } from '../components/assessments/SQLServerRoutinesSection';
+import { SQLServerSecuritySection } from '../components/assessments/SQLServerSecuritySection';
 import { DownloadReportModal } from '../components/assessments/DownloadReportModal';
 import { generatePDF } from '../utils/pdfReport';
 import './AssessmentReportPage.css';
+
+// Transform security policies data for SQL Server Security Section
+const transformSecurityDataForSQLServer = (securityPolicies: any[]) => {
+  if (!securityPolicies || securityPolicies.length === 0) {
+    return { users: [], permissions: [], roles: [], schemas: [], policies: [], logins: [], encryption: [] };
+  }
+
+  const users: any[] = [];
+  const permissions: any[] = [];
+  const roles: any[] = [];
+  const schemas: any[] = [];
+  const policies: any[] = [];
+  const logins: any[] = [];
+  const encryption: any[] = [];
+
+  securityPolicies.forEach((policy: any) => {
+    const metadata = policy.security_metadata || {};
+    switch (policy.security_type) {
+      case 'USER':
+        users.push({
+          user_name: metadata.user_name || policy.policy_name,
+          user_type: metadata.user_type || 'SQL_USER',
+          authentication_type: metadata.authentication_type || 'SQL Server Authentication',
+          default_schema: metadata.default_schema || 'dbo',
+          roles: metadata.roles || 'None',
+          create_date: metadata.create_date,
+          last_login: metadata.last_login,
+          is_disabled: metadata.is_disabled || false,
+          is_locked: metadata.is_locked || false,
+          password_policy: metadata.password_policy
+        });
+        break;
+      case 'LOGIN':
+        logins.push({
+          login_name: metadata.login_name || policy.policy_name,
+          login_type: metadata.login_type || 'SQL_LOGIN',
+          is_disabled: metadata.is_disabled || false,
+          is_locked: metadata.is_locked || false,
+          password_policy_enforced: metadata.password_policy_enforced || false,
+          password_expiration_enforced: metadata.password_expiration_enforced || false,
+          failed_login_attempts: metadata.failed_login_attempts || 0,
+          last_successful_login: metadata.last_successful_login,
+          server_roles: metadata.server_roles || []
+        });
+        break;
+      case 'ROLE':
+        roles.push({
+          role_name: metadata.role_name || policy.policy_name,
+          role_category: metadata.role_category || 'User Defined',
+          is_fixed_role: metadata.is_fixed_role || false,
+          members_count: metadata.members_count || 0,
+          description: metadata.description
+        });
+        break;
+      case 'PERMISSION':
+        permissions.push({
+          schema_name: metadata.schema_name || 'dbo',
+          object_name: metadata.object_name || '',
+          object_type: metadata.object_type || 'TABLE',
+          user_or_role: metadata.user_or_role || policy.policy_name,
+          permission_name: metadata.permission_name || 'SELECT',
+          permission_state: metadata.permission_state || 'GRANT',
+          grantor: metadata.grantor || 'dbo',
+          is_grantable: metadata.is_grantable || false
+        });
+        break;
+      case 'SCHEMA':
+        schemas.push({
+          schema_name: metadata.schema_name || policy.policy_name,
+          owner_name: metadata.owner_name || 'dbo',
+          owner_type: metadata.owner_type || 'SQL_USER',
+          created_date: metadata.created_date
+        });
+        break;
+      case 'SECURITY_POLICY':
+        policies.push({
+          policy_name: metadata.policy_name || policy.policy_name,
+          policy_type: metadata.policy_type || 'SECURITY',
+          table_schema: metadata.table_schema || 'dbo',
+          table_name: metadata.table_name || '',
+          filter_predicate: metadata.filter_predicate || policy.filter_predicate,
+          is_enabled: metadata.is_enabled !== undefined ? metadata.is_enabled : true,
+          created_date: metadata.created_date
+        });
+        break;
+      case 'ENCRYPTION':
+        encryption.push({
+          encryption_type: metadata.encryption_type || 'DATABASE_ENCRYPTION',
+          key_name: metadata.key_name || policy.policy_name,
+          algorithm: metadata.algorithm || 'AES',
+          key_length: metadata.key_length || 256,
+          encrypted_objects_count: metadata.encrypted_objects_count || 0,
+          created_date: metadata.created_date
+        });
+        break;
+    }
+  });
+
+  return { users, permissions, roles, schemas, policies, logins, encryption };
+};
 
 export const AssessmentReportPage: React.FC = () => {
   const { assessmentId } = useParams<{ assessmentId: string }>();
@@ -79,6 +185,7 @@ export const AssessmentReportPage: React.FC = () => {
 
   const getStoredProcedures = () => report ? report.routines.filter(r => r.routine_type === 'PROCEDURE') : [];
   const getFunctions = () => report ? report.routines.filter(r => r.routine_type === 'FUNCTION') : [];
+  const getTriggers = () => report ? report.routines.filter(r => r.routine_type === 'TRIGGER') : [];
   const getSparkModels = () => {
     if (!report) return [];
     return report.routines.filter(r =>
@@ -142,6 +249,10 @@ export const AssessmentReportPage: React.FC = () => {
     );
   }
 
+  // Determine database type
+  const isSQLServer = report?.assessment?.source_db_type?.toLowerCase() === 'sqlserver';
+  const isBigQuery = !isSQLServer;
+
   const tabs = [
     { id: 'summary', label: 'Summary', icon: FileSearch },
     { id: 'datasets', label: 'Datasets', icon: Database },
@@ -149,7 +260,8 @@ export const AssessmentReportPage: React.FC = () => {
     { id: 'views', label: 'Views', icon: Eye },
     { id: 'procedures', label: 'Stored Procedures', icon: Code },
     { id: 'functions', label: 'Functions', icon: Code },
-    { id: 'ml-models', label: 'ML & Spark Models', icon: Brain },
+    ...(isSQLServer ? [{ id: 'triggers', label: 'Triggers', icon: Zap }] : []),
+    ...(isBigQuery ? [{ id: 'ml-models', label: 'ML & Spark Models', icon: Brain }] : []),
     { id: 'query-insights', label: 'Query Insights', icon: Activity },
     { id: 'user-insights', label: 'User Insights', icon: Users },
     { id: 'security', label: 'Security', icon: Shield },
@@ -203,18 +315,49 @@ export const AssessmentReportPage: React.FC = () => {
           <DatasetsSection datasets={report.datasets} formatSize={formatSize} formatDate={formatDate} />
         )}
         {activeTab === 'tables' && (
-          <TablesSection tables={report.tables} columns={report.columns} formatSize={formatSize} formatDate={formatDate} formatNumber={formatNumber} />
+          isSQLServer ? (
+            <SQLServerTablesSection
+              tables={report.tables || []}
+              columns={report.columns || []}
+              indexes={report.indexes || []}
+              formatSize={formatSize}
+              formatDate={formatDate}
+              formatNumber={formatNumber}
+            />
+          ) : (
+            <TablesSection tables={report.tables} columns={report.columns} formatSize={formatSize} formatDate={formatDate} formatNumber={formatNumber} />
+          )
         )}
         {activeTab === 'views' && (
-          <ViewsSection views={report.views} formatDate={formatDate} />
+          isSQLServer ? (
+            <SQLServerViewsSection
+              views={report.views || []}
+              indexes={report.indexes || []}
+              formatDate={formatDate}
+              formatSize={formatSize}
+            />
+          ) : (
+            <ViewsSection views={report.views} formatDate={formatDate} />
+          )
         )}
         {activeTab === 'procedures' && (
-          <RoutinesSection routines={getStoredProcedures()} title="Stored Procedures" formatDate={formatDate} />
+          isSQLServer ? (
+            <SQLServerRoutinesSection routines={getStoredProcedures()} title="Stored Procedures" formatDate={formatDate} />
+          ) : (
+            <RoutinesSection routines={getStoredProcedures()} title="Stored Procedures" formatDate={formatDate} />
+          )
         )}
         {activeTab === 'functions' && (
-          <RoutinesSection routines={getFunctions()} title="Functions" formatDate={formatDate} />
+          isSQLServer ? (
+            <SQLServerRoutinesSection routines={getFunctions()} title="Functions" formatDate={formatDate} />
+          ) : (
+            <RoutinesSection routines={getFunctions()} title="Functions" formatDate={formatDate} />
+          )
         )}
-        {activeTab === 'ml-models' && (
+        {activeTab === 'triggers' && isSQLServer && (
+          <SQLServerRoutinesSection routines={getTriggers()} title="Triggers" formatDate={formatDate} />
+        )}
+        {activeTab === 'ml-models' && isBigQuery && (
           <MLModelsSection mlModels={report.ml_models} sparkModels={getSparkModels()} formatDate={formatDate} />
         )}
         {activeTab === 'query-insights' && (
@@ -224,11 +367,18 @@ export const AssessmentReportPage: React.FC = () => {
           <UserInsightsSection queryStats={report.query_stats} />
         )}
         {activeTab === 'security' && (
-          <SecuritySection
-            securityPolicies={report.security_policies}
-            columns={report.columns}
-            tables={report.tables}
-          />
+          isSQLServer ? (
+            <SQLServerSecuritySection
+              security={transformSecurityDataForSQLServer(report.security_policies)}
+              formatDate={formatDate}
+            />
+          ) : (
+            <SecuritySection
+              securityPolicies={report.security_policies}
+              columns={report.columns}
+              tables={report.tables}
+            />
+          )
         )}
         {activeTab === 'recommendations' && (
           <RecommendationsSection assessmentId={parseInt(assessmentId!)} />
@@ -253,57 +403,6 @@ export const AssessmentReportPage: React.FC = () => {
 const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatNumber, getSparkModels, setActiveTab }) => (
   <div className="section-content">
     <h2 className="section-heading">Assessment Summary</h2>
-    
-    {/* Table of Contents */}
-    <div className="table-of-contents">
-      <h3 className="toc-heading">Quick Navigation</h3>
-      <div className="toc-grid">
-        <button className="toc-item" onClick={() => setActiveTab('datasets')}>
-          <Database size={16} />
-          <span>Datasets ({report.assessment.total_datasets})</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('tables')}>
-          <TableIcon size={16} />
-          <span>Tables ({report.assessment.total_tables})</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('columns')}>
-          <TableIcon size={16} />
-          <span>Columns</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('views')}>
-          <Eye size={16} />
-          <span>Views ({report.assessment.total_views})</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('stored-procedures')}>
-          <Code size={16} />
-          <span>Stored Procedures ({report.assessment.total_routines})</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('ml-models')}>
-          <Brain size={16} />
-          <span>ML Models ({report.assessment.total_ml_models})</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('query-insights')}>
-          <Activity size={16} />
-          <span>Query Insights</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('user-insights')}>
-          <Users size={16} />
-          <span>User Insights</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('security')}>
-          <Shield size={16} />
-          <span>Security Policies</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('recommendations')}>
-          <TrendingUp size={16} />
-          <span>Recommendations</span>
-        </button>
-        <button className="toc-item" onClick={() => setActiveTab('tco')}>
-          <DollarSign size={16} />
-          <span>TCO Analysis</span>
-        </button>
-      </div>
-    </div>
     
     {/* Summary Cards */}
     <div className="summary-grid">
@@ -443,9 +542,23 @@ const DatasetsSection: React.FC<any> = ({ datasets, formatSize, formatDate }) =>
 const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate, formatNumber }) => {
   const [selectedTable, setSelectedTable] = useState<any | null>(null);
   const [showColumnsModal, setShowColumnsModal] = useState(false);
+  const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
 
   // Filter to show only BASE TABLEs (not views)
   const baseTables = tables.filter((t: any) => t.table_type === 'BASE TABLE');
+
+  // Get unique datasets for dropdown
+  const datasetOptions = [
+    { value: 'all', label: `All Datasets (${baseTables.length})` },
+    ...Array.from(new Set(baseTables.map((t: any) => t.dataset_name))).sort().map((ds: any) => ({
+      value: ds,
+      label: `${ds} (${baseTables.filter((t: any) => t.dataset_name === ds).length})`,
+    })),
+  ];
+
+  const filteredTables = selectedDataset === 'all'
+    ? baseTables
+    : baseTables.filter((t: any) => t.dataset_name === selectedDataset);
 
   const handleTableClick = (table: any) => {
     setSelectedTable(table);
@@ -457,12 +570,8 @@ const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate,
   };
 
   const formatColumnArray = (arr: any) => {
-    // Handle null, undefined, or non-array values
     if (!arr) return 'None';
-    
-    // If it's not an array, try to parse it
     if (!Array.isArray(arr)) {
-      // If it's a string that looks like JSON, try to parse it
       if (typeof arr === 'string') {
         try {
           const parsed = JSON.parse(arr);
@@ -478,22 +587,27 @@ const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate,
         return 'None';
       }
     }
-    
-    // Filter out any malformed entries (single characters like '[', ']', '"')
     const filtered = arr.filter((item: any) => 
       item && typeof item === 'string' && item.length > 1 && 
       item !== '[]' && item !== '""'
     );
-    
     if (filtered.length === 0) return 'None';
-    
     return filtered.join(', ');
   };
 
   return (
     <div className="section-content">
-      <h2 className="section-heading">Tables ({baseTables.length})</h2>
-      {baseTables.length === 0 ? (
+      <div className="section-header-row">
+        <h2 className="section-heading">Tables ({filteredTables.length})</h2>
+        <div className="section-filters">
+          <Select
+            value={selectedDataset}
+            onChange={setSelectedDataset}
+            options={datasetOptions}
+          />
+        </div>
+      </div>
+      {filteredTables.length === 0 ? (
         <div className="empty-state">
           <TableIcon size={48} />
           <p>No tables found</p>
@@ -513,7 +627,7 @@ const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate,
               </tr>
             </thead>
             <tbody>
-              {baseTables.map((table: any) => (
+              {filteredTables.map((table: any) => (
                 <tr key={table.id}>
                   <td className="font-medium">{table.dataset_name}</td>
                   <td>
@@ -614,23 +728,62 @@ const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate,
 // Views Section Component - Table Format with Clickable Names
 const ViewsSection: React.FC<any> = ({ views, formatDate }) => {
   const [expandedView, setExpandedView] = useState<number | null>(null);
+  const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
+  const [selectedViewType, setSelectedViewType] = useState<string | number>('all');
 
   const handleViewClick = (index: number) => {
     setExpandedView(expandedView === index ? null : index);
   };
 
-  // Debug: Log the first view to see its structure
-  React.useEffect(() => {
-    if (views && views.length > 0) {
-      console.log('First view data:', views[0]);
-      console.log('View keys:', Object.keys(views[0]));
-    }
-  }, [views]);
+  // Extract dataset from view_name (format: "dataset.viewname")
+  const getDataset = (v: any) => {
+    const name = v.view_name || '';
+    return name.includes('.') ? name.split('.')[0] : 'Unknown';
+  };
+
+  // Get unique datasets
+  const datasetOptions = [
+    { value: 'all', label: `All Datasets (${views.length})` },
+    ...Array.from(new Set(views.map((v: any) => getDataset(v)))).sort().map((ds: any) => ({
+      value: ds,
+      label: `${ds} (${views.filter((v: any) => getDataset(v) === ds).length})`,
+    })),
+  ];
+
+  // Get unique view types
+  const viewTypeOptions = [
+    { value: 'all', label: `All Types (${views.length})` },
+    ...Array.from(new Set(views.map((v: any) => v.view_type || 'VIEW'))).sort().map((vt: any) => ({
+      value: vt,
+      label: `${vt === 'MATERIALIZED_VIEW' ? 'Materialized View' : 'View'} (${views.filter((v: any) => (v.view_type || 'VIEW') === vt).length})`,
+    })),
+  ];
+
+  // Apply filters
+  const filteredViews = views.filter((v: any) => {
+    const dsMatch = selectedDataset === 'all' || getDataset(v) === selectedDataset;
+    const vtMatch = selectedViewType === 'all' || (v.view_type || 'VIEW') === selectedViewType;
+    return dsMatch && vtMatch;
+  });
 
   return (
     <div className="section-content">
-      <h2 className="section-heading">Views ({views.length})</h2>
-      {views.length === 0 ? (
+      <div className="section-header-row">
+        <h2 className="section-heading">Views ({filteredViews.length})</h2>
+        <div className="section-filters">
+          <Select
+            value={selectedDataset}
+            onChange={setSelectedDataset}
+            options={datasetOptions}
+          />
+          <Select
+            value={selectedViewType}
+            onChange={setSelectedViewType}
+            options={viewTypeOptions}
+          />
+        </div>
+      </div>
+      {filteredViews.length === 0 ? (
         <div className="empty-state">
           <Eye size={48} />
           <p>No views found</p>
@@ -640,33 +793,37 @@ const ViewsSection: React.FC<any> = ({ views, formatDate }) => {
           <table className="data-table">
             <thead>
               <tr>
+                <th>Dataset</th>
                 <th>Name</th>
                 <th>Type</th>
                 <th>Created Time</th>
               </tr>
             </thead>
             <tbody>
-              {views.map((view: any, index: number) => {
+              {filteredViews.map((view: any, index: number) => {
                 const isExpanded = expandedView === index;
                 const totalDeps = (view.dependent_tables?.length || 0) + 
                                  (view.dependent_views?.length || 0) + 
                                  (view.dependent_functions?.length || 0);
+                const dataset = getDataset(view);
+                const viewName = view.view_name?.includes('.') ? view.view_name.split('.').slice(1).join('.') : view.view_name;
                 
                 return (
                   <React.Fragment key={index}>
                     <tr>
+                      <td className="font-medium">{dataset}</td>
                       <td>
                         <button
                           className="table-name-link"
                           onClick={() => handleViewClick(index)}
                           title="Click to view dependencies"
                         >
-                          {view.view_name}
+                          {viewName}
                         </button>
                       </td>
                       <td>
                         <Badge variant={view.view_type === 'MATERIALIZED_VIEW' ? 'info' : 'default'}>
-                          {view.view_type}
+                          {view.view_type === 'MATERIALIZED_VIEW' ? 'Materialized' : 'View'}
                         </Badge>
                       </td>
                       <td className="text-sm">{formatDate(view.creation_time)}</td>
@@ -674,7 +831,7 @@ const ViewsSection: React.FC<any> = ({ views, formatDate }) => {
                     
                     {isExpanded && (
                       <tr className="expanded-row">
-                        <td colSpan={3}>
+                        <td colSpan={4}>
                           <div className="dependency-details">
                             {/* SQL Definition */}
                             {view.view_definition && (
@@ -770,23 +927,44 @@ const ViewsSection: React.FC<any> = ({ views, formatDate }) => {
 // Routines Section Component (for both SPs and Functions) - Table Format with Clickable Names
 const RoutinesSection: React.FC<any> = ({ routines, title, formatDate }) => {
   const [expandedRoutine, setExpandedRoutine] = useState<number | null>(null);
+  const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
 
   const handleRoutineClick = (index: number) => {
     setExpandedRoutine(expandedRoutine === index ? null : index);
   };
 
-  // Debug: Log the first routine to see its structure
-  React.useEffect(() => {
-    if (routines && routines.length > 0) {
-      console.log(`First ${title} data:`, routines[0]);
-      console.log(`${title} keys:`, Object.keys(routines[0]));
-    }
-  }, [routines, title]);
+  // Extract dataset from routine_name (format: "dataset.routinename")
+  const getDataset = (r: any) => {
+    const name = r.routine_name || '';
+    return name.includes('.') ? name.split('.')[0] : 'Unknown';
+  };
+
+  // Get unique datasets
+  const datasetOptions = [
+    { value: 'all', label: `All Datasets (${routines.length})` },
+    ...Array.from(new Set(routines.map((r: any) => getDataset(r)))).sort().map((ds: any) => ({
+      value: ds,
+      label: `${ds} (${routines.filter((r: any) => getDataset(r) === ds).length})`,
+    })),
+  ];
+
+  const filteredRoutines = selectedDataset === 'all'
+    ? routines
+    : routines.filter((r: any) => getDataset(r) === selectedDataset);
 
   return (
     <div className="section-content">
-      <h2 className="section-heading">{title} ({routines.length})</h2>
-      {routines.length === 0 ? (
+      <div className="section-header-row">
+        <h2 className="section-heading">{title} ({filteredRoutines.length})</h2>
+        <div className="section-filters">
+          <Select
+            value={selectedDataset}
+            onChange={setSelectedDataset}
+            options={datasetOptions}
+          />
+        </div>
+      </div>
+      {filteredRoutines.length === 0 ? (
         <div className="empty-state">
           <Code size={48} />
           <p>No {title.toLowerCase()} found</p>
@@ -796,6 +974,7 @@ const RoutinesSection: React.FC<any> = ({ routines, title, formatDate }) => {
           <table className="data-table">
             <thead>
               <tr>
+                <th>Dataset</th>
                 <th>Name</th>
                 <th>Type</th>
                 <th>Language</th>
@@ -803,23 +982,26 @@ const RoutinesSection: React.FC<any> = ({ routines, title, formatDate }) => {
               </tr>
             </thead>
             <tbody>
-              {routines.map((routine: any, index: number) => {
+              {filteredRoutines.map((routine: any, index: number) => {
                 const isExpanded = expandedRoutine === index;
                 const totalDeps = (routine.dependent_tables?.length || 0) + 
                                  (routine.dependent_views?.length || 0) + 
                                  (routine.dependent_functions?.length || 0) +
                                  (routine.calls_procedures?.length || 0);
+                const dataset = getDataset(routine);
+                const routineName = routine.routine_name?.includes('.') ? routine.routine_name.split('.').slice(1).join('.') : routine.routine_name;
                 
                 return (
                   <React.Fragment key={index}>
                     <tr>
+                      <td className="font-medium">{dataset}</td>
                       <td>
                         <button
                           className="table-name-link"
                           onClick={() => handleRoutineClick(index)}
                           title="Click to view dependencies"
                         >
-                          {routine.routine_name}
+                          {routineName}
                         </button>
                       </td>
                       <td>
@@ -837,7 +1019,7 @@ const RoutinesSection: React.FC<any> = ({ routines, title, formatDate }) => {
                     
                     {isExpanded && (
                       <tr className="expanded-row">
-                        <td colSpan={4}>
+                        <td colSpan={5}>
                           <div className="dependency-details">
                             {/* Routine Metadata */}
                             {(routine.return_type || routine.external_language) && (
@@ -1253,9 +1435,28 @@ const SecuritySection: React.FC<any> = ({ securityPolicies, columns, tables }) =
       };
     })
     .filter((col: any) => col.policy_tags && col.policy_tags.length > 0);
+
+  // Also extract CLS entries from securityPolicies (collected by backend security step)
+  const clsFromPolicies = securityPolicies
+    .filter((p: any) => p.security_type === 'CLS')
+    .map((p: any) => ({
+      column_name: p.security_metadata?.column_name || p.policy_name?.replace('policy_tag_', '') || 'Unknown',
+      data_type: 'N/A',
+      policy_tags: [p.security_metadata?.policy_tag || p.policy_name || 'Policy Tag'],
+      table_name: p.table_name || 'Unknown'
+    }));
+  
+  // Merge both sources, dedup by table+column
+  const allClsColumns = [...clsColumns];
+  const existingKeys = new Set(clsColumns.map((c: any) => `${c.table_name}.${c.column_name}`));
+  for (const cp of clsFromPolicies) {
+    if (!existingKeys.has(`${cp.table_name}.${cp.column_name}`)) {
+      allClsColumns.push(cp);
+    }
+  }
   
   // Group CLS columns by table
-  const clsByTable = clsColumns.reduce((acc: any, col: any) => {
+  const clsByTable = allClsColumns.reduce((acc: any, col: any) => {
     const tableName = col.table_name;
     if (!acc[tableName]) {
       acc[tableName] = [];
@@ -1489,6 +1690,10 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
   const [data, setData] = useState<RecommendationsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
+  const [selectedTable, setSelectedTable] = useState<string | number>('all');
+  const [dskPage, setDskPage] = useState(1);
+  const [dskPageSize, setDskPageSize] = useState<string | number>(20);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -1509,7 +1714,27 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
   if (error || !data) return <div className="section-content"><p style={{ color: 'var(--color-error)', padding: '20px' }}>{error || 'No data'}</p></div>;
 
   const { query_classification: qc, config_recommendation: cr, dist_sort_keys: dsk, architecture: arch } = data;
-  const recommended = cr.recommended;
+
+  // Extract datasets and tables from dsk for filters
+  const getDatasetFromTable = (name: string) => name.includes('.') ? name.split('.')[0] : 'Unknown';
+  const dskDatasets = Array.from(new Set(dsk.map(r => getDatasetFromTable(r.table_name)))).sort();
+  const datasetOptions = [
+    { value: 'all', label: `All Datasets (${dskDatasets.length})` },
+    ...dskDatasets.map(ds => ({ value: ds, label: ds })),
+  ];
+
+  const filteredDsk = dsk.filter(r => {
+    const ds = getDatasetFromTable(r.table_name);
+    const dsMatch = selectedDataset === 'all' || ds === selectedDataset;
+    const tblMatch = selectedTable === 'all' || r.table_name === selectedTable;
+    return dsMatch && tblMatch;
+  });
+
+  const tableOptions = [
+    { value: 'all', label: `All Tables (${(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset)).length})` },
+    ...(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset))
+      .map(r => ({ value: r.table_name, label: r.table_name })),
+  ];
 
   return (
     <div className="section-content">
@@ -1518,9 +1743,38 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
       {/* Distribution & Sort Key Recommendations */}
       <div className="rec-section">
         <h3 className="rec-section-title"><TableIcon size={18} /> Distribution & Sort Key Recommendations</h3>
-        {dsk.length === 0 ? (
+        <div className="section-filters" style={{ marginBottom: 'var(--spacing-4)' }}>
+          <SearchableSelect
+            value={selectedDataset}
+            onChange={(v) => { setSelectedDataset(v); setSelectedTable('all'); setDskPage(1); }}
+            options={datasetOptions}
+            placeholder="All Datasets"
+          />
+          <SearchableSelect
+            value={selectedTable}
+            onChange={(v) => { setSelectedTable(v); setDskPage(1); }}
+            options={tableOptions}
+            placeholder="All Tables"
+          />
+          <SearchableSelect
+            value={dskPageSize}
+            onChange={(v) => { setDskPageSize(v); setDskPage(1); }}
+            options={[
+              { value: 20, label: '20 rows' },
+              { value: 50, label: '50 rows' },
+              { value: 100, label: '100 rows' },
+              { value: 200, label: '200 rows' },
+            ]}
+            placeholder="Rows per page"
+          />
+        </div>
+        {filteredDsk.length === 0 ? (
           <div className="empty-state-small"><p>No table-level recommendations available.</p></div>
         ) : (
+          <>
+          <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>
+            Showing {Math.min((dskPage - 1) * Number(dskPageSize) + 1, filteredDsk.length)}–{Math.min(dskPage * Number(dskPageSize), filteredDsk.length)} of {filteredDsk.length} tables
+          </div>
           <div className="table-container">
             <table className="data-table">
               <thead>
@@ -1532,7 +1786,7 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
                 </tr>
               </thead>
               <tbody>
-                {dsk.map((row, i) => (
+                {filteredDsk.slice((dskPage - 1) * Number(dskPageSize), dskPage * Number(dskPageSize)).map((row, i) => (
                   <tr key={i}>
                     <td className="font-mono font-medium">{row.table_name}</td>
                     <td><Badge variant={row.distkey === 'EVEN' ? 'default' : 'info'}>{row.distkey}</Badge></td>
@@ -1547,6 +1801,30 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
               </tbody>
             </table>
           </div>
+          {Math.ceil(filteredDsk.length / Number(dskPageSize)) > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '16px' }}>
+              <button
+                className="filter-btn"
+                disabled={dskPage <= 1}
+                onClick={() => setDskPage(dskPage - 1)}
+                style={{ padding: '6px 16px', cursor: dskPage <= 1 ? 'not-allowed' : 'pointer', opacity: dskPage <= 1 ? 0.5 : 1 }}
+              >
+                ← Previous
+              </button>
+              <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+                Page {dskPage} of {Math.ceil(filteredDsk.length / Number(dskPageSize))}
+              </span>
+              <button
+                className="filter-btn"
+                disabled={dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize))}
+                onClick={() => setDskPage(dskPage + 1)}
+                style={{ padding: '6px 16px', cursor: dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize)) ? 'not-allowed' : 'pointer', opacity: dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize)) ? 0.5 : 1 }}
+              >
+                Next →
+              </button>
+            </div>
+          )}
+          </>
         )}
 
         <div className="rec-info-box" style={{ marginTop: 'var(--spacing-6)' }}>
@@ -1629,8 +1907,10 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
   if (loading) return <div className="section-content"><div style={{ padding: '40px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }}></div><p style={{ marginTop: '16px', color: 'var(--color-text-secondary)' }}>Calculating TCO...</p></div></div>;
   if (error || !data) return <div className="section-content"><p style={{ color: 'var(--color-error)', padding: '20px' }}>{error || 'No data'}</p></div>;
 
-  const { bigquery_costs: bq, provisioned_costs: prov, serverless_costs: svls, migration_costs: mig, comparison: cmp } = data;
-  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco) || 1;
+  const { bigquery_costs: bq, provisioned_costs: prov, serverless_costs: svls, migration_costs: mig, comparison: cmp, recommendation: rec, workload_summary: wl } = data;
+  const ri1yr3yr = cmp.provisioned_ri1yr_3yr_tco ?? cmp.provisioned_3yr_tco;
+  const ri3yr3yr = cmp.provisioned_ri3yr_3yr_tco ?? cmp.provisioned_3yr_tco;
+  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco, ri1yr3yr, ri3yr3yr) || 1;
 
   return (
     <div className="section-content">
@@ -1661,7 +1941,7 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
       {/* Provisioned not viable warning */}
       {cmp.provisioned_viable === false && cmp.provisioned_note && (
         <div className="rec-info-box" style={{ borderLeft: '4px solid #f59e0b', background: '#fffbeb' }}>
-          <div className="rec-info-title" style={{ color: '#b45309' }}>⚠️ Light Workload Detected</div>
+          <div className="rec-info-title" style={{ color: '#b45309' }}><AlertTriangle size={16} /> Light Workload Detected</div>
           <p style={{ margin: '4px 0 0', color: '#92400e', fontSize: '13px' }}>{cmp.provisioned_note}</p>
         </div>
       )}
@@ -1700,18 +1980,36 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
             <div className="rec-config-details">
               <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{prov.node_type}</span></div>
               <div className="rec-config-row"><span>Nodes</span><span>{prov.num_nodes}</span></div>
+              {prov.vcpu_total && <div className="rec-config-row"><span>Total vCPUs</span><span>{prov.vcpu_total}</span></div>}
+              {prov.memory_gb_total && <div className="rec-config-row"><span>Total Memory</span><span>{prov.memory_gb_total} GB</span></div>}
               <div className="rec-config-row"><span>Compute</span><span>{fmt(prov.compute_monthly)}/mo</span></div>
               <div className="rec-config-row"><span>Storage</span><span>{fmt(prov.storage_monthly)}/mo</span></div>
-              <div className="rec-config-row rec-config-row-total"><span>Total</span><span>{fmt(prov.monthly)}/mo</span></div>
-              <div className="rec-config-row"><span>Annual</span><span>{fmt(prov.annual)}</span></div>
+              <div className="rec-config-row rec-config-row-total"><span>On-Demand</span><span>{fmt(prov.monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Annual (On-Demand)</span><span>{fmt(prov.annual)}</span></div>
+              {prov.ri_1yr_monthly != null && (
+                <div className="rec-config-row"><span>1-Year RI</span><span>{fmt(prov.ri_1yr_monthly)}/mo</span></div>
+              )}
+              {prov.ri_3yr_monthly != null && (
+                <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(prov.ri_3yr_monthly)}/mo</span></div>
+              )}
             </div>
+            {prov.sizing_rationale && prov.sizing_rationale.length > 0 && (
+              <div className="rec-sizing-rationale">
+                <div className="rec-sizing-rationale-title">Sizing Rationale</div>
+                <ul className="rec-sizing-rationale-list">
+                  {prov.sizing_rationale.map((r: string, i: number) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           {/* Serverless */}
           <div className={`rec-config-card ${cmp.best_option === 'serverless' ? 'rec-config-recommended' : ''}`}>
             {cmp.best_option === 'serverless' && <div className="rec-badge">Best Value</div>}
             <div className="rec-config-header"><Zap size={20} /><span>Serverless</span></div>
             <div className="rec-config-details">
-              <div className="rec-config-row"><span>Base RPU</span><span>{svls.base_rpu} <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>(AWS min)</span></span></div>
+              <div className="rec-config-row"><span>Base RPU</span><span>{svls.base_rpu}</span></div>
               <div className="rec-config-row"><span>Max RPU</span><span>{svls.max_rpu}</span></div>
               <div className="rec-config-row"><span>Est. RPU-hours/mo</span><span>{svls.est_rpu_hours_monthly?.toLocaleString()}</span></div>
               <div className="rec-config-row"><span>RPU Rate</span><span>${svls.rpu_hour_rate}/RPU-hr</span></div>
@@ -1736,8 +2034,22 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
           <div className="tco-bar-item">
             <div className="tco-bar-label-top">{fmt(cmp.provisioned_3yr_tco)}</div>
             <div className="tco-bar" style={{ height: `${Math.max((cmp.provisioned_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #3b82f6, #60a5fa)' }}></div>
-            <div className="tco-bar-label">Provisioned</div>
+            <div className="tco-bar-label">Prov. On-Demand</div>
           </div>
+          {cmp.provisioned_viable !== false && (
+            <>
+              <div className="tco-bar-item">
+                <div className="tco-bar-label-top">{fmt(ri1yr3yr)}</div>
+                <div className="tco-bar" style={{ height: `${Math.max((ri1yr3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #2563eb, #93c5fd)' }}></div>
+                <div className="tco-bar-label">Prov. 1-Yr RI</div>
+              </div>
+              <div className="tco-bar-item">
+                <div className="tco-bar-label-top">{fmt(ri3yr3yr)}</div>
+                <div className="tco-bar" style={{ height: `${Math.max((ri3yr3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #1d4ed8, #bfdbfe)' }}></div>
+                <div className="tco-bar-label">Prov. 3-Yr RI</div>
+              </div>
+            </>
+          )}
           <div className="tco-bar-item">
             <div className="tco-bar-label-top">{fmt(cmp.serverless_3yr_tco)}</div>
             <div className="tco-bar" style={{ height: `${Math.max((cmp.serverless_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #22c55e, #4ade80)' }}></div>
@@ -1745,6 +2057,100 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
           </div>
         </div>
       </div>
+
+      {/* Workload Summary */}
+      {wl && wl.workload_type && (
+        <div className="tco-section">
+          <h3 className="rec-section-title"><BarChart3 size={18} /> Workload Profile</h3>
+          <div className="tco-workload-card">
+            <div className="tco-workload-header">
+              <span className={`tco-workload-badge tco-workload-${wl.workload_type.pattern}`}>{wl.workload_type.label}</span>
+            </div>
+            <p className="tco-workload-desc">{wl.workload_type.description}</p>
+            <div className="tco-workload-stats">
+              <div className="tco-workload-stat">
+                <span className="tco-workload-stat-value">{wl.total_queries.toLocaleString()}</span>
+                <span className="tco-workload-stat-label">Total Queries</span>
+              </div>
+              <div className="tco-workload-stat">
+                <span className="tco-workload-stat-value">~{wl.workload_type.daily_queries.toLocaleString()}</span>
+                <span className="tco-workload-stat-label">Queries/Day</span>
+              </div>
+              <div className="tco-workload-stat">
+                <span className="tco-workload-stat-value">{wl.monthly_slot_hours.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                <span className="tco-workload-stat-label">Slot-Hours/Mo</span>
+              </div>
+              <div className="tco-workload-stat">
+                <span className="tco-workload-stat-value">{wl.estimated_rpu_hours_monthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                <span className="tco-workload-stat-label">Est. RPU-Hrs/Mo</span>
+              </div>
+              {wl.max_concurrent_slots != null && wl.max_concurrent_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.max_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Max Slots/Query</span>
+                </div>
+              )}
+              {wl.min_concurrent_slots != null && wl.min_concurrent_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.min_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Min Slots/Query</span>
+                </div>
+              )}
+              {wl.avg_concurrent_slots != null && wl.avg_concurrent_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.avg_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Avg Slots/Query</span>
+                </div>
+              )}
+              {wl.estimated_peak_slots != null && wl.estimated_peak_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.estimated_peak_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Peak Slots (P95)</span>
+                </div>
+              )}
+              {wl.avg_wall_clock_seconds != null && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.avg_wall_clock_seconds.toFixed(1)}s</span>
+                  <span className="tco-workload-stat-label">Avg Query Duration</span>
+                </div>
+              )}
+              {wl.active_hours_per_day != null && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.active_hours_per_day.toFixed(1)}</span>
+                  <span className="tco-workload-stat-label">Active Hrs/Day</span>
+                </div>
+              )}
+              <div className="tco-workload-stat">
+                <span className="tco-workload-stat-value">{wl.query_time_span_days.toFixed(0)}</span>
+                <span className="tco-workload-stat-label">Days Analyzed</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recommendation */}
+      {rec && (
+        <div className="tco-section">
+          <h3 className="rec-section-title"><CheckCircle size={18} /> Recommendation</h3>
+          <div className={`tco-rec-card tco-rec-${rec.confidence}`}>
+            <div className="tco-rec-header">
+              <div className="tco-rec-title">{rec.title}</div>
+              <span className={`tco-rec-confidence tco-rec-confidence-${rec.confidence}`}>
+                {rec.confidence === 'high' ? 'High Confidence' : 'Medium Confidence'}
+              </span>
+            </div>
+            {rec.annual_savings_vs_bq > 0 && (
+              <div className="tco-rec-savings">
+                Estimated annual savings vs BigQuery: <strong>{fmt(rec.annual_savings_vs_bq)}</strong>
+              </div>
+            )}
+            <ul className="tco-rec-reasons">
+              {rec.reasons.map((r, i) => <li key={i}>{r}</li>)}
+            </ul>
+          </div>
+        </div>
+      )}
 
       {/* Migration Cost */}
       <div className="rec-info-box">

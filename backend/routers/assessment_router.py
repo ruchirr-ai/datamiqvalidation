@@ -16,6 +16,10 @@ from datetime import datetime
 
 from database import get_db
 from services.bigquery_assessment_service import BigQueryAssessmentService
+try:
+    from services.sqlserver_assessment_service import SQLServerAssessmentService
+except ImportError:
+    SQLServerAssessmentService = None
 from services.recommendation_engine import RecommendationEngine
 from services.tco_engine import TCOEngine
 from repositories.assessment_repository import AssessmentRepository
@@ -168,21 +172,24 @@ def run_assessment_background(
     target_connection_id: int
 ):
     """
-    Background task to run the assessment
-    
-    This collects all metadata from BigQuery and analyzes compatibility with Redshift
+    Background task to run the assessment.
+
+    Detects the source database type (BigQuery or SQL Server) and runs
+    the appropriate assessment service. BigQuery path is unchanged;
+    SQL Server path uses SQLServerAssessmentService.
     """
     from database import db_instance
     import traceback
     import asyncio
-    
+
     db = db_instance.SessionLocal()
     try:
-        print(f"[BACKGROUND TASK] Starting assessment {assessment_id}")
-        print(f"[BACKGROUND TASK] Source connection: {source_connection_id}, Target connection: {target_connection_id}")
+        print(f"[BACKGROUND TASK] Starting assessment {assessment_id}", flush=True)
+        print(f"[BACKGROUND TASK] Source connection: {source_connection_id}, Target connection: {target_connection_id}", flush=True)
+
         assessment_repo = AssessmentRepository(db)
         connection_repo = ConnectionRepository(db)
-        
+
         # Log: Assessment started
         assessment_repo.create_log(
             assessment_id=assessment_id,
@@ -190,10 +197,12 @@ def run_assessment_background(
             message='Assessment execution started',
             stage='initialization'
         )
-        
+        db.commit()
+
         # Update status to 'running'
         assessment_repo.update_status(assessment_id, 'running')
-        
+        db.commit()
+
         # Log: Status updated
         assessment_repo.create_log(
             assessment_id=assessment_id,
@@ -201,12 +210,12 @@ def run_assessment_background(
             message='Assessment status updated to running',
             stage='initialization'
         )
-        
+        db.commit()
+
         # Get source and target connections
         source_conn = connection_repo.get_by_id(source_connection_id)
         target_conn = connection_repo.get_by_id(target_connection_id)
-        
-        # Log: Connections retrieved
+
         assessment_repo.create_log(
             assessment_id=assessment_id,
             log_level='INFO',
@@ -214,7 +223,8 @@ def run_assessment_background(
             stage='initialization',
             log_metadata={'connection_id': source_connection_id, 'connection_name': source_conn.name}
         )
-        
+        db.commit()
+
         assessment_repo.create_log(
             assessment_id=assessment_id,
             log_level='INFO',
@@ -222,42 +232,53 @@ def run_assessment_background(
             stage='initialization',
             log_metadata={'connection_id': target_connection_id, 'connection_name': target_conn.name}
         )
-        
-        # Initialize BigQuery assessment service
+        db.commit()
+
+        # Determine source database type (the 'database' field holds the engine name,
+        # e.g. 'bigquery', 'sqlserver'; the 'type' field is 'source'/'target')
+        source_db_type = getattr(source_conn, 'database', 'bigquery').lower()
+        print(f"[BACKGROUND TASK] Source DB Type: '{source_db_type}'", flush=True)
+
         assessment_repo.create_log(
             assessment_id=assessment_id,
             log_level='INFO',
-            message='Initializing BigQuery assessment service',
+            message=f'Initializing {source_db_type} assessment service',
             stage='initialization'
         )
-        
-        print(f"[BACKGROUND TASK] Creating BigQuery service with connection params")
-        bq_service = BigQueryAssessmentService(source_conn.connection_params)
-        
+        db.commit()
+
+        # Initialize the appropriate assessment service based on database type
+        if source_db_type == 'sqlserver':
+            assessment_service = SQLServerAssessmentService(source_conn.connection_params)
+        else:
+            # Default to BigQuery (preserves existing behavior)
+            assessment_service = BigQueryAssessmentService(source_conn.connection_params)
+
         # Log: Starting metadata collection
         assessment_repo.create_log(
             assessment_id=assessment_id,
             log_level='INFO',
-            message='Starting metadata collection from BigQuery',
+            message=f'Starting metadata collection from {source_db_type}',
             stage='metadata_collection'
         )
-        
-        print(f"[BACKGROUND TASK] Starting full assessment execution")
+        db.commit()
+
+        print(f"[BACKGROUND TASK] Starting full assessment execution", flush=True)
+
         # Run the assessment (this collects all metadata)
-        # Use asyncio.run to execute the async function
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(bq_service.run_full_assessment(assessment_id, db))
+            loop.run_until_complete(assessment_service.run_full_assessment(assessment_id, db))
         finally:
             loop.close()
-        
+
         # Log: Metadata collection completed
         assessment = assessment_repo.get_by_id(assessment_id)
         assessment_repo.create_log(
             assessment_id=assessment_id,
             log_level='INFO',
-            message=f'Metadata collection completed successfully',
+            message='Metadata collection completed successfully',
             stage='metadata_collection',
             log_metadata={
                 'total_datasets': assessment.total_datasets,
@@ -268,10 +289,10 @@ def run_assessment_background(
                 'total_size_mb': assessment.total_size_mb
             }
         )
-        
+
         # Update status to 'completed'
         assessment_repo.update_status(assessment_id, 'completed')
-        
+
         # Log: Assessment completed
         assessment_repo.create_log(
             assessment_id=assessment_id,
@@ -279,16 +300,16 @@ def run_assessment_background(
             message=f'Assessment completed successfully. Collected {assessment.total_datasets} datasets, {assessment.total_tables} tables, {assessment.total_views} views',
             stage='completion'
         )
-        
+
         print(f"Assessment {assessment_id} completed successfully")
-        
+
     except Exception as e:
         error_msg = str(e)
         stack = traceback.format_exc()
-        
+
         print(f"Error running assessment {assessment_id}: {error_msg}")
         print(f"Stack trace: {stack}")
-        
+
         # Log: Error occurred
         assessment_repo.create_log(
             assessment_id=assessment_id,
@@ -297,15 +318,16 @@ def run_assessment_background(
             stage='error',
             stack_trace=stack
         )
-        
+
         # Update status to 'failed' with error message
         assessment_repo.update_status(
-            assessment_id, 
+            assessment_id,
             'failed',
             error_message=error_msg
         )
     finally:
         db.close()
+
 
 
 @router.get("/", response_model=AssessmentListResponse)
@@ -610,6 +632,19 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
         query_stats = assessment_repo.get_query_stats(assessment_id)
         security_policies = assessment_repo.get_security_policies(assessment_id)
         sharded_tables = assessment_repo.get_sharded_tables(assessment_id)
+        indexes = assessment_repo.get_indexes(assessment_id)
+        
+        # Determine source database type from connection
+        source_db_type = 'bigquery'  # default
+        try:
+            from models.connection import Connection
+            source_conn = db.query(Connection).filter(
+                Connection.id == assessment.source_connection_id
+            ).first()
+            if source_conn:
+                source_db_type = getattr(source_conn, 'database', 'bigquery').lower()
+        except Exception:
+            pass
         
         # Build comprehensive report
         report = {
@@ -625,7 +660,8 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                 "total_views": assessment.total_views,
                 "total_routines": assessment.total_routines,
                 "total_ml_models": assessment.total_ml_models,
-                "total_size_mb": assessment.total_size_mb
+                "total_size_mb": assessment.total_size_mb,
+                "source_db_type": source_db_type
             },
             "datasets": [
                 {
@@ -652,7 +688,8 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                     "has_column_security": t.has_column_security,
                     "has_row_security": t.has_row_security,
                     "is_sharded": t.is_sharded,
-                    "update_frequency": t.update_frequency
+                    "update_frequency": t.update_frequency,
+                    "table_metadata": t.table_metadata or {}
                 }
                 for t in tables
             ],
@@ -715,14 +752,12 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                 {
                     "job_id": q.job_id,
                     "execution_time": q.execution_time.isoformat() if q.execution_time else None,
-                    "query_text": q.query_text[:500] if q.query_text else None,  # Truncate for response
                     "bytes_scanned": q.bytes_scanned,
                     "slot_milliseconds": q.slot_milliseconds,
                     "cache_hit": q.cache_hit,
-                    "referenced_tables": q.referenced_tables or [],
                     "user_email": q.user_email
                 }
-                for q in query_stats  # Return all query stats for complete user insights
+                for q in query_stats
             ],
             "security_policies": [
                 {
@@ -746,6 +781,27 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                     "shard_tables": st.shard_tables or []
                 }
                 for st in sharded_tables
+            ],
+            "indexes": [
+                {
+                    "id": idx.id,
+                    "table_id": idx.table_id,
+                    "schema_name": idx.schema_name,
+                    "table_name": idx.table_name,
+                    "object_type": idx.object_type if hasattr(idx, 'object_type') else 'TABLE',
+                    "index_name": idx.index_name,
+                    "index_type": idx.index_type,
+                    "is_unique": idx.is_unique,
+                    "is_primary_key": idx.is_primary_key,
+                    "is_clustered": idx.is_clustered,
+                    "key_columns": idx.key_columns,
+                    "included_columns": idx.included_columns,
+                    "filter_definition": idx.filter_definition,
+                    "size_mb": idx.size_mb,
+                    "row_count": idx.row_count,
+                    "index_metadata": idx.index_metadata or {}
+                }
+                for idx in indexes
             ]
         }
         
@@ -927,6 +983,10 @@ async def get_assessment_tco(
 async def get_query_insights(
     assessment_id: int,
     timeframe: str = "all",  # all, 24h, 7d, 30d
+    search: str = "",
+    sort_by: str = "bytes_scanned",  # bytes_scanned, slot_milliseconds, execution_time
+    page: int = 1,
+    page_size: int = 50,
     db: Session = Depends(get_db)
 ):
     """
@@ -974,7 +1034,7 @@ async def get_query_insights(
         cache_hit_rate = (cache_hits / total_queries * 100) if total_queries > 0 else 0
         
         avg_execution_time_ms = (total_slot_ms / total_queries) if total_queries > 0 else 0
-        avg_execution_time_seconds = avg_execution_time_ms / 1000
+        avg_slot_ms_raw = avg_execution_time_ms  # Save for later use
         
         unique_users = set(q.user_email for q in query_stats if q.user_email)
         active_users_count = len(unique_users)
@@ -1008,21 +1068,157 @@ async def get_query_insights(
         daily_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_daily.items())]
         weekly_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_weekly.items())]
         
-        queries = [
-            {
+        # Build query list with search filter
+        filtered_stats = query_stats
+        if search:
+            search_lower = search.lower()
+            filtered_stats = [q for q in query_stats if (
+                (q.query_text and search_lower in q.query_text.lower()) or
+                (q.user_email and search_lower in q.user_email.lower()) or
+                (q.job_id and search_lower in q.job_id.lower())
+            )]
+        
+        # Sort
+        if sort_by == "slot_milliseconds":
+            filtered_stats.sort(key=lambda q: q.slot_milliseconds or 0, reverse=True)
+        elif sort_by == "execution_time":
+            filtered_stats.sort(key=lambda q: q.execution_time or datetime.min, reverse=True)
+        elif sort_by == "est_runtime":
+            # Sort by estimated wall-clock runtime (slot_ms / concurrent_slots)
+            # Higher slot_ms with lower concurrency = longer runtime
+            filtered_stats.sort(key=lambda q: q.slot_milliseconds or 0, reverse=True)
+        else:  # bytes_scanned (default)
+            filtered_stats.sort(key=lambda q: q.bytes_scanned or 0, reverse=True)
+        
+        total_filtered = len(filtered_stats)
+        
+        # Paginate
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_stats = filtered_stats[start:end]
+        
+        # --- New metrics: concurrent queries, slot utilization, query runtime ---
+        # Estimate max concurrent queries using 1-minute windows
+        minute_buckets = {}
+        for q in query_stats:
+            if q.execution_time:
+                minute_key = q.execution_time.strftime('%Y-%m-%d %H:%M')
+                minute_buckets[minute_key] = minute_buckets.get(minute_key, 0) + 1
+        max_concurrent_queries = max(minute_buckets.values()) if minute_buckets else 0
+        avg_concurrent_queries = round(sum(minute_buckets.values()) / len(minute_buckets), 1) if minute_buckets else 0
+
+        # Slot utilization per query (slot_ms as proxy for slot usage)
+        slot_values = [q.slot_milliseconds or 0 for q in query_stats]
+        non_zero_slots = [s for s in slot_values if s > 0]
+        max_slot_ms = max(slot_values) if slot_values else 0
+        min_slot_ms = min(non_zero_slots) if non_zero_slots else 0
+        avg_slot_ms_per_query = round(total_slot_ms / total_queries, 0) if total_queries > 0 else 0
+
+        # Compute per-query concurrent slots using actual runtime when available
+        per_query_concurrent_slots = []
+        for q in query_stats:
+            q_slot_ms = q.slot_milliseconds or 0
+            if q_slot_ms <= 0:
+                continue
+            # Try to get actual runtime from query_metadata
+            q_runtime_ms = 0
+            if q.query_metadata and isinstance(q.query_metadata, dict):
+                q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
+            if q_runtime_ms and q_runtime_ms > 0:
+                per_query_concurrent_slots.append(max(1, q_slot_ms / q_runtime_ms))
+            else:
+                per_query_concurrent_slots.append(max(1, q_slot_ms / 30000))
+
+        est_concurrent_slots = (sum(per_query_concurrent_slots) / len(per_query_concurrent_slots)) if per_query_concurrent_slots else 1
+
+        # Estimate query runtime
+        avg_wall_clock_s = (avg_slot_ms_per_query / max(est_concurrent_slots, 1)) / 1000 if avg_slot_ms_per_query > 0 else 0
+        max_query_runtime_seconds = round((max_slot_ms / max(est_concurrent_slots, 1)) / 1000, 2) if max_slot_ms > 0 else 0
+        min_query_runtime_seconds = round((min_slot_ms / max(est_concurrent_slots, 1)) / 1000, 4) if min_slot_ms > 0 else 0
+        avg_query_runtime_seconds = round(avg_wall_clock_s, 2)
+
+        # Peak slot utilization using sweep-line algorithm for true overlap.
+        # For each query, compute [start, end) interval and its concurrent slots.
+        # At every start/end event, track the running total of slots.
+        # The maximum running total = true peak slots at any point in time.
+        from datetime import timedelta as _td
+        events = []  # list of (timestamp, +slots or -slots)
+        total_query_slots_sum = 0.0
+        query_interval_count = 0
+        for q in query_stats:
+            if not q.execution_time:
+                continue
+            q_slot_ms = q.slot_milliseconds or 0
+            if q_slot_ms <= 0:
+                continue
+            # Compute this query's concurrent slot usage
+            q_runtime_ms = 0
+            if q.query_metadata and isinstance(q.query_metadata, dict):
+                q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
+            if q_runtime_ms and q_runtime_ms > 0:
+                q_slots = max(1, q_slot_ms / q_runtime_ms)
+                q_duration_ms = q_runtime_ms
+            else:
+                q_slots = max(1, q_slot_ms / 30000)
+                q_duration_ms = 30000  # assume 30s
+            start_t = q.execution_time
+            end_t = start_t + _td(milliseconds=q_duration_ms)
+            events.append((start_t, q_slots))
+            events.append((end_t, -q_slots))
+            total_query_slots_sum += q_slots
+            query_interval_count += 1
+
+        if events:
+            # Sort by time; ties broken by ends (-) before starts (+)
+            events.sort(key=lambda e: (e[0], e[1]))
+            running_slots = 0.0
+            peak_slot_utilization = 0.0
+            for _, delta in events:
+                running_slots += delta
+                if running_slots > peak_slot_utilization:
+                    peak_slot_utilization = running_slots
+            peak_slot_utilization = round(peak_slot_utilization, 1)
+            avg_slot_utilization = round(total_query_slots_sum / query_interval_count, 1) if query_interval_count else 0
+        else:
+            peak_slot_utilization = 0
+            avg_slot_utilization = round(est_concurrent_slots, 1)
+
+        # Avg execution time = average slot-time per query (total CPU time / queries)
+        # This differs from avg_query_runtime_seconds which is estimated wall-clock time.
+        # slot-time = concurrent_slots × wall_clock, so slot-time > wall-clock for parallel queries.
+        avg_execution_time_seconds = (avg_slot_ms_per_query / 1000) if avg_slot_ms_per_query > 0 else 0
+
+        queries = []
+        for q in page_stats:
+            q_slot_ms = q.slot_milliseconds or 0
+            # Compute per-query slot utilization using actual runtime when available
+            q_runtime_ms = 0
+            if q.query_metadata and isinstance(q.query_metadata, dict):
+                q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
+            if q_slot_ms > 0 and q_runtime_ms and q_runtime_ms > 0:
+                q_slot_util = round(max(1, q_slot_ms / q_runtime_ms), 1)
+                q_est_runtime = round((q_slot_ms / max(q_slot_ms / q_runtime_ms, 1)) / 1000, 2)
+            elif q_slot_ms > 0:
+                q_slot_util = round(q_slot_ms / 30000, 1)
+                q_est_runtime = round((q_slot_ms / max(est_concurrent_slots, 1)) / 1000, 2)
+            else:
+                q_slot_util = 0
+                q_est_runtime = 0
+
+            queries.append({
                 "job_id": q.job_id,
                 "execution_time": q.execution_time.isoformat() if q.execution_time else None,
-                "query_text": q.query_text,
+                "query_text": (q.query_text or '')[:500],
                 "bytes_scanned": q.bytes_scanned or 0,
                 "bytes_billed": q.bytes_scanned or 0,
-                "slot_milliseconds": q.slot_milliseconds or 0,
+                "slot_milliseconds": q_slot_ms,
+                "slot_utilization": q_slot_util,
+                "est_runtime_seconds": q_est_runtime,
                 "cache_hit": q.cache_hit or False,
                 "cache_hit_status": "Hit" if q.cache_hit else "Miss",
                 "referenced_tables": q.referenced_tables or [],
                 "user_email": q.user_email or "Unknown"
-            }
-            for q in query_stats
-        ]
+            })
         
         return {
             "assessment_id": assessment_id,
@@ -1038,7 +1234,17 @@ async def get_query_insights(
                 "cache_hits": cache_hits,
                 "cache_misses": total_queries - cache_hits,
                 "read_queries": read_count,
-                "write_queries": write_count
+                "write_queries": write_count,
+                "max_concurrent_queries": max_concurrent_queries,
+                "avg_concurrent_queries": avg_concurrent_queries,
+                "max_slot_milliseconds": max_slot_ms,
+                "min_slot_milliseconds": min_slot_ms,
+                "avg_slot_ms_per_query": avg_slot_ms_per_query,
+                "max_query_runtime_seconds": max_query_runtime_seconds,
+                "min_query_runtime_seconds": min_query_runtime_seconds,
+                "avg_query_runtime_seconds": avg_query_runtime_seconds,
+                "peak_slot_utilization": peak_slot_utilization,
+                "avg_slot_utilization": avg_slot_utilization
             },
             "charts": {
                 "read_write_distribution": {
@@ -1051,7 +1257,13 @@ async def get_query_insights(
                     "weekly": weekly_data
                 }
             },
-            "queries": queries
+            "queries": queries,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_filtered": total_filtered,
+                "total_pages": (total_filtered + page_size - 1) // page_size
+            }
         }
     except HTTPException:
         raise

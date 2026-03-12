@@ -127,6 +127,9 @@ export interface AssessmentReportTable {
   has_row_security: boolean;
   is_sharded: boolean;
   update_frequency: string;
+  table_metadata?: Record<string, any>;
+  partition_function?: string | null;
+  partition_scheme?: string | null;
 }
 
 export interface AssessmentReportColumn {
@@ -210,6 +213,7 @@ export interface AssessmentFullReport {
     total_routines: number;
     total_ml_models: number;
     total_size_mb: number;
+    source_db_type?: string;
   };
   datasets: DatasetSummary[];
   tables: AssessmentReportTable[];
@@ -220,6 +224,26 @@ export interface AssessmentFullReport {
   query_stats: AssessmentReportQueryStat[];
   security_policies: AssessmentReportSecurity[];
   sharded_tables: AssessmentReportShardedTable[];
+  indexes: AssessmentReportIndex[];
+}
+
+export interface AssessmentReportIndex {
+  id: number;
+  table_id: number | null;
+  schema_name: string;
+  table_name: string;
+  object_type: string;
+  index_name: string;
+  index_type: string;
+  is_unique: boolean;
+  is_primary_key: boolean;
+  is_clustered: boolean;
+  key_columns: string;
+  included_columns: string | null;
+  filter_definition: string | null;
+  size_mb: number;
+  row_count: number;
+  index_metadata: Record<string, any>;
 }
 
 /**
@@ -307,8 +331,13 @@ export interface BQCosts extends TCOCostBreakdown {
   };
   query: {
     queries_analyzed: number;
-    tb_scanned: number;
-    rate_per_tb: number;
+    estimated_monthly_queries?: number;
+    monthly_tb_scanned?: number;
+    tb_scanned?: number;
+    on_demand_monthly?: number;
+    slot_based_monthly?: number;
+    monthly_slot_hours?: number;
+    rate_per_tb?: number;
     pricing_model: string;
     monthly: number;
     annual: number;
@@ -326,6 +355,20 @@ export interface ProvisionedCosts extends TCOCostBreakdown {
   ri_1yr_annual: number;
   ri_3yr_monthly: number;
   ri_3yr_annual: number;
+  vcpu_total?: number;
+  memory_gb_total?: number;
+  sizing_basis?: {
+    avg_vcpus_needed: number;
+    peak_vcpus: number;
+    peak_slots: number;
+    monthly_slot_hours: number;
+    vcpus_per_node: number;
+    nodes_for_compute: number;
+    nodes_for_storage: number;
+    nodes_for_peak: number;
+    sizing_driver: string;
+  };
+  sizing_rationale?: string[];
 }
 
 export interface ServerlessCosts extends TCOCostBreakdown {
@@ -341,15 +384,31 @@ export interface ServerlessCosts extends TCOCostBreakdown {
 export interface TCOComparison {
   bq_3yr_tco: number;
   provisioned_3yr_tco: number;
-  provisioned_3yr_ondemand?: number;
-  provisioned_3yr_ri1yr?: number;
-  provisioned_3yr_ri3yr?: number;
+  provisioned_ri1yr_3yr_tco?: number;
+  provisioned_ri3yr_3yr_tco?: number;
   serverless_3yr_tco: number;
   best_option: string;
   savings_amount: number;
   savings_pct: number;
   provisioned_viable?: boolean;
   provisioned_note?: string | null;
+}
+
+export interface WorkloadType {
+  pattern: string;
+  label: string;
+  description: string;
+  daily_queries: number;
+  daily_slot_hours: number;
+}
+
+export interface TCORecommendation {
+  choice: string;
+  confidence: string;
+  title: string;
+  reasons: string[];
+  annual_savings_vs_bq: number;
+  workload_pattern: WorkloadType;
 }
 
 export interface TCOData {
@@ -364,6 +423,23 @@ export interface TCOData {
     total: number;
   };
   comparison: TCOComparison;
+  workload_summary?: {
+    query_time_span_days: number;
+    monthly_slot_hours: number;
+    monthly_tb_scanned: number;
+    estimated_rpu_hours_monthly: number;
+    total_queries: number;
+    workload_type: WorkloadType;
+    avg_wall_clock_seconds?: number;
+    active_hours_per_day?: number;
+    estimated_base_rpu?: number;
+    max_concurrent_slots?: number;
+    min_concurrent_slots?: number;
+    avg_concurrent_slots?: number;
+    median_concurrent_slots?: number;
+    estimated_peak_slots?: number;
+  };
+  recommendation?: TCORecommendation;
   cost_notes: string[];
 }
 
