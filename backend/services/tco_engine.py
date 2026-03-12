@@ -9,6 +9,7 @@ Key improvements over naive calculation:
 - Serverless RPU-hours derived from actual BQ slot usage (not flat %)
 - Provisioned costs include RI pricing options
 - Migration costs include DataSync transfer
+- Real-time AWS pricing via AWS Pricing API (with fallback to cached prices)
 """
 
 import logging
@@ -23,8 +24,9 @@ def _fmt(n: float) -> str:
     return f'${n:,.2f}'
 
 
-# AWS Redshift pricing by region (USD/hour per node for Provisioned,
+# Fallback AWS Redshift pricing by region (USD/hour per node for Provisioned,
 # USD/RPU-hour for Serverless). Prices as of early 2026.
+# Used when AWS Pricing API is unavailable.
 REDSHIFT_PRICING = {
     'us-east-1': {
         'label': 'US East (N. Virginia)',
@@ -223,7 +225,77 @@ class TCOEngine:
     """
     Calculates and compares Total Cost of Ownership between
     BigQuery (current) and Redshift (target) configurations.
+    Uses AWS Pricing API for real-time pricing with fallback to cached prices.
     """
+    
+    def __init__(self, use_live_pricing: bool = True):
+        """
+        Initialize TCO Engine.
+        
+        Args:
+            use_live_pricing: If True, fetch real-time pricing from AWS API.
+                            If False or API fails, use fallback cached prices.
+        """
+        self.use_live_pricing = use_live_pricing
+        self.pricing_service = None
+        
+        if use_live_pricing:
+            try:
+                from .aws_pricing_service import AWSPricingService
+                self.pricing_service = AWSPricingService()
+                logger.info("AWS Pricing Service initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize AWS Pricing Service: {e}. Using fallback prices.")
+                self.pricing_service = None
+    
+    def _get_region_pricing(self, aws_region: str, provisioned_config: Dict) -> Dict:
+        """
+        Get pricing for a region, using live AWS API if available, otherwise fallback.
+        
+        Args:
+            aws_region: AWS region code
+            provisioned_config: Provisioned cluster config with node_type
+        
+        Returns:
+            Pricing dictionary with provisioned, serverless, and storage rates
+        """
+        # Start with fallback pricing
+        fallback_pricing = REDSHIFT_PRICING.get(aws_region, REDSHIFT_PRICING['us-east-1'])
+        
+        if not self.pricing_service:
+            return fallback_pricing
+        
+        try:
+            # Fetch live pricing
+            node_type = provisioned_config.get('node_type', 'ra3.xlplus')
+            
+            # Get provisioned node pricing
+            node_price = self.pricing_service.get_redshift_node_pricing(node_type, aws_region)
+            
+            # Get serverless RPU pricing
+            serverless_price = self.pricing_service.get_redshift_serverless_pricing(aws_region)
+            
+            # Get managed storage pricing
+            storage_price = self.pricing_service.get_managed_storage_pricing(aws_region)
+            
+            # Build pricing dict with live prices where available
+            live_pricing = {
+                'label': fallback_pricing['label'],
+                'provisioned': fallback_pricing['provisioned'].copy(),
+                'serverless_per_rpu_hour': serverless_price if serverless_price else fallback_pricing['serverless_per_rpu_hour'],
+                'managed_storage_per_gb_month': storage_price if storage_price else fallback_pricing['managed_storage_per_gb_month'],
+            }
+            
+            # Update the specific node type price if fetched successfully
+            if node_price:
+                live_pricing['provisioned'][node_type] = node_price
+                logger.info(f"Using live AWS pricing for {node_type} in {aws_region}: ${node_price}/hr")
+            
+            return live_pricing
+            
+        except Exception as e:
+            logger.warning(f"Error fetching live AWS pricing: {e}. Using fallback prices.")
+            return fallback_pricing
 
     def calculate_tco(
         self,
@@ -254,7 +326,8 @@ class TCOEngine:
 
         monthly_tb_scanned = monthly_bytes / (1024 ** 4) if monthly_bytes else 0
 
-        # Get region pricing
+        # Get region pricing (with live AWS API or fallback)
+        region_pricing = self._get_region_pricing(aws_region, provisioned_config)
         region_pricing = REDSHIFT_PRICING.get(aws_region, REDSHIFT_PRICING['us-east-1'])
 
         # 1. Current BigQuery costs (extrapolated to monthly)

@@ -552,10 +552,10 @@ class RecommendationEngine:
         Recommend provisioned cluster configuration.
 
         Sizing approach:
-        - Base cluster sized for SUSTAINED workload (avg concurrent slots),
-          not the absolute peak. This keeps node count practical.
-        - Concurrency scaling handles burst/peak traffic automatically
-          by spinning up transient clusters on demand.
+        - Evaluate both horizontal (more small nodes) and vertical (fewer large nodes) scaling
+        - Consider peak workload for sizing, not just average
+        - Use concurrency scaling when peak >> base capacity
+        - Optimize for cost across different node type combinations
         - Mapping: 1 BQ slot ≈ 1 GiB memory equivalent.
 
         Node specs (official AWS docs):
@@ -563,75 +563,127 @@ class RecommendationEngine:
           ra3.4xlarge:  12 vCPU, 96 GiB RAM, 4 slices/node, 2-32 nodes
           ra3.16xlarge: 48 vCPU, 384 GiB RAM, 16 slices/node, 2-128 nodes
         """
-        # Size base cluster for sustained load (avg slots with headroom)
-        # Use avg_slots × 1.5 headroom factor, but cap at peak
+        # Determine sizing strategy based on peak-to-avg ratio
         base_slots = avg_slots if avg_slots > 0 else peak_slots
-        base_memory_gib = max(32, math.ceil(base_slots * 1.5))
-        base_memory_gib = min(base_memory_gib, math.ceil(peak_slots))
-
-        # Also ensure minimum for data volume (1 node per ~200 GB)
-        min_nodes_for_storage = max(2, math.ceil(size_gb / 200))
-
-        ra3_options = [
-            ('ra3.xlplus', 32, 16),
-            ('ra3.4xlarge', 96, 19),
-            ('ra3.16xlarge', 384, 13),
-        ]
-
-        node_type = 'ra3.xlplus'
-        num_nodes = 2
-
-        for nt, mem_per_node, max_pref in ra3_options:
-            nodes = max(2, math.ceil(base_memory_gib / mem_per_node))
-            nodes = max(nodes, min_nodes_for_storage)
-            if nodes <= max_pref:
-                node_type = nt
-                num_nodes = nodes
-                break
+        peak_to_avg_ratio = peak_slots / max(avg_slots, 1) if avg_slots > 0 else 1
+        
+        # If peak is much higher than avg (>3x), size for a middle ground with concurrency scaling
+        # Otherwise, size closer to peak for consistent performance
+        if peak_to_avg_ratio > 3:
+            # High variance workload - size for sustained + use concurrency scaling for peaks
+            target_memory_gib = max(32, math.ceil(avg_slots * 1.5))
+            use_concurrency_scaling = True
         else:
+            # Steady workload - size for peak with some headroom
+            target_memory_gib = max(32, math.ceil(peak_slots * 0.7))
+            use_concurrency_scaling = peak_slots > (target_memory_gib * 1.3)
+        
+        # Ensure minimum for data volume (1 node per ~200 GB)
+        min_nodes_for_storage = max(2, math.ceil(size_gb / 200))
+        
+        # Evaluate all viable node type combinations
+        # Format: (node_type, memory_per_node, hourly_cost_per_node, max_recommended_nodes)
+        ra3_options = [
+            ('ra3.xlplus', 32, 1.086, 32),
+            ('ra3.4xlarge', 96, 3.26, 32),
+            ('ra3.16xlarge', 384, 13.04, 128),
+        ]
+        
+        best_option = None
+        best_cost = float('inf')
+        
+        for node_type, mem_per_node, hourly_cost, max_nodes in ra3_options:
+            # Calculate nodes needed for compute
+            nodes_for_compute = max(2, math.ceil(target_memory_gib / mem_per_node))
+            # Ensure we meet storage requirements
+            nodes_needed = max(nodes_for_compute, min_nodes_for_storage)
+            
+            # Skip if exceeds max nodes for this type
+            if nodes_needed > max_nodes:
+                continue
+            
+            # Calculate monthly cost
+            monthly_cost = nodes_needed * hourly_cost * 730
+            total_memory = nodes_needed * mem_per_node
+            specs = self.NODE_TYPES[node_type]
+            total_slices = nodes_needed * specs['slices_per_node']
+            
+            # Prefer this option if:
+            # 1. It's cheaper, OR
+            # 2. Same cost but better performance (more slices for parallelism)
+            if monthly_cost < best_cost or (monthly_cost == best_cost and best_option and total_slices > best_option['total_slices']):
+                best_cost = monthly_cost
+                best_option = {
+                    'node_type': node_type,
+                    'num_nodes': nodes_needed,
+                    'total_memory': total_memory,
+                    'total_slices': total_slices,
+                    'monthly_cost': monthly_cost,
+                    'specs': specs,
+                }
+        
+        # Use best option found
+        if not best_option:
+            # Fallback to 16xlarge if nothing fits
             node_type = 'ra3.16xlarge'
-            num_nodes = max(2, math.ceil(base_memory_gib / 384))
-
-        specs = self.NODE_TYPES[node_type]
+            num_nodes = max(2, math.ceil(target_memory_gib / 384))
+            specs = self.NODE_TYPES[node_type]
+        else:
+            node_type = best_option['node_type']
+            num_nodes = best_option['num_nodes']
+            specs = best_option['specs']
+        
         num_nodes = min(num_nodes, specs['max_nodes'])
-
-        # Concurrency scaling recommendation
-        needs_concurrency_scaling = peak_slots > (base_memory_gib * 1.2)
-        peak_to_base_ratio = round(peak_slots / max(base_memory_gib, 1), 1)
-
+        total_memory_gib = specs['memory_gb'] * num_nodes
+        peak_to_base_ratio = round(peak_slots / max(total_memory_gib, 1), 1)
+        
+        # Build rationale
         rationale_parts = [
             f"Avg BQ slots: {avg_slots:.0f}, Peak BQ slots: {peak_slots:.0f}",
-            f"Base cluster sized for sustained load ({base_memory_gib} GiB) "
-            f"with concurrency scaling for peak bursts",
+        ]
+        
+        if peak_to_avg_ratio > 3:
+            rationale_parts.append(
+                f"High variance workload (peak is {peak_to_avg_ratio:.1f}× avg) — "
+                f"base cluster sized for sustained load with concurrency scaling for bursts"
+            )
+        else:
+            rationale_parts.append(
+                f"Steady workload — cluster sized to handle {int(total_memory_gib * 0.7)}-{total_memory_gib} concurrent slots"
+            )
+        
+        rationale_parts.extend([
             f"Selected {node_type} ({specs['memory_gb']} GiB/node) × {num_nodes} nodes "
-            f"= {specs['memory_gb'] * num_nodes} GiB total RAM",
+            f"= {total_memory_gib} GiB total RAM",
             f"Total slices: {specs['slices_per_node'] * num_nodes} "
             f"({specs['slices_per_node']} slices/node × {num_nodes} nodes)",
-        ]
-        if needs_concurrency_scaling:
+        ])
+        
+        if use_concurrency_scaling:
             rationale_parts.append(
                 f"Concurrency scaling enabled: peak ({peak_slots:.0f} slots) is "
                 f"{peak_to_base_ratio}× base capacity — burst traffic handled automatically"
             )
-
+        
         return {
             'node_type': node_type,
             'num_nodes': num_nodes,
             'storage_type': specs['storage_type'],
             'vcpu_total': specs['vcpu'] * num_nodes,
-            'memory_gb_total': specs['memory_gb'] * num_nodes,
+            'memory_gb_total': total_memory_gib,
             'use_case': specs['use_case'],
-            'concurrency_scaling': needs_concurrency_scaling,
+            'concurrency_scaling': use_concurrency_scaling,
             'sizing_basis': {
                 'avg_slots': round(avg_slots, 1),
                 'peak_slots': round(peak_slots, 1),
-                'base_memory_gib': base_memory_gib,
+                'base_memory_gib': target_memory_gib,
                 'monthly_slot_hours': round(monthly_slot_hours, 1),
                 'slices_per_node': specs['slices_per_node'],
                 'nodes_for_compute': num_nodes,
                 'nodes_for_storage': min_nodes_for_storage,
                 'peak_to_base_ratio': peak_to_base_ratio,
-                'sizing_driver': 'sustained_workload',
+                'peak_to_avg_ratio': round(peak_to_avg_ratio, 1),
+                'sizing_driver': 'cost_optimized_for_peak' if peak_to_avg_ratio <= 3 else 'sustained_with_bursts',
             },
             'sizing_rationale': rationale_parts,
         }
