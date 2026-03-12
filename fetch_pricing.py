@@ -53,9 +53,15 @@ terms = pricing_data.get("terms", {})
 
 # Debug: list all product families
 families = set()
+sample_attrs = None
 for sku, product in products.items():
-    families.add(product.get("attributes", {}).get("productFamily", ""))
+    attrs = product.get("attributes", {})
+    families.add(attrs.get("productFamily", ""))
+    if not sample_attrs and "ra3" in str(attrs).lower():
+        sample_attrs = attrs
 print(f"Product families found: {sorted(families)}")
+if sample_attrs:
+    print(f"Sample RA3 product attributes: {json.dumps(sample_attrs, indent=2)}")
 
 # Find ra3 node products in us-east-1
 target_types = ["ra3.xlplus", "ra3.4xlarge", "ra3.16xlarge"]
