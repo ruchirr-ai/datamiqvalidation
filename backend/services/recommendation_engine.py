@@ -204,11 +204,11 @@ class RecommendationEngine:
         else:
             estimated_avg_concurrent_slots = max(1, min(avg_slot_ms / 30000, 2000))
 
-        # Peak slot utilization = total slots consumed across ALL queries
-        # running in the busiest time window (1-minute bucket).
-        # This is the system-wide peak and drives Redshift sizing
-        # (1 BQ slot = 1 GiB memory).
-        minute_slot_buckets = {}
+        # Peak slot utilization using sweep-line algorithm for true overlap.
+        # For each query, compute [start, end) interval and its concurrent slots.
+        # The maximum running total = true peak slots at any point in time.
+        from datetime import timedelta as _td
+        events = []
         for q in query_stats:
             q_slot_ms = q.get('slot_milliseconds', 0)
             if q_slot_ms <= 0:
@@ -221,8 +221,6 @@ class RecommendationEngine:
                     except Exception:
                         et = None
                 if et:
-                    minute_key = et.strftime('%Y-%m-%d %H:%M')
-                    # Compute this query's concurrent slot usage
                     q_runtime_ms = q.get('total_elapsed_time_ms') or q.get('runtime_ms', 0)
                     if not q_runtime_ms:
                         meta = q.get('query_metadata') or {}
@@ -230,12 +228,22 @@ class RecommendationEngine:
                             q_runtime_ms = meta.get('total_elapsed_time_ms', 0)
                     if q_runtime_ms and q_runtime_ms > 0:
                         q_slots = max(1, q_slot_ms / q_runtime_ms)
+                        q_duration_ms = q_runtime_ms
                     else:
                         q_slots = max(1, q_slot_ms / 30000)
-                    minute_slot_buckets[minute_key] = minute_slot_buckets.get(minute_key, 0) + q_slots
+                        q_duration_ms = 30000
+                    end_t = et + _td(milliseconds=q_duration_ms)
+                    events.append((et, q_slots))
+                    events.append((end_t, -q_slots))
 
-        if minute_slot_buckets:
-            estimated_peak_slots = max(minute_slot_buckets.values())
+        if events:
+            events.sort(key=lambda e: (e[0], e[1]))
+            running_slots = 0.0
+            estimated_peak_slots = 0.0
+            for _, delta in events:
+                running_slots += delta
+                if running_slots > estimated_peak_slots:
+                    estimated_peak_slots = running_slots
         elif per_query_slots:
             estimated_peak_slots = max(per_query_slots)
         else:

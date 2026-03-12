@@ -1137,30 +1137,48 @@ async def get_query_insights(
         min_query_runtime_seconds = round((min_slot_ms / max(est_concurrent_slots, 1)) / 1000, 4) if min_slot_ms > 0 else 0
         avg_query_runtime_seconds = round(avg_wall_clock_s, 2)
 
-        # Peak slot utilization = total slots consumed across ALL queries
-        # running in the busiest time window (1-minute bucket).
-        # For each minute, sum the concurrent slots of every query in that window.
-        minute_slot_buckets = {}
+        # Peak slot utilization using sweep-line algorithm for true overlap.
+        # For each query, compute [start, end) interval and its concurrent slots.
+        # At every start/end event, track the running total of slots.
+        # The maximum running total = true peak slots at any point in time.
+        from datetime import timedelta as _td
+        events = []  # list of (timestamp, +slots or -slots)
+        total_query_slots_sum = 0.0
+        query_interval_count = 0
         for q in query_stats:
             if not q.execution_time:
                 continue
             q_slot_ms = q.slot_milliseconds or 0
             if q_slot_ms <= 0:
                 continue
-            minute_key = q.execution_time.strftime('%Y-%m-%d %H:%M')
             # Compute this query's concurrent slot usage
             q_runtime_ms = 0
             if q.query_metadata and isinstance(q.query_metadata, dict):
                 q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
             if q_runtime_ms and q_runtime_ms > 0:
                 q_slots = max(1, q_slot_ms / q_runtime_ms)
+                q_duration_ms = q_runtime_ms
             else:
                 q_slots = max(1, q_slot_ms / 30000)
-            minute_slot_buckets[minute_key] = minute_slot_buckets.get(minute_key, 0) + q_slots
+                q_duration_ms = 30000  # assume 30s
+            start_t = q.execution_time
+            end_t = start_t + _td(milliseconds=q_duration_ms)
+            events.append((start_t, q_slots))
+            events.append((end_t, -q_slots))
+            total_query_slots_sum += q_slots
+            query_interval_count += 1
 
-        if minute_slot_buckets:
-            peak_slot_utilization = round(max(minute_slot_buckets.values()), 1)
-            avg_slot_utilization = round(sum(minute_slot_buckets.values()) / len(minute_slot_buckets), 1)
+        if events:
+            # Sort by time; ties broken by ends (-) before starts (+)
+            events.sort(key=lambda e: (e[0], e[1]))
+            running_slots = 0.0
+            peak_slot_utilization = 0.0
+            for _, delta in events:
+                running_slots += delta
+                if running_slots > peak_slot_utilization:
+                    peak_slot_utilization = running_slots
+            peak_slot_utilization = round(peak_slot_utilization, 1)
+            avg_slot_utilization = round(total_query_slots_sum / query_interval_count, 1) if query_interval_count else 0
         else:
             peak_slot_utilization = 0
             avg_slot_utilization = round(est_concurrent_slots, 1)
