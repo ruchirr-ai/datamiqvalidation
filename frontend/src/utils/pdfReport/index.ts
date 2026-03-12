@@ -147,7 +147,7 @@ function addPageNumbers(doc: jsPDF): void {
 
 // ── Main entry (async — needs to convert SVG logo to PNG) ──
 export async function generatePDF(opts: PDFGeneratorOptions): Promise<void> {
-  const { report, selectedSections, recommendations, tcoData } = opts;
+  const { report, selectedSections, recommendations, tcoData, queryInsightsData } = opts;
 
   // Convert SVG logo to PNG data URL
   const logoPng = await getLogoDark();
@@ -173,7 +173,7 @@ export async function generatePDF(opts: PDFGeneratorOptions): Promise<void> {
   if (has('procedures'))      renderProcedures(ctx, report.routines);
   if (has('functions'))       renderFunctions(ctx, report.routines);
   if (has('ml-models'))       renderMLModels(ctx, report.ml_models);
-  if (has('query-insights'))  renderQueryInsights(ctx, report.query_stats);
+  if (has('query-insights'))  renderQueryInsights(ctx, report.query_stats, queryInsightsData);
   if (has('user-insights'))   renderUserInsights(ctx, report.query_stats);
   if (has('security'))        renderSecurity(ctx, report.security_policies);
   if (has('recommendations') && recommendations) renderRecommendations(ctx, recommendations);

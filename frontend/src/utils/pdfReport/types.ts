@@ -9,12 +9,54 @@ import type {
   TCOData
 } from '../../services/assessmentsApi';
 
+export interface QueryInsightsSummary {
+  total_query_count: number;
+  active_users_count: number;
+  avg_execution_time_seconds: number;
+  total_bytes_scanned: number;
+  total_bytes_billed: number;
+  total_slot_milliseconds: number;
+  cache_hit_rate: number;
+  cache_hits: number;
+  cache_misses: number;
+  read_queries: number;
+  write_queries: number;
+  max_concurrent_queries: number;
+  avg_concurrent_queries: number;
+  max_slot_milliseconds: number;
+  min_slot_milliseconds: number;
+  avg_slot_ms_per_query: number;
+  max_query_runtime_seconds: number;
+  min_query_runtime_seconds: number;
+  avg_query_runtime_seconds: number;
+  peak_slot_utilization: number;
+  avg_slot_utilization: number;
+}
+
+export interface QueryInsightsQuery {
+  job_id: string;
+  execution_time: string | null;
+  query_text: string;
+  bytes_scanned: number;
+  slot_milliseconds: number;
+  slot_utilization: number;
+  est_runtime_seconds: number;
+  cache_hit: boolean;
+  user_email: string;
+}
+
+export interface QueryInsightsData {
+  summary: QueryInsightsSummary;
+  queries: QueryInsightsQuery[];
+}
+
 export interface PDFGeneratorOptions {
   report: AssessmentFullReport;
   selectedSections: string[];
   assessmentId: number;
   recommendations?: RecommendationsData | null;
   tcoData?: TCOData | null;
+  queryInsightsData?: QueryInsightsData | null;
 }
 
 export interface PDFContext {
