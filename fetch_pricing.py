@@ -51,6 +51,12 @@ with urllib.request.urlopen(full_pricing_url) as resp:
 products = pricing_data.get("products", {})
 terms = pricing_data.get("terms", {})
 
+# Debug: list all product families
+families = set()
+for sku, product in products.items():
+    families.add(product.get("attributes", {}).get("productFamily", ""))
+print(f"Product families found: {sorted(families)}")
+
 # Find ra3 node products in us-east-1
 target_types = ["ra3.xlplus", "ra3.4xlarge", "ra3.16xlarge"]
 found_products = {}
@@ -61,7 +67,10 @@ for sku, product in products.items():
     location = attrs.get("location", "")
     product_family = attrs.get("productFamily", "")
     
-    if instance_type in target_types and "Virginia" in location:
+    # Only match Compute Instance products (not Concurrency Scaling, Storage, etc.)
+    if (instance_type in target_types 
+        and "Virginia" in location 
+        and product_family == "Compute Instance"):
         found_products[instance_type] = {
             "sku": sku,
             "location": location,
@@ -95,14 +104,17 @@ for sku, product in products.items():
     attrs = product.get("attributes", {})
     product_family = attrs.get("productFamily", "")
     location = attrs.get("location", "")
+    usage_type = attrs.get("usagetype", "")
     
-    if "Serverless" in product_family and "Virginia" in location:
+    if ("Serverless" in product_family and "Virginia" in location
+        and "RPU" in usage_type):
         on_demand = terms.get("OnDemand", {}).get(sku, {})
         for term_key, term_data in on_demand.items():
             for dim_key, dim_data in term_data.get("priceDimensions", {}).items():
                 price = dim_data.get("pricePerUnit", {}).get("USD", "N/A")
                 desc = dim_data.get("description", "")
-                print(f"Serverless: ${price}/RPU-hr ({desc})")
+                unit = dim_data.get("unit", "")
+                print(f"Serverless: ${price}/{unit} ({desc})")
 
 # Also look for Managed Storage pricing
 print("\n=== Redshift Managed Storage Pricing ===")
@@ -112,14 +124,14 @@ for sku, product in products.items():
     location = attrs.get("location", "")
     usage_type = attrs.get("usagetype", "")
     
-    if "Storage" in product_family and "Virginia" in location and "Redshift" in str(attrs):
+    if ("Storage" in product_family and "Virginia" in location
+        and "RMS" in usage_type and "Redshift" in str(attrs)):
         on_demand = terms.get("OnDemand", {}).get(sku, {})
         for term_key, term_data in on_demand.items():
             for dim_key, dim_data in term_data.get("priceDimensions", {}).items():
                 price = dim_data.get("pricePerUnit", {}).get("USD", "N/A")
                 desc = dim_data.get("description", "")
-                if "Managed" in desc or "RMS" in desc or float(price) < 1:
-                    print(f"Storage: ${price}/GB-mo ({desc})")
+                print(f"Storage: ${price}/GB-mo ({desc})")
 
 # Summary
 print("\n=== SUMMARY FOR HARDCODED PRICES ===")
