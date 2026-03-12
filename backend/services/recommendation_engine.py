@@ -204,13 +204,41 @@ class RecommendationEngine:
         else:
             estimated_avg_concurrent_slots = max(1, min(avg_slot_ms / 30000, 2000))
 
-        # Peak slot utilization: max concurrent slots used by any single query.
-        # This is the true peak parallelism and drives Redshift sizing
-        # (1 BQ slot = 1 GiB memory). Must match the Query Insights UI metric.
-        if per_query_slots:
+        # Peak slot utilization = total slots consumed across ALL queries
+        # running in the busiest time window (1-minute bucket).
+        # This is the system-wide peak and drives Redshift sizing
+        # (1 BQ slot = 1 GiB memory).
+        minute_slot_buckets = {}
+        for q in query_stats:
+            q_slot_ms = q.get('slot_milliseconds', 0)
+            if q_slot_ms <= 0:
+                continue
+            et = q.get('execution_time')
+            if et:
+                if isinstance(et, str):
+                    try:
+                        et = datetime.fromisoformat(et.replace('Z', '+00:00'))
+                    except Exception:
+                        et = None
+                if et:
+                    minute_key = et.strftime('%Y-%m-%d %H:%M')
+                    # Compute this query's concurrent slot usage
+                    q_runtime_ms = q.get('total_elapsed_time_ms') or q.get('runtime_ms', 0)
+                    if not q_runtime_ms:
+                        meta = q.get('query_metadata') or {}
+                        if isinstance(meta, dict):
+                            q_runtime_ms = meta.get('total_elapsed_time_ms', 0)
+                    if q_runtime_ms and q_runtime_ms > 0:
+                        q_slots = max(1, q_slot_ms / q_runtime_ms)
+                    else:
+                        q_slots = max(1, q_slot_ms / 30000)
+                    minute_slot_buckets[minute_key] = minute_slot_buckets.get(minute_key, 0) + q_slots
+
+        if minute_slot_buckets:
+            estimated_peak_slots = max(minute_slot_buckets.values())
+        elif per_query_slots:
             estimated_peak_slots = max(per_query_slots)
         else:
-            # Fallback: use raw slot_ms / 30s for the heaviest query
             estimated_peak_slots = max(1, slot_values[0] / 30000) if slot_values else 1
 
         # --- Redshift Serverless RPU-hour estimation ---

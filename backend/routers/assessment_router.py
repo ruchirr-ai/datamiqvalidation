@@ -1137,15 +1137,33 @@ async def get_query_insights(
         min_query_runtime_seconds = round((min_slot_ms / max(est_concurrent_slots, 1)) / 1000, 4) if min_slot_ms > 0 else 0
         avg_query_runtime_seconds = round(avg_wall_clock_s, 2)
 
-        # Peak and avg slot utilization (estimated concurrent slots per query)
-        # Peak = max concurrent slots used by any single query
-        # This is the true peak parallelism needed for Redshift sizing
-        if per_query_concurrent_slots:
-            peak_slot_utilization = round(max(per_query_concurrent_slots), 1)
+        # Peak slot utilization = total slots consumed across ALL queries
+        # running in the busiest time window (1-minute bucket).
+        # For each minute, sum the concurrent slots of every query in that window.
+        minute_slot_buckets = {}
+        for q in query_stats:
+            if not q.execution_time:
+                continue
+            q_slot_ms = q.slot_milliseconds or 0
+            if q_slot_ms <= 0:
+                continue
+            minute_key = q.execution_time.strftime('%Y-%m-%d %H:%M')
+            # Compute this query's concurrent slot usage
+            q_runtime_ms = 0
+            if q.query_metadata and isinstance(q.query_metadata, dict):
+                q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
+            if q_runtime_ms and q_runtime_ms > 0:
+                q_slots = max(1, q_slot_ms / q_runtime_ms)
+            else:
+                q_slots = max(1, q_slot_ms / 30000)
+            minute_slot_buckets[minute_key] = minute_slot_buckets.get(minute_key, 0) + q_slots
+
+        if minute_slot_buckets:
+            peak_slot_utilization = round(max(minute_slot_buckets.values()), 1)
+            avg_slot_utilization = round(sum(minute_slot_buckets.values()) / len(minute_slot_buckets), 1)
         else:
-            # Fallback: use raw slot_ms / 30s for the heaviest query
-            peak_slot_utilization = round(max_slot_ms / 30000, 1) if max_slot_ms > 0 else 0
-        avg_slot_utilization = round(est_concurrent_slots, 1)
+            peak_slot_utilization = 0
+            avg_slot_utilization = round(est_concurrent_slots, 1)
 
         # Avg execution time = average slot-time per query (total CPU time / queries)
         # This differs from avg_query_runtime_seconds which is estimated wall-clock time.
