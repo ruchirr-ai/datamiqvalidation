@@ -263,7 +263,7 @@ export const AssessmentReportPage: React.FC = () => {
     ...(isSQLServer ? [{ id: 'triggers', label: 'Triggers', icon: Zap }] : []),
     ...(isBigQuery ? [{ id: 'ml-models', label: 'ML & Spark Models', icon: Brain }] : []),
     { id: 'query-insights', label: 'Query Insights', icon: Activity },
-    { id: 'user-insights', label: 'User Insights', icon: Users },
+    { id: 'user-insights', label: isSQLServer ? 'Query Summary' : 'User Insights', icon: Users },
     { id: 'security', label: 'Security', icon: Shield },
     { id: 'recommendations', label: 'Recommendations', icon: TrendingUp },
     { id: 'tco', label: 'TCO Analysis', icon: DollarSign },
@@ -364,7 +364,7 @@ export const AssessmentReportPage: React.FC = () => {
           <QueryInsightsSection assessmentId={parseInt(assessmentId!)} />
         )}
         {activeTab === 'user-insights' && (
-          <UserInsightsSection queryStats={report.query_stats} />
+          <UserInsightsSection queryStats={report.query_stats} isSQLServer={isSQLServer} />
         )}
         {activeTab === 'security' && (
           isSQLServer ? (
@@ -1232,7 +1232,7 @@ const MLModelsSection: React.FC<any> = ({ mlModels, sparkModels, formatDate }) =
 // Query Insights Section Component with Time Filters and Charts
 
 // User Insights Section Component
-const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
+const UserInsightsSection: React.FC<any> = ({ queryStats, isSQLServer = false }) => {
   const [timeFilter, setTimeFilter] = useState('all'); // all, 24h, 7d, 30d
   
   // Filter queries by time frame
@@ -1307,6 +1307,11 @@ const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
   const formatSlots = (milliseconds: number) => {
     if (milliseconds === 0) return '0';
     const seconds = milliseconds / 1000;
+    if (isSQLServer) {
+      if (seconds >= 3600) return `${(seconds / 3600).toFixed(2)} hrs`;
+      if (seconds >= 60) return `${(seconds / 60).toFixed(2)} mins`;
+      return `${seconds.toFixed(2)} secs`;
+    }
     if (seconds >= 3600) return `${(seconds / 3600).toFixed(2)} slot-hrs`;
     if (seconds >= 60) return `${(seconds / 60).toFixed(2)} slot-mins`;
     return `${seconds.toFixed(2)} slot-secs`;
@@ -1315,7 +1320,7 @@ const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
   return (
     <div className="section-content">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 className="section-heading">User Insights ({users.length} users)</h2>
+        <h2 className="section-heading">{isSQLServer ? 'Query Summary' : 'User Insights'} ({users.length} {isSQLServer ? 'source' : 'users'})</h2>
         
         {/* Time Filter */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1350,10 +1355,10 @@ const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ textAlign: 'left' }}>User Email</th>
+                <th style={{ textAlign: 'left' }}>{isSQLServer ? 'Source' : 'User Email'}</th>
                 <th style={{ textAlign: 'right' }}>Queries Executed</th>
                 <th style={{ textAlign: 'right' }}>Total Data Scanned</th>
-                <th style={{ textAlign: 'right' }}>Slots Utilized</th>
+                <th style={{ textAlign: 'right' }}>{isSQLServer ? 'CPU Time' : 'Slots Utilized'}</th>
                 <th style={{ textAlign: 'right' }}>Cache Hit Ratio</th>
               </tr>
             </thead>
