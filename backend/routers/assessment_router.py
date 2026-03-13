@@ -936,6 +936,8 @@ async def get_assessment_tco(
                 'execution_time': q.execution_time.isoformat() if q.execution_time else None,
                 'query_text': q.query_text,
                 'user_email': q.user_email,
+                'cache_hit': q.cache_hit,
+                'query_metadata': q.query_metadata if isinstance(q.query_metadata, dict) else {},
             }
             for q in query_stats
         ]
@@ -1032,27 +1034,58 @@ async def get_query_insights(
         # Calculate aggregated metrics
         total_queries = len(query_stats)
         total_bytes_scanned = sum(q.bytes_scanned or 0 for q in query_stats)
+        total_bytes_billed = 0
         total_slot_ms = sum(q.slot_milliseconds or 0 for q in query_stats)
-        cache_hits = sum(1 for q in query_stats if q.cache_hit)
-        cache_hit_rate = (cache_hits / total_queries * 100) if total_queries > 0 else 0
+
+        # Cache hit ratio: only count SELECT queries (cache_hit is meaningless for DML/DDL)
+        # Also handle None cache_hit properly (don't count as miss)
+        WRITE_STATEMENT_TYPES = {'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'CREATE_TABLE_AS_SELECT',
+                                  'CREATE_TABLE', 'DROP_TABLE', 'ALTER_TABLE', 'TRUNCATE_TABLE',
+                                  'CREATE_VIEW', 'DROP_VIEW', 'CREATE_FUNCTION', 'DROP_FUNCTION',
+                                  'CREATE_PROCEDURE', 'DROP_PROCEDURE', 'CREATE_MODEL', 'EXPORT_DATA'}
+        
+        select_queries = 0
+        cache_hits = 0
+        read_count = 0
+        write_count = 0
+        for q in query_stats:
+            meta = q.query_metadata if isinstance(q.query_metadata, dict) else {}
+            stmt_type = (meta.get('statement_type') or '').upper()
+            bytes_billed_q = meta.get('bytes_billed', 0) or 0
+            total_bytes_billed += bytes_billed_q
+            
+            # Read vs write classification using BQ statement_type (accurate)
+            if stmt_type and stmt_type != 'UNKNOWN':
+                if stmt_type in WRITE_STATEMENT_TYPES:
+                    write_count += 1
+                else:
+                    read_count += 1
+                # Cache hit only meaningful for SELECT
+                if stmt_type == 'SELECT':
+                    select_queries += 1
+                    if q.cache_hit is True:
+                        cache_hits += 1
+            else:
+                # Fallback to regex if statement_type not available (old data)
+                if q.query_text:
+                    query_upper = q.query_text.strip().upper()
+                    if re.match(r'^\s*(INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE)', query_upper):
+                        write_count += 1
+                    else:
+                        read_count += 1
+                        select_queries += 1
+                        if q.cache_hit is True:
+                            cache_hits += 1
+                else:
+                    read_count += 1
+        
+        cache_hit_rate = (cache_hits / select_queries * 100) if select_queries > 0 else 0
         
         avg_execution_time_ms = (total_slot_ms / total_queries) if total_queries > 0 else 0
         avg_slot_ms_raw = avg_execution_time_ms  # Save for later use
         
         unique_users = set(q.user_email for q in query_stats if q.user_email)
         active_users_count = len(unique_users)
-        
-        read_count = 0
-        write_count = 0
-        for q in query_stats:
-            if q.query_text:
-                query_upper = q.query_text.strip().upper()
-                if re.match(r'^\s*(INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE)', query_upper):
-                    write_count += 1
-                else:
-                    read_count += 1
-            else:
-                read_count += 1
         
         concurrent_queries_hourly = {}
         concurrent_queries_daily = {}
@@ -1189,9 +1222,17 @@ async def get_query_insights(
         # Override with JOBS_TIMELINE data if available (most accurate source)
         assessment_data = assessment.assessment_data or {}
         slot_timeline = assessment_data.get('slot_timeline') or {}
+        p50_slot_utilization = 0
+        p90_slot_utilization = 0
+        p95_slot_utilization = 0
+        p99_slot_utilization = 0
         if slot_timeline.get('peak_concurrent_slots', 0) > 0:
             peak_slot_utilization = round(slot_timeline['peak_concurrent_slots'], 1)
             avg_slot_utilization = round(slot_timeline.get('avg_concurrent_slots', avg_slot_utilization), 1)
+            p50_slot_utilization = round(slot_timeline.get('p50_concurrent_slots', 0), 1)
+            p90_slot_utilization = round(slot_timeline.get('p90_concurrent_slots', 0), 1)
+            p95_slot_utilization = round(slot_timeline.get('p95_concurrent_slots', 0), 1)
+            p99_slot_utilization = round(slot_timeline.get('p99_concurrent_slots', 0), 1)
 
         # Avg execution time = average slot-time per query (total CPU time / queries)
         # This differs from avg_query_runtime_seconds which is estimated wall-clock time.
@@ -1220,12 +1261,13 @@ async def get_query_insights(
                 "execution_time": q.execution_time.isoformat() if q.execution_time else None,
                 "query_text": (q.query_text or '')[:500],
                 "bytes_scanned": q.bytes_scanned or 0,
-                "bytes_billed": q.bytes_scanned or 0,
+                "bytes_billed": (q.query_metadata or {}).get('bytes_billed', q.bytes_scanned or 0) if isinstance(q.query_metadata, dict) else (q.bytes_scanned or 0),
                 "slot_milliseconds": q_slot_ms,
                 "slot_utilization": q_slot_util,
                 "est_runtime_seconds": q_est_runtime,
-                "cache_hit": q.cache_hit or False,
-                "cache_hit_status": "Hit" if q.cache_hit else "Miss",
+                "cache_hit": q.cache_hit if q.cache_hit is not None else False,
+                "cache_hit_status": "Hit" if q.cache_hit is True else ("Miss" if q.cache_hit is False else "N/A"),
+                "statement_type": (q.query_metadata or {}).get('statement_type', 'UNKNOWN') if isinstance(q.query_metadata, dict) else 'UNKNOWN',
                 "referenced_tables": q.referenced_tables or [],
                 "user_email": q.user_email or "Unknown"
             })
@@ -1238,11 +1280,12 @@ async def get_query_insights(
                 "active_users_count": active_users_count,
                 "avg_execution_time_seconds": round(avg_execution_time_seconds, 3),
                 "total_bytes_scanned": total_bytes_scanned,
-                "total_bytes_billed": total_bytes_scanned,
+                "total_bytes_billed": total_bytes_billed if total_bytes_billed > 0 else total_bytes_scanned,
                 "total_slot_milliseconds": total_slot_ms,
                 "cache_hit_rate": round(cache_hit_rate, 2),
                 "cache_hits": cache_hits,
-                "cache_misses": total_queries - cache_hits,
+                "cache_misses": select_queries - cache_hits,
+                "select_queries": select_queries,
                 "read_queries": read_count,
                 "write_queries": write_count,
                 "max_concurrent_queries": max_concurrent_queries,
@@ -1254,7 +1297,11 @@ async def get_query_insights(
                 "min_query_runtime_seconds": min_query_runtime_seconds,
                 "avg_query_runtime_seconds": avg_query_runtime_seconds,
                 "peak_slot_utilization": peak_slot_utilization,
-                "avg_slot_utilization": avg_slot_utilization
+                "avg_slot_utilization": avg_slot_utilization,
+                "p50_slot_utilization": p50_slot_utilization,
+                "p90_slot_utilization": p90_slot_utilization,
+                "p95_slot_utilization": p95_slot_utilization,
+                "p99_slot_utilization": p99_slot_utilization
             },
             "charts": {
                 "read_write_distribution": {

@@ -838,8 +838,10 @@ class BigQueryAssessmentService:
             creation_time as execution_time,
             query as query_text,
             total_bytes_processed as bytes_scanned,
+            total_bytes_billed as bytes_billed,
             total_slot_ms as slot_milliseconds,
             cache_hit,
+            statement_type,
             referenced_tables,
             user_email,
             state,
@@ -877,11 +879,13 @@ class BigQueryAssessmentService:
                     'query_text': row.query_text[:5000] if row.query_text else None,
                     'bytes_scanned': row.bytes_scanned or 0,
                     'slot_milliseconds': row.slot_milliseconds or 0,
-                    'cache_hit': row.cache_hit or False,
+                    'cache_hit': row.cache_hit if row.cache_hit is not None else None,
                     'referenced_tables': referenced_tables,
                     'user_email': row.user_email,
                     'query_metadata': {
                         'total_elapsed_time_ms': row.total_elapsed_time_ms or 0,
+                        'bytes_billed': row.bytes_billed or 0,
+                        'statement_type': row.statement_type or 'UNKNOWN',
                     },
                 })
 
@@ -904,6 +908,9 @@ class BigQueryAssessmentService:
             'peak_concurrent_slots': 0,
             'avg_concurrent_slots': 0,
             'p95_concurrent_slots': 0,
+            'p50_concurrent_slots': 0,
+            'p90_concurrent_slots': 0,
+            'p99_concurrent_slots': 0,
             'timeline_source': 'JOBS_TIMELINE_BY_PROJECT',
         }
 
@@ -930,14 +937,19 @@ class BigQueryAssessmentService:
                 result['avg_concurrent_slots'] = round(
                     sum(slot_values) / len(slot_values), 1
                 )
-                # P95
+                # Percentiles
                 sorted_vals = sorted(slot_values)
-                p95_idx = int(len(sorted_vals) * 0.95)
-                result['p95_concurrent_slots'] = round(sorted_vals[min(p95_idx, len(sorted_vals) - 1)], 1)
+                n = len(sorted_vals)
+                result['p50_concurrent_slots'] = round(sorted_vals[min(int(n * 0.50), n - 1)], 1)
+                result['p90_concurrent_slots'] = round(sorted_vals[min(int(n * 0.90), n - 1)], 1)
+                result['p95_concurrent_slots'] = round(sorted_vals[min(int(n * 0.95), n - 1)], 1)
+                result['p99_concurrent_slots'] = round(sorted_vals[min(int(n * 0.99), n - 1)], 1)
                 result['timeline_periods_count'] = len(rows)
 
             print(f"  ✓ Slot timeline: peak={result['peak_concurrent_slots']}, "
-                  f"avg={result['avg_concurrent_slots']}, p95={result['p95_concurrent_slots']}")
+                  f"avg={result['avg_concurrent_slots']}, "
+                  f"p50={result['p50_concurrent_slots']}, p90={result['p90_concurrent_slots']}, "
+                  f"p95={result['p95_concurrent_slots']}, p99={result['p99_concurrent_slots']}")
         except Exception as e:
             print(f"  ⚠ JOBS_TIMELINE_BY_PROJECT failed: {e}")
             print(f"  Will fall back to sweep-line estimation from JOBS data")
@@ -972,15 +984,39 @@ class BigQueryAssessmentService:
                 except Exception:
                     pass
 
+                # Determine statement type from job properties
+                stmt_type = 'UNKNOWN'
+                if hasattr(job, 'statement_type') and job.statement_type:
+                    stmt_type = job.statement_type
+                elif hasattr(job, 'query') and job.query:
+                    q_upper = job.query.strip().upper()[:20]
+                    if q_upper.startswith('SELECT'):
+                        stmt_type = 'SELECT'
+                    elif q_upper.startswith('INSERT'):
+                        stmt_type = 'INSERT'
+                    elif q_upper.startswith('UPDATE'):
+                        stmt_type = 'UPDATE'
+                    elif q_upper.startswith('DELETE'):
+                        stmt_type = 'DELETE'
+                    elif q_upper.startswith('MERGE'):
+                        stmt_type = 'MERGE'
+                    elif q_upper.startswith('CREATE'):
+                        stmt_type = 'CREATE_TABLE_AS_SELECT' if 'AS SELECT' in job.query.upper() else 'CREATE_TABLE'
+
                 query_stats.append({
                     'job_id': job.job_id,
                     'execution_time': job.created,
                     'query_text': (job.query or '')[:5000] if hasattr(job, 'query') else None,
                     'bytes_scanned': getattr(job, 'total_bytes_processed', 0) or 0,
                     'slot_milliseconds': getattr(job, 'slot_millis', 0) or 0,
-                    'cache_hit': getattr(job, 'cache_hit', False) or False,
+                    'cache_hit': getattr(job, 'cache_hit', None),
                     'referenced_tables': referenced_tables,
                     'user_email': getattr(job, 'user_email', None),
+                    'query_metadata': {
+                        'total_elapsed_time_ms': 0,
+                        'bytes_billed': getattr(job, 'total_bytes_billed', 0) or 0,
+                        'statement_type': stmt_type,
+                    },
                 })
                 count += 1
                 if count >= 50000:
