@@ -159,18 +159,17 @@ class TestCreateValidationRunRequestInvalid:
             CreateValidationRunRequest(**INVALID_CREATE_VALIDATION_RUN_MISSING_MIGRATION)
         assert "migration_id" in str(exc_info.value)
 
-    def test_missing_source_connection_raises(self):
-        """Missing source_connection_id raises ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            CreateValidationRunRequest(**INVALID_CREATE_VALIDATION_RUN_MISSING_CONNECTION)
-        assert "source_connection_id" in str(exc_info.value)
+    def test_missing_source_connection_accepted(self):
+        """Missing source_connection_id is accepted (auto-filled from migration)."""
+        payload = {"migration_id": 10, "target_connection_id": 200}
+        req = CreateValidationRunRequest(**payload)
+        assert req.source_connection_id is None
 
-    def test_missing_target_connection_raises(self):
-        """Missing target_connection_id raises ValidationError."""
+    def test_missing_target_connection_accepted(self):
+        """Missing target_connection_id is accepted (auto-filled from migration)."""
         payload = {"migration_id": 10, "source_connection_id": 100}
-        with pytest.raises(ValidationError) as exc_info:
-            CreateValidationRunRequest(**payload)
-        assert "target_connection_id" in str(exc_info.value)
+        req = CreateValidationRunRequest(**payload)
+        assert req.target_connection_id is None
 
     def test_wrong_type_migration_id_raises(self):
         """Non-integer migration_id raises ValidationError."""

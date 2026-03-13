@@ -160,23 +160,6 @@ class ValidationRepository:
             run_id, workspace_id,
         )
         return True
-    def count_active_runs(self, workspace_id: int) -> int:
-        """Count active (pending or running) validation runs for a workspace.
-
-        Used to enforce rate limiting of concurrent validation runs.
-
-        Args:
-            workspace_id: Tenant isolation filter.
-
-        Returns:
-            Number of active validation runs for the workspace.
-        """
-        return self.db.query(ValidationRun).filter(
-            ValidationRun.workspace_id == workspace_id,
-            ValidationRun.status.in_(["pending", "running"]),
-        ).count()
-
-
 
     # ── ValidationTableResult operations ──────────────────────────────
 

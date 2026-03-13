@@ -54,6 +54,7 @@ class GCPDataSyncAgent:
         service_account_info: Optional[Dict] = None,
         aws_access_key_id: Optional[str] = None,
         aws_secret_access_key: Optional[str] = None,
+        datasync_role_arn: Optional[str] = None,
     ):
         self.gcp_project_id = gcp_project_id
         self.gcp_zone = gcp_zone
@@ -85,13 +86,14 @@ class GCPDataSyncAgent:
             logger.warning("google-cloud-compute not installed, GCP VM creation will not work")
             self.compute_client = None
         
-        # Initialize AWS DataSync client
-        boto_kwargs = {"region_name": aws_region}
-        if aws_access_key_id and aws_secret_access_key:
-            boto_kwargs["aws_access_key_id"] = aws_access_key_id
-            boto_kwargs["aws_secret_access_key"] = aws_secret_access_key
-        
-        self.datasync_client = boto3.client("datasync", **boto_kwargs)
+        # Initialize AWS DataSync client (assumes IAM role if DATASYNC_ROLE_ARN is set)
+        from shared.datasync_client import create_datasync_client
+        self.datasync_client = create_datasync_client(
+            region=aws_region,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            role_arn=datasync_role_arn,
+        )
         
         self.vm_instance_name: Optional[str] = None
         self.agent_ip: Optional[str] = None
@@ -1021,7 +1023,8 @@ class PathwayB:
             # Debug: Log credential info (not the actual values for security)
             logger.info(f"AWS Access Key ID length: {len(aws_access_key) if aws_access_key else 0}")
             logger.info(f"AWS Secret Key length: {len(aws_secret_key) if aws_secret_key else 0}")
-            logger.info(f"AWS Access Key ID starts with: {aws_access_key[:4] if aws_access_key and len(aws_access_key) >= 4 else 'N/A'}")
+            logger.info(f"AWS Access Key ID starts with: {aws_access_key[:8] if aws_access_key and len(aws_access_key) >= 8 else 'N/A'}")
+            logger.info(f"DataSync S3 Role ARN: {datasync_s3_role_arn or 'NOT SET'}")
             
             # Initialize agent manager
             agent = GCPDataSyncAgent(
@@ -1031,6 +1034,7 @@ class PathwayB:
                 service_account_info=sa_info,
                 aws_access_key_id=aws_access_key.strip() if aws_access_key else None,
                 aws_secret_access_key=aws_secret_key.strip() if aws_secret_key else None,
+                datasync_role_arn=datasync_s3_role_arn or None,
             )
             
             # Set S3/GCS buckets for AMI export/import flow in _ensure_datasync_image_exists
@@ -1260,10 +1264,24 @@ class PathwayB:
         except Exception as e:
             import traceback
             tb = traceback.format_exc()
+            error_str = str(e)
             logger.error(f"DataSync transfer failed: {e}")
             logger.error(tb)
+            
+            # Provide actionable guidance for common errors
+            user_msg = f"DataSync transfer error: {error_str}"
+            if "AssumeRole" in error_str and "AccessDenied" in error_str:
+                user_msg = (
+                    f"DataSync transfer error: {error_str}\n\n"
+                    f"FIX: The IAM user making this call needs permission to assume the DataSync role.\n"
+                    f"1. Go to AWS IAM → Users → find the user shown in the error → Permissions → Add inline policy:\n"
+                    f'   {{"Effect": "Allow", "Action": "sts:AssumeRole", "Resource": "{datasync_s3_role_arn}"}}\n'
+                    f"2. Go to IAM → Roles → {datasync_s3_role_arn.split('/')[-1] if datasync_s3_role_arn else 'DataSyncS3AccessRole'} → Trust relationships → Edit:\n"
+                    f"   Add the IAM user ARN from the error as a trusted principal."
+                )
+            
             if self.log_callback:
-                self.log_callback(migration_id, "ERROR", "transfer", f"DataSync transfer error: {str(e)}", log_metadata={"stack_trace": tb})
+                self.log_callback(migration_id, "ERROR", "transfer", user_msg, log_metadata={"stack_trace": tb})
             return False
     
     def _generate_manifests_for_redshift(
