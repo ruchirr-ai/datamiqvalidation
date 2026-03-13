@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { useLanguage } from '../contexts/LanguageContext';
 import './DashboardPage.css';
 
 interface DashboardData {
@@ -36,6 +37,7 @@ interface DashboardData {
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [recentTab, setRecentTab] = useState<'assessments' | 'migrations' | 'copies'>('assessments');
@@ -74,7 +76,7 @@ export const DashboardPage: React.FC = () => {
       <div className="dashboard-page">
         <div className="dashboard-loading">
           <span className="dash-spinner" />
-          Loading dashboard...
+          {t('dashboard.loading')}
         </div>
       </div>
     );
@@ -110,7 +112,7 @@ export const DashboardPage: React.FC = () => {
           </svg>
           Dashboard
         </h1>
-        <p className="dashboard-subtitle">Overview of your migration platform</p>
+        <p className="dashboard-subtitle">{t('dashboard.subtitle')}</p>
       </div>
 
       {/* Summary Cards */}
@@ -126,11 +128,11 @@ export const DashboardPage: React.FC = () => {
             </svg>
           </div>
           <div className="dash-card-content">
-            <div className="dash-card-label">Connections</div>
+            <div className="dash-card-label">{t('dashboard.connections')}</div>
             <div className="dash-card-value">{data.total_connections}</div>
             <div className="dash-card-detail">
-              <span><span className="dash-detail-dot green" /> {data.connected_count} connected</span>
-              <span>{data.source_connections} src / {data.target_connections} tgt</span>
+              <span><span className="dash-detail-dot green" /> {data.connected_count} {t('dashboard.connected')}</span>
+              <span>{data.source_connections} {t('dashboard.src')} / {data.target_connections} {t('dashboard.tgt')}</span>
             </div>
           </div>
         </div>
@@ -144,12 +146,12 @@ export const DashboardPage: React.FC = () => {
             </svg>
           </div>
           <div className="dash-card-content">
-            <div className="dash-card-label">Assessments</div>
+            <div className="dash-card-label">{t('dashboard.assessments')}</div>
             <div className="dash-card-value">{data.total_assessments}</div>
             <div className="dash-card-detail">
-              <span><span className="dash-detail-dot green" /> {data.completed_assessments} done</span>
-              {data.running_assessments > 0 && <span><span className="dash-detail-dot blue" /> {data.running_assessments} running</span>}
-              {data.failed_assessments > 0 && <span><span className="dash-detail-dot red" /> {data.failed_assessments} failed</span>}
+              <span><span className="dash-detail-dot green" /> {data.completed_assessments} {t('dashboard.done')}</span>
+              {data.running_assessments > 0 && <span><span className="dash-detail-dot blue" /> {data.running_assessments} {t('dashboard.running')}</span>}
+              {data.failed_assessments > 0 && <span><span className="dash-detail-dot red" /> {data.failed_assessments} {t('dashboard.failed')}</span>}
             </div>
           </div>
         </div>
@@ -162,12 +164,12 @@ export const DashboardPage: React.FC = () => {
             </svg>
           </div>
           <div className="dash-card-content">
-            <div className="dash-card-label">Migrations</div>
+            <div className="dash-card-label">{t('dashboard.migrations')}</div>
             <div className="dash-card-value">{data.total_migrations}</div>
             <div className="dash-card-detail">
-              <span><span className="dash-detail-dot green" /> {data.completed_migrations} done</span>
-              {data.running_migrations > 0 && <span><span className="dash-detail-dot blue" /> {data.running_migrations} running</span>}
-              {data.scheduled_migrations > 0 && <span><span className="dash-detail-dot yellow" /> {data.scheduled_migrations} scheduled</span>}
+              <span><span className="dash-detail-dot green" /> {data.completed_migrations} {t('dashboard.done')}</span>
+              {data.running_migrations > 0 && <span><span className="dash-detail-dot blue" /> {data.running_migrations} {t('dashboard.running')}</span>}
+              {data.scheduled_migrations > 0 && <span><span className="dash-detail-dot yellow" /> {data.scheduled_migrations} {t('dashboard.scheduled')}</span>}
             </div>
           </div>
         </div>
@@ -182,12 +184,12 @@ export const DashboardPage: React.FC = () => {
             </svg>
           </div>
           <div className="dash-card-content">
-            <div className="dash-card-label">Code Conversions</div>
+            <div className="dash-card-label">{t('dashboard.codeConversions')}</div>
             <div className="dash-card-value">{data.total_jobs}</div>
             <div className="dash-card-detail">
-              <span><span className="dash-detail-dot green" /> {data.completed_jobs} done</span>
-              {data.failed_jobs > 0 && <span><span className="dash-detail-dot red" /> {data.failed_jobs} failed</span>}
-              <span>{data.total_batches} batches</span>
+              <span><span className="dash-detail-dot green" /> {data.completed_jobs} {t('dashboard.done')}</span>
+              {data.failed_jobs > 0 && <span><span className="dash-detail-dot red" /> {data.failed_jobs} {t('dashboard.failed')}</span>}
+              <span>{data.total_batches} {t('dashboard.batches')}</span>
             </div>
           </div>
         </div>
@@ -198,21 +200,21 @@ export const DashboardPage: React.FC = () => {
         {/* Assessment Discovery */}
         <div className="dash-section">
           <div className="dash-section-header">
-            <h3 className="dash-section-title">Assessment Discovery</h3>
-            <a className="dash-section-link" onClick={() => navigate('/assessments')}>View All</a>
+            <h3 className="dash-section-title">{t('dashboard.assessmentDiscovery')}</h3>
+            <a className="dash-section-link" onClick={() => navigate('/assessments')}>{t('dashboard.viewAll')}</a>
           </div>
           <div className="discovery-stats">
             <div className="discovery-stat">
               <div className="discovery-stat-value">{data.total_tables_discovered.toLocaleString()}</div>
-              <div className="discovery-stat-label">Tables</div>
+              <div className="discovery-stat-label">{t('dashboard.tables')}</div>
             </div>
             <div className="discovery-stat">
               <div className="discovery-stat-value">{data.total_views_discovered.toLocaleString()}</div>
-              <div className="discovery-stat-label">Views</div>
+              <div className="discovery-stat-label">{t('dashboard.views')}</div>
             </div>
             <div className="discovery-stat">
               <div className="discovery-stat-value">{data.total_routines_discovered.toLocaleString()}</div>
-              <div className="discovery-stat-label">Routines</div>
+              <div className="discovery-stat-label">{t('dashboard.routines')}</div>
             </div>
           </div>
           {data.total_size_mb > 0 && (
@@ -225,33 +227,33 @@ export const DashboardPage: React.FC = () => {
         {/* Migration Status */}
         <div className="dash-section">
           <div className="dash-section-header">
-            <h3 className="dash-section-title">Migration Status</h3>
-            <a className="dash-section-link" onClick={() => navigate('/migrations')}>View All</a>
+            <h3 className="dash-section-title">{t('dashboard.migrationStatus')}</h3>
+            <a className="dash-section-link" onClick={() => navigate('/migrations')}>{t('dashboard.viewAll')}</a>
           </div>
           <div className="migration-status-list">
             <div className="migration-status-row">
-              <span className="migration-status-label">Completed</span>
+              <span className="migration-status-label">{t('dashboard.completed')}</span>
               <div className="migration-status-bar-bg">
                 <div className="migration-status-bar-fill green" style={{ width: barPct(data.completed_migrations) }} />
               </div>
               <span className="migration-status-count">{data.completed_migrations}</span>
             </div>
             <div className="migration-status-row">
-              <span className="migration-status-label">Running</span>
+              <span className="migration-status-label">{t('dashboard.running')}</span>
               <div className="migration-status-bar-bg">
                 <div className="migration-status-bar-fill blue" style={{ width: barPct(data.running_migrations) }} />
               </div>
               <span className="migration-status-count">{data.running_migrations}</span>
             </div>
             <div className="migration-status-row">
-              <span className="migration-status-label">Failed</span>
+              <span className="migration-status-label">{t('dashboard.failed')}</span>
               <div className="migration-status-bar-bg">
                 <div className="migration-status-bar-fill red" style={{ width: barPct(data.failed_migrations) }} />
               </div>
               <span className="migration-status-count">{data.failed_migrations}</span>
             </div>
             <div className="migration-status-row">
-              <span className="migration-status-label">Scheduled</span>
+              <span className="migration-status-label">{t('dashboard.scheduled')}</span>
               <div className="migration-status-bar-bg">
                 <div className="migration-status-bar-fill yellow" style={{ width: barPct(data.scheduled_migrations) }} />
               </div>
@@ -264,7 +266,7 @@ export const DashboardPage: React.FC = () => {
       {/* Recent Activity */}
       <div className="dashboard-recent">
         <div className="dash-section-header">
-          <h3 className="dash-section-title">Recent Activity</h3>
+          <h3 className="dash-section-title">{t('dashboard.recentActivity')}</h3>
         </div>
         <div className="recent-tabs">
           <button
@@ -277,45 +279,45 @@ export const DashboardPage: React.FC = () => {
             className={`recent-tab ${recentTab === 'migrations' ? 'active' : ''}`}
             onClick={() => setRecentTab('migrations')}
           >
-            Migrations
+            {t('dashboard.migrations')}
           </button>
           <button
             className={`recent-tab ${recentTab === 'copies' ? 'active' : ''}`}
             onClick={() => setRecentTab('copies')}
           >
-            Copy History
+            {t('dashboard.copyHistory')}
           </button>
         </div>
 
         {recentItems.length === 0 ? (
-          <div className="recent-empty">No recent activity</div>
+          <div className="recent-empty">{t('dashboard.noRecentActivity')}</div>
         ) : (
           <table className="recent-table">
             <thead>
               <tr>
                 {recentTab === 'assessments' && (
                   <>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Tables</th>
-                    <th>Size</th>
-                    <th>Started</th>
+                    <th>{t('dashboard.name')}</th>
+                    <th>{t('dashboard.status')}</th>
+                    <th>{t('dashboard.tables')}</th>
+                    <th>{t('dashboard.size')}</th>
+                    <th>{t('dashboard.started')}</th>
                   </>
                 )}
                 {recentTab === 'migrations' && (
                   <>
-                    <th>Name</th>
-                    <th>Status</th>
-                    <th>Pathway</th>
-                    <th>Created</th>
+                    <th>{t('dashboard.name')}</th>
+                    <th>{t('dashboard.status')}</th>
+                    <th>{t('dashboard.pathway')}</th>
+                    <th>{t('dashboard.created')}</th>
                   </>
                 )}
                 {recentTab === 'copies' && (
                   <>
-                    <th>Table</th>
-                    <th>Status</th>
-                    <th>Rows</th>
-                    <th>Started</th>
+                    <th>{t('dashboard.table')}</th>
+                    <th>{t('dashboard.status')}</th>
+                    <th>{t('dashboard.rows')}</th>
+                    <th>{t('dashboard.started')}</th>
                   </>
                 )}
               </tr>

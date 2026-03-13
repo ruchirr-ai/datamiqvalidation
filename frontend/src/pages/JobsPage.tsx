@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { useLanguage } from '../contexts/LanguageContext';
 import './JobsPage.css';
 
 interface JobDetail {
@@ -32,6 +33,7 @@ type FilterTab = 'all' | 'running' | 'completed' | 'failed' | 'pending';
 
 export const JobsPage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [summary, setSummary] = useState<JobsSummary>({ total: 0, running: 0, completed: 0, failed: 0, pending: 0 });
   const [loading, setLoading] = useState(true);

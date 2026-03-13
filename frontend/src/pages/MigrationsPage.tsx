@@ -6,6 +6,7 @@ import { Play, XCircle, ClipboardList, Pencil, Trash2, MoreVertical } from 'luci
 import { bqRedshiftApi, Migration as BQMigration } from '../services/bqRedshiftApi';
 import { WorkspaceSelector } from '../components/WorkspaceSelector';
 import { useWorkspace } from '../contexts/WorkspaceContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import './MigrationsPage.css';
 
 interface Migration {
@@ -21,6 +22,7 @@ interface Migration {
 export const MigrationsPage: React.FC = () => {
   const navigate = useNavigate();
   const { selectedWorkspaceName } = useWorkspace();
+  const { t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(15);
@@ -390,7 +392,7 @@ export const MigrationsPage: React.FC = () => {
             <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280', marginLeft: 8 }}>— {selectedWorkspaceName}</span>
           </h1>
           <div className="migrations-subheader">
-            <span className="migrations-count">{totalMigrations} Migrations</span>
+            <span className="migrations-count">{totalMigrations} {t('migrations.count')}</span>
             
             <div className="migrations-actions">
               <WorkspaceSelector />
@@ -431,13 +433,13 @@ export const MigrationsPage: React.FC = () => {
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
             <div className="spinner" style={{ margin: '0 auto' }}></div>
-            <p style={{ marginTop: '16px', color: '#66748C' }}>Loading migrations...</p>
+            <p style={{ marginTop: '16px', color: '#66748C' }}>{t('migrations.loading')}</p>
           </div>
         ) : migrations.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
-            <p style={{ color: '#66748C', marginBottom: '16px' }}>No migrations found</p>
+            <p style={{ color: '#66748C', marginBottom: '16px' }}>{t('migrations.noMigrations')}</p>
             <Button variant="primary" onClick={handleCreateMigration}>
-              Create Your First Migration
+              {t('migrations.createFirst')}
             </Button>
           </div>
         ) : (
@@ -452,11 +454,11 @@ export const MigrationsPage: React.FC = () => {
                   </svg>
                 </div>
               </th>
-              <th>SOURCE</th>
-              <th>DESTINATION</th>
-              <th>CREATED BY</th>
-              <th>STATUS</th>
-              <th>LAST RUN AT</th>
+              <th>{t('migrations.source')}</th>
+              <th>{t('migrations.destination')}</th>
+              <th>{t('migrations.createdBy')}</th>
+              <th>{t('migrations.status')}</th>
+              <th>{t('migrations.lastRunAt')}</th>
               <th></th>
             </tr>
           </thead>
