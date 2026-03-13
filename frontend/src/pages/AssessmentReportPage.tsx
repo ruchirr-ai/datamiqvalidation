@@ -203,12 +203,19 @@ export const AssessmentReportPage: React.FC = () => {
       // Fetch recommendations and TCO data if selected
       let recommendations = null;
       let tcoData = null;
+      let queryInsightsData = null;
 
       if (selectedSections.includes('recommendations')) {
         try { recommendations = await getAssessmentRecommendations(parseInt(assessmentId!)); } catch (e) { console.warn('Could not fetch recommendations:', e); }
       }
       if (selectedSections.includes('tco')) {
         try { tcoData = await getAssessmentTCO(parseInt(assessmentId!)); } catch (e) { console.warn('Could not fetch TCO:', e); }
+      }
+      if (selectedSections.includes('query-insights')) {
+        try {
+          const resp = await fetch(`/api/assessments/${parseInt(assessmentId!)}/query-insights?timeframe=all&page_size=10&sort_by=slot_milliseconds`);
+          if (resp.ok) queryInsightsData = await resp.json();
+        } catch (e) { console.warn('Could not fetch query insights:', e); }
       }
 
       await generatePDF({
@@ -217,6 +224,7 @@ export const AssessmentReportPage: React.FC = () => {
         assessmentId: parseInt(assessmentId!),
         recommendations,
         tcoData,
+        queryInsightsData,
       });
     } catch (err) {
       console.error('PDF generation failed:', err);

@@ -85,6 +85,10 @@ class BigQueryAssessmentService:
         repo = AssessmentRepository(db)
 
         try:
+            import time as _time
+            _t0 = _time.time()
+            _step_times = {}
+
             print(f"Starting assessment {assessment_id} for project {self.project_id}")
             repo.update_status(assessment_id, 'running')
 
@@ -93,98 +97,130 @@ class BigQueryAssessmentService:
             print(f"Using region: {region}")
 
             # 1. Collect datasets
+            _ts = _time.time()
             print("Step 1/14: Collecting datasets...")
             datasets_data = await self.collect_datasets()
             for dataset_data in datasets_data:
                 repo.create_dataset(assessment_id, dataset_data)
-            print(f"✓ Collected {len(datasets_data)} datasets")
+            _step_times['1_datasets'] = round(_time.time() - _ts, 1)
+            print(f"✓ Collected {len(datasets_data)} datasets ({_step_times['1_datasets']}s)")
 
             # 2. Collect tables
+            _ts = _time.time()
             print("Step 2/14: Collecting tables...")
             tables_data = await self.collect_tables()
             if tables_data:
                 repo.bulk_create_tables(assessment_id, tables_data)
-            print(f"✓ Collected {len(tables_data)} tables")
+            _step_times['2_tables'] = round(_time.time() - _ts, 1)
+            print(f"✓ Collected {len(tables_data)} tables ({_step_times['2_tables']}s)")
 
             # 3. Collect columns
+            _ts = _time.time()
             print("Step 3/14: Collecting columns...")
             columns_data = await self.collect_columns(assessment_id, db)
             if columns_data:
                 repo.bulk_create_columns(assessment_id, columns_data)
-            print(f"✓ Collected {len(columns_data)} columns")
+            _step_times['3_columns'] = round(_time.time() - _ts, 1)
+            print(f"✓ Collected {len(columns_data)} columns ({_step_times['3_columns']}s)")
 
             # 4. Collect views
+            _ts = _time.time()
             print("Step 4/14: Collecting views...")
             views_data = await self.collect_views()
             if views_data:
                 repo.bulk_create_views(assessment_id, views_data)
-            print(f"✓ Collected {len(views_data)} views")
+            _step_times['4_views'] = round(_time.time() - _ts, 1)
+            print(f"✓ Collected {len(views_data)} views ({_step_times['4_views']}s)")
 
             # 5. Collect routines
+            _ts = _time.time()
             print("Step 5/14: Collecting routines...")
             routines_data = await self.collect_routines()
             if routines_data:
                 repo.bulk_create_routines(assessment_id, routines_data)
-            print(f"✓ Collected {len(routines_data)} routines")
+            _step_times['5_routines'] = round(_time.time() - _ts, 1)
+            print(f"✓ Collected {len(routines_data)} routines ({_step_times['5_routines']}s)")
 
             # 6. Collect query statistics
+            _ts = _time.time()
             print("Step 6/14: Collecting query statistics...")
             query_stats_data = await self.collect_query_statistics_detailed()
+            _step_times['6a_query_fetch'] = round(_time.time() - _ts, 1)
+            print(f"  Fetched {len(query_stats_data)} queries from BQ ({_step_times['6a_query_fetch']}s)")
+            _ts2 = _time.time()
             if query_stats_data:
                 repo.bulk_create_query_stats(assessment_id, query_stats_data)
-            print(f"✓ Collected {len(query_stats_data)} query statistics")
+            _step_times['6b_query_insert'] = round(_time.time() - _ts2, 1)
+            _step_times['6_query_stats_total'] = round(_time.time() - _ts, 1)
+            print(f"✓ Collected {len(query_stats_data)} query statistics ({_step_times['6_query_stats_total']}s total, insert: {_step_times['6b_query_insert']}s)")
 
             # 6b. Collect slot timeline from JOBS_TIMELINE_BY_PROJECT
+            _ts = _time.time()
             print("Step 6b/14: Collecting slot timeline...")
             slot_timeline = await self.collect_slot_timeline()
-            # Store in assessment_data JSON field
             existing_data = repo.get_by_id(assessment_id).assessment_data or {}
             existing_data['slot_timeline'] = slot_timeline
             repo.update_assessment_data(assessment_id, existing_data)
-            print(f"✓ Slot timeline collected")
+            _step_times['6c_slot_timeline'] = round(_time.time() - _ts, 1)
+            print(f"✓ Slot timeline collected ({_step_times['6c_slot_timeline']}s)")
 
             # 7. Collect ML models (REST API only — no INFORMATION_SCHEMA equivalent)
+            _ts = _time.time()
             print("Step 7/14: Collecting ML models...")
             ml_models_data = await self.collect_ml_models()
             if ml_models_data:
                 repo.bulk_create_ml_models(assessment_id, ml_models_data)
-            print(f"✓ Collected {len(ml_models_data)} ML models")
+            _step_times['7_ml_models'] = round(_time.time() - _ts, 1)
+            print(f"✓ Collected {len(ml_models_data)} ML models ({_step_times['7_ml_models']}s)")
 
             # 8. Collect security policies
+            _ts = _time.time()
             print("Step 8/14: Collecting security policies...")
             security_data = await self.collect_security_policies_detailed()
             if security_data:
                 repo.bulk_create_security_policies(assessment_id, security_data)
-            print(f"✓ Collected {len(security_data)} security policies")
+            _step_times['8_security'] = round(_time.time() - _ts, 1)
+            print(f"✓ Collected {len(security_data)} security policies ({_step_times['8_security']}s)")
 
             # 9. Detect sharded tables (derived from cached tables — no API calls)
+            _ts = _time.time()
             print("Step 9/14: Detecting sharded tables...")
             sharded_data = await self.detect_sharded_tables()
             if sharded_data:
                 repo.bulk_create_sharded_tables(assessment_id, sharded_data)
-            print(f"✓ Detected {len(sharded_data)} sharded table groups")
+            _step_times['9_sharded'] = round(_time.time() - _ts, 1)
+            print(f"✓ Detected {len(sharded_data)} sharded table groups ({_step_times['9_sharded']}s)")
 
             # 10. Analyze large STRING columns (derived from cached columns — no API calls)
+            _ts = _time.time()
             print("Step 10/14: Analyzing large STRING columns...")
             large_strings = await self.analyze_large_strings()
-            print(f"✓ Found {len(large_strings)} tables with large STRING columns")
+            _step_times['10_large_strings'] = round(_time.time() - _ts, 1)
+            print(f"✓ Found {len(large_strings)} tables with large STRING columns ({_step_times['10_large_strings']}s)")
 
             # 11. Calculate update frequency
+            _ts = _time.time()
             print("Step 11/14: Calculating table update frequencies...")
             update_frequencies = await self.calculate_update_frequency(query_stats_data)
-            print(f"✓ Calculated update frequency for {len(update_frequencies)} tables")
+            _step_times['11_update_freq'] = round(_time.time() - _ts, 1)
+            print(f"✓ Calculated update frequency for {len(update_frequencies)} tables ({_step_times['11_update_freq']}s)")
 
             # 12. Detect Spark jobs (derived from routines — no extra API calls)
+            _ts = _time.time()
             print("Step 12/14: Detecting Spark jobs...")
             spark_jobs = await self.detect_spark_jobs()
-            print(f"✓ Detected {len(spark_jobs)} Spark jobs")
+            _step_times['12_spark'] = round(_time.time() - _ts, 1)
+            print(f"✓ Detected {len(spark_jobs)} Spark jobs ({_step_times['12_spark']}s)")
 
             # 13. Collect table options (derived from cached tables — no API calls)
+            _ts = _time.time()
             print("Step 13/14: Collecting table options...")
             table_options = await self.get_table_options()
-            print(f"✓ Collected options for {len(table_options)} tables")
+            _step_times['13_table_options'] = round(_time.time() - _ts, 1)
+            print(f"✓ Collected options for {len(table_options)} tables ({_step_times['13_table_options']}s)")
 
             # 14. Update totals
+            _ts = _time.time()
             print("Step 14/14: Updating assessment totals...")
             total_size_mb = sum(t.get('size_mb', 0) for t in tables_data)
             repo.update_totals(
@@ -196,9 +232,12 @@ class BigQueryAssessmentService:
                 total_ml_models=len(ml_models_data),
                 total_size_mb=int(total_size_mb)
             )
+            _step_times['14_totals'] = round(_time.time() - _ts, 1)
 
+            total_elapsed = round(_time.time() - _t0, 1)
             repo.update_status(assessment_id, 'completed')
-            print(f"✓ Assessment {assessment_id} completed successfully")
+            print(f"✓ Assessment {assessment_id} completed in {total_elapsed}s")
+            print(f"  Step timings: {_step_times}")
 
             return {
                 'assessment_id': assessment_id,
@@ -836,54 +875,63 @@ class BigQueryAssessmentService:
         SELECT
             job_id,
             creation_time as execution_time,
-            query as query_text,
+            SUBSTR(query, 1, 2000) as query_text,
             total_bytes_processed as bytes_scanned,
+            total_bytes_billed as bytes_billed,
             total_slot_ms as slot_milliseconds,
             cache_hit,
+            statement_type,
             referenced_tables,
             user_email,
-            state,
-            error_result,
             TIMESTAMP_DIFF(end_time, start_time, MILLISECOND) as total_elapsed_time_ms
         FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.JOBS_BY_PROJECT`
         WHERE creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
             AND job_type = 'QUERY'
             AND state = 'DONE'
         ORDER BY creation_time DESC
-        LIMIT 50000
+        LIMIT 100000
         """
 
         try:
             print(f"  Querying INFORMATION_SCHEMA.JOBS with region: {region}")
             query_job = self.client.query(query)
-            results = query_job.result()
+            results = query_job.result(page_size=10000)  # Fetch in larger pages for speed
 
+            count = 0
             for row in results:
                 referenced_tables = []
                 if row.referenced_tables:
-                    for table_ref in row.referenced_tables:
-                        if isinstance(table_ref, dict):
-                            project = table_ref.get('projectId') or table_ref.get('project_id')
-                            dataset = table_ref.get('datasetId') or table_ref.get('dataset_id')
-                            table = table_ref.get('tableId') or table_ref.get('table_id')
-                            if project and dataset and table:
-                                referenced_tables.append(f"{project}.{dataset}.{table}")
-                        else:
-                            referenced_tables.append(f"{table_ref.project}.{table_ref.dataset_id}.{table_ref.table_id}")
+                    try:
+                        for table_ref in row.referenced_tables:
+                            if isinstance(table_ref, dict):
+                                project = table_ref.get('projectId') or table_ref.get('project_id')
+                                dataset = table_ref.get('datasetId') or table_ref.get('dataset_id')
+                                table = table_ref.get('tableId') or table_ref.get('table_id')
+                                if project and dataset and table:
+                                    referenced_tables.append(f"{project}.{dataset}.{table}")
+                            else:
+                                referenced_tables.append(f"{table_ref.project}.{table_ref.dataset_id}.{table_ref.table_id}")
+                    except Exception:
+                        pass
 
                 query_stats.append({
                     'job_id': row.job_id,
                     'execution_time': row.execution_time,
-                    'query_text': row.query_text[:5000] if row.query_text else None,
+                    'query_text': row.query_text or None,
                     'bytes_scanned': row.bytes_scanned or 0,
                     'slot_milliseconds': row.slot_milliseconds or 0,
-                    'cache_hit': row.cache_hit or False,
+                    'cache_hit': row.cache_hit if row.cache_hit is not None else None,
                     'referenced_tables': referenced_tables,
                     'user_email': row.user_email,
                     'query_metadata': {
                         'total_elapsed_time_ms': row.total_elapsed_time_ms or 0,
+                        'bytes_billed': row.bytes_billed or 0,
+                        'statement_type': row.statement_type or 'UNKNOWN',
                     },
                 })
+                count += 1
+                if count % 25000 == 0:
+                    print(f"    ... processed {count} query rows so far")
 
             print(f"  ✓ Collected {len(query_stats)} query statistics from INFORMATION_SCHEMA (region-{region})")
         except Exception as e:
@@ -904,6 +952,9 @@ class BigQueryAssessmentService:
             'peak_concurrent_slots': 0,
             'avg_concurrent_slots': 0,
             'p95_concurrent_slots': 0,
+            'p50_concurrent_slots': 0,
+            'p90_concurrent_slots': 0,
+            'p99_concurrent_slots': 0,
             'timeline_source': 'JOBS_TIMELINE_BY_PROJECT',
         }
 
@@ -930,14 +981,19 @@ class BigQueryAssessmentService:
                 result['avg_concurrent_slots'] = round(
                     sum(slot_values) / len(slot_values), 1
                 )
-                # P95
+                # Percentiles
                 sorted_vals = sorted(slot_values)
-                p95_idx = int(len(sorted_vals) * 0.95)
-                result['p95_concurrent_slots'] = round(sorted_vals[min(p95_idx, len(sorted_vals) - 1)], 1)
+                n = len(sorted_vals)
+                result['p50_concurrent_slots'] = round(sorted_vals[min(int(n * 0.50), n - 1)], 1)
+                result['p90_concurrent_slots'] = round(sorted_vals[min(int(n * 0.90), n - 1)], 1)
+                result['p95_concurrent_slots'] = round(sorted_vals[min(int(n * 0.95), n - 1)], 1)
+                result['p99_concurrent_slots'] = round(sorted_vals[min(int(n * 0.99), n - 1)], 1)
                 result['timeline_periods_count'] = len(rows)
 
             print(f"  ✓ Slot timeline: peak={result['peak_concurrent_slots']}, "
-                  f"avg={result['avg_concurrent_slots']}, p95={result['p95_concurrent_slots']}")
+                  f"avg={result['avg_concurrent_slots']}, "
+                  f"p50={result['p50_concurrent_slots']}, p90={result['p90_concurrent_slots']}, "
+                  f"p95={result['p95_concurrent_slots']}, p99={result['p99_concurrent_slots']}")
         except Exception as e:
             print(f"  ⚠ JOBS_TIMELINE_BY_PROJECT failed: {e}")
             print(f"  Will fall back to sweep-line estimation from JOBS data")
@@ -955,7 +1011,6 @@ class BigQueryAssessmentService:
                 min_creation_time=min_creation_time,
                 all_users=True,
                 state_filter="done",
-                max_results=50000,
             )
 
             count = 0
@@ -972,19 +1027,41 @@ class BigQueryAssessmentService:
                 except Exception:
                     pass
 
+                # Determine statement type from job properties
+                stmt_type = 'UNKNOWN'
+                if hasattr(job, 'statement_type') and job.statement_type:
+                    stmt_type = job.statement_type
+                elif hasattr(job, 'query') and job.query:
+                    q_upper = job.query.strip().upper()[:20]
+                    if q_upper.startswith('SELECT'):
+                        stmt_type = 'SELECT'
+                    elif q_upper.startswith('INSERT'):
+                        stmt_type = 'INSERT'
+                    elif q_upper.startswith('UPDATE'):
+                        stmt_type = 'UPDATE'
+                    elif q_upper.startswith('DELETE'):
+                        stmt_type = 'DELETE'
+                    elif q_upper.startswith('MERGE'):
+                        stmt_type = 'MERGE'
+                    elif q_upper.startswith('CREATE'):
+                        stmt_type = 'CREATE_TABLE_AS_SELECT' if 'AS SELECT' in job.query.upper() else 'CREATE_TABLE'
+
                 query_stats.append({
                     'job_id': job.job_id,
                     'execution_time': job.created,
                     'query_text': (job.query or '')[:5000] if hasattr(job, 'query') else None,
                     'bytes_scanned': getattr(job, 'total_bytes_processed', 0) or 0,
                     'slot_milliseconds': getattr(job, 'slot_millis', 0) or 0,
-                    'cache_hit': getattr(job, 'cache_hit', False) or False,
+                    'cache_hit': getattr(job, 'cache_hit', None),
                     'referenced_tables': referenced_tables,
                     'user_email': getattr(job, 'user_email', None),
+                    'query_metadata': {
+                        'total_elapsed_time_ms': 0,
+                        'bytes_billed': getattr(job, 'total_bytes_billed', 0) or 0,
+                        'statement_type': stmt_type,
+                    },
                 })
                 count += 1
-                if count >= 50000:
-                    break
 
             print(f"  ✓ Collected {len(query_stats)} query statistics via REST API fallback")
         except Exception as e2:
@@ -1099,24 +1176,23 @@ class BigQueryAssessmentService:
             print(f"  ✓ Collected {len(security_policies)} security policies via INFORMATION_SCHEMA")
             return security_policies
 
-        # ── Strategy 2: REST API fallback ──
+        # ── Strategy 2: REST API fallback (uses cached table refs when available) ──
+        # Only makes per-table API calls if cache is empty (i.e. Step 2 also used REST).
+        # If Step 2 used INFORMATION_SCHEMA, cache is empty — use per-dataset
+        # INFORMATION_SCHEMA.ROW_ACCESS_POLICIES as a lighter fallback first.
         print("  [Fallback] Using REST API for security policies...")
         security_policies = []
-        for dataset in self.client.list_datasets():
-            for table in self.client.list_tables(dataset.dataset_id):
-                key = f"{dataset.dataset_id}.{table.table_id}"
-                table_ref = self._cached_table_refs.get(key)
-                if not table_ref:
-                    table_ref = self.client.get_table(
-                        f"{self.project_id}.{dataset.dataset_id}.{table.table_id}")
-                    self._cached_table_refs[key] = table_ref
 
+        if self._cached_table_refs:
+            # Fast path: iterate already-cached table objects (no extra API calls)
+            print(f"    Using {len(self._cached_table_refs)} cached table refs")
+            for key, table_ref in self._cached_table_refs.items():
                 for field in table_ref.schema:
                     if field.policy_tags and field.policy_tags.names:
                         for tag in field.policy_tags.names:
                             security_policies.append({
                                 'security_type': 'CLS',
-                                'table_name': f"{dataset.dataset_id}.{table.table_id}",
+                                'table_name': key,
                                 'policy_name': f"policy_tag_{field.name}",
                                 'filter_predicate': None,
                                 'grantees': [],
@@ -1126,25 +1202,27 @@ class BigQueryAssessmentService:
                                     'policy_tag': tag
                                 }
                             })
-
-            try:
-                rls_query = f"""
-                SELECT table_schema, table_name, policy_name, filter_predicate, grantee_list
-                FROM `{self.project_id}.{dataset.dataset_id}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
-                """
-                query_job = self.client.query(rls_query)
-                for row in query_job.result():
-                    security_policies.append({
-                        'security_type': 'RLS',
-                        'table_name': f"{row.table_schema}.{row.table_name}",
-                        'policy_name': row.policy_name,
-                        'filter_predicate': row.filter_predicate,
-                        'grantees': row.grantee_list.split(',') if row.grantee_list else [],
-                        'creation_time': None,
-                        'security_metadata': {}
-                    })
-            except Exception:
-                pass
+        else:
+            # No cached refs — try per-dataset RLS query (much faster than per-table)
+            print("    No cached table refs — trying per-dataset RLS queries")
+            for dataset in self.client.list_datasets():
+                try:
+                    rls_q = f"""
+                    SELECT table_schema, table_name, policy_name, filter_predicate, grantee_list
+                    FROM `{self.project_id}.{dataset.dataset_id}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
+                    """
+                    for row in self.client.query(rls_q).result():
+                        security_policies.append({
+                            'security_type': 'RLS',
+                            'table_name': f"{row.table_schema}.{row.table_name}",
+                            'policy_name': row.policy_name,
+                            'filter_predicate': row.filter_predicate,
+                            'grantees': row.grantee_list.split(',') if row.grantee_list else [],
+                            'creation_time': None,
+                            'security_metadata': {}
+                        })
+                except Exception:
+                    pass  # Dataset may not have RLS table — expected
 
         print(f"  ✓ Collected {len(security_policies)} security policies via REST API fallback")
         return security_policies

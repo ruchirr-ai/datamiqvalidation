@@ -87,7 +87,10 @@ class RecommendationEngine:
         if slot_timeline.get('peak_concurrent_slots', 0) > 0:
             workload['estimated_peak_slots'] = slot_timeline['peak_concurrent_slots']
             workload['avg_concurrent_slots'] = slot_timeline.get('avg_concurrent_slots', workload.get('avg_concurrent_slots', 0))
+            workload['p50_concurrent_slots'] = slot_timeline.get('p50_concurrent_slots', 0)
+            workload['p90_concurrent_slots'] = slot_timeline.get('p90_concurrent_slots', 0)
             workload['p95_concurrent_slots'] = slot_timeline.get('p95_concurrent_slots', 0)
+            workload['p99_concurrent_slots'] = slot_timeline.get('p99_concurrent_slots', 0)
             workload['slot_timeline_source'] = 'JOBS_TIMELINE_BY_PROJECT'
 
         # 1. Query classification
@@ -372,7 +375,7 @@ class RecommendationEngine:
     # ------------------------------------------------------------------ #
     def _classify_queries(self, query_stats: List[Dict]) -> Dict:
         """
-        Classify queries as Ad-hoc vs BI/Scheduled.
+        Classify queries as Ad-hoc vs BI/Scheduled, and compute read/write split + cache hit ratio.
         """
         total = len(query_stats)
         if total == 0:
@@ -380,7 +383,15 @@ class RecommendationEngine:
                 'total_queries': 0,
                 'adhoc_count': 0, 'adhoc_pct': 0,
                 'bi_count': 0, 'bi_pct': 0,
+                'read_count': 0, 'write_count': 0,
+                'read_pct': 0, 'write_pct': 0,
+                'cache_hit_ratio': 0, 'cache_hits': 0, 'select_queries': 0,
             }
+
+        WRITE_TYPES = {'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'CREATE_TABLE_AS_SELECT',
+                       'CREATE_TABLE', 'DROP_TABLE', 'ALTER_TABLE', 'TRUNCATE_TABLE',
+                       'CREATE_VIEW', 'DROP_VIEW', 'CREATE_FUNCTION', 'DROP_FUNCTION',
+                       'CREATE_PROCEDURE', 'DROP_PROCEDURE', 'CREATE_MODEL', 'EXPORT_DATA'}
 
         bi_keywords = [
             'dashboard', 'report', 'scheduled', 'looker', 'tableau',
@@ -390,10 +401,16 @@ class RecommendationEngine:
         # Track query fingerprints for repetition detection
         query_fingerprints: Dict[str, int] = {}
         bi_flags = [False] * total
+        read_count = 0
+        write_count = 0
+        select_queries = 0
+        cache_hits = 0
 
         for idx, q in enumerate(query_stats):
             text = (q.get('query_text') or '').lower()
             user = (q.get('user_email') or '').lower()
+            meta = q.get('query_metadata') or {}
+            stmt_type = (meta.get('statement_type') or '').upper() if isinstance(meta, dict) else ''
 
             fp = ''.join(text.split())[:100]
             query_fingerprints[fp] = query_fingerprints.get(fp, 0) + 1
@@ -402,6 +419,30 @@ class RecommendationEngine:
                 bi_flags[idx] = True
             if any(sa in user for sa in ['service', 'bot', 'scheduler', 'airflow', 'looker']):
                 bi_flags[idx] = True
+
+            # Read/write classification using statement_type
+            if stmt_type and stmt_type != 'UNKNOWN':
+                if stmt_type in WRITE_TYPES:
+                    write_count += 1
+                else:
+                    read_count += 1
+                if stmt_type == 'SELECT':
+                    select_queries += 1
+                    if q.get('cache_hit') is True:
+                        cache_hits += 1
+            else:
+                # Fallback to regex
+                if text.strip():
+                    import re
+                    if re.match(r'^\s*(insert|update|delete|merge|create|drop|alter|truncate)', text):
+                        write_count += 1
+                    else:
+                        read_count += 1
+                        select_queries += 1
+                        if q.get('cache_hit') is True:
+                            cache_hits += 1
+                else:
+                    read_count += 1
 
         # Repeated queries (>3 times) are likely BI
         repeated_fps = {fp for fp, cnt in query_fingerprints.items() if cnt >= 3}
@@ -413,6 +454,7 @@ class RecommendationEngine:
 
         bi_count = sum(bi_flags)
         adhoc_count = total - bi_count
+        cache_hit_ratio = round(cache_hits / select_queries * 100, 1) if select_queries > 0 else 0
 
         return {
             'total_queries': total,
@@ -420,6 +462,13 @@ class RecommendationEngine:
             'adhoc_pct': round(adhoc_count / total * 100, 1) if total else 0,
             'bi_count': bi_count,
             'bi_pct': round(bi_count / total * 100, 1) if total else 0,
+            'read_count': read_count,
+            'write_count': write_count,
+            'read_pct': round(read_count / total * 100, 1) if total else 0,
+            'write_pct': round(write_count / total * 100, 1) if total else 0,
+            'cache_hit_ratio': cache_hit_ratio,
+            'cache_hits': cache_hits,
+            'select_queries': select_queries,
         }
 
     # ------------------------------------------------------------------ #

@@ -312,17 +312,27 @@ class TCOEngine:
         total_queries = len(query_stats)
         total_bytes_scanned = sum(q.get('bytes_scanned', 0) for q in query_stats)
 
+        # Use bytes_billed when available (actual BQ billing basis, rounded up per query)
+        # Falls back to bytes_scanned if bytes_billed not collected
+        total_bytes_billed = 0
+        for q in query_stats:
+            meta = q.get('query_metadata') or {}
+            bb = meta.get('bytes_billed', 0) if isinstance(meta, dict) else 0
+            total_bytes_billed += (bb or 0)
+        # If bytes_billed data exists, use it; otherwise fall back to bytes_scanned
+        total_bytes_for_billing = total_bytes_billed if total_bytes_billed > 0 else total_bytes_scanned
+
         # Use workload metrics for accurate extrapolation
         query_time_span_days = workload_metrics.get('query_time_span_days', 30)
         monthly_slot_hours = workload_metrics.get('estimated_monthly_slot_hours', 0)
         rpu_hours_monthly = workload_metrics.get('estimated_rpu_hours_monthly', 0)
 
-        # Extrapolate bytes scanned to monthly
+        # Extrapolate bytes to monthly using billing basis
         if query_time_span_days > 0:
-            daily_bytes = total_bytes_scanned / query_time_span_days
+            daily_bytes = total_bytes_for_billing / query_time_span_days
             monthly_bytes = daily_bytes * 30
         else:
-            monthly_bytes = total_bytes_scanned
+            monthly_bytes = total_bytes_for_billing
 
         monthly_tb_scanned = monthly_bytes / (1024 ** 4) if monthly_bytes else 0
 
@@ -404,6 +414,11 @@ class TCOEngine:
                 'avg_concurrent_slots': workload_metrics.get('avg_concurrent_slots', 0),
                 'median_concurrent_slots': workload_metrics.get('median_concurrent_slots', 0),
                 'estimated_peak_slots': workload_metrics.get('estimated_peak_slots', 0),
+                'p50_concurrent_slots': workload_metrics.get('p50_concurrent_slots', 0),
+                'p90_concurrent_slots': workload_metrics.get('p90_concurrent_slots', 0),
+                'p95_concurrent_slots': workload_metrics.get('p95_concurrent_slots', 0),
+                'p99_concurrent_slots': workload_metrics.get('p99_concurrent_slots', 0),
+                'slot_timeline_source': workload_metrics.get('slot_timeline_source', 'sweep-line'),
             },
             'recommendation': self._generate_recommendation(
                 bq_costs, provisioned_costs, serverless_costs,
