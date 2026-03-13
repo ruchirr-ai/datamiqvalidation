@@ -46,6 +46,7 @@ const ACCEPTED_FILE_TYPES = ACCEPTED_FILE_EXTENSIONS.join(',');
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
 
 export const StandaloneConverterPage: React.FC = () => {
+  const { t } = useLanguage();
   // --- Form state ---
   const [sourceDialect, setSourceDialect] = useState(SOURCE_DIALECT_OPTIONS[0]);
   const [targetDialect, setTargetDialect] = useState(TARGET_DIALECT_OPTIONS[0]);
@@ -275,10 +276,10 @@ export const StandaloneConverterPage: React.FC = () => {
               strokeLinejoin="round"
             />
           </svg>
-          Code Converter
+          {t('converter.title')}
         </h1>
         <p className="converter-subtitle">
-          Convert SQL and database code between dialects
+          {t('converter.subtitle')}
         </p>
       </div>
 
@@ -289,7 +290,7 @@ export const StandaloneConverterPage: React.FC = () => {
           <div className="config-row">
             <div className="config-field">
               <label className="config-label" htmlFor="source-dialect">
-                Source Dialect
+                {t('converter.sourceDialect')}
               </label>
               <select
                 id="source-dialect"
@@ -307,7 +308,7 @@ export const StandaloneConverterPage: React.FC = () => {
 
             <div className="config-field">
               <label className="config-label" htmlFor="target-dialect">
-                Target Dialect
+                {t('converter.targetDialect')}
               </label>
               <select
                 id="target-dialect"
@@ -325,7 +326,7 @@ export const StandaloneConverterPage: React.FC = () => {
 
             <div className="config-field">
               <label className="config-label" htmlFor="asset-type">
-                Asset Type
+                {t('converter.assetType')}
               </label>
               <select
                 id="asset-type"
@@ -346,7 +347,7 @@ export const StandaloneConverterPage: React.FC = () => {
           <div className="config-row">
             <div className="config-field">
               <label className="config-label" htmlFor="asset-name">
-                Asset Name
+                {t('converter.assetName')}
               </label>
               <input
                 id="asset-name"
@@ -374,7 +375,7 @@ export const StandaloneConverterPage: React.FC = () => {
 
             <div className="config-field">
               <label className="config-label" htmlFor="bedrock-model">
-                Bedrock Model
+                {t('converter.bedrockModel')}
               </label>
               <select
                 id="bedrock-model"
@@ -402,7 +403,7 @@ export const StandaloneConverterPage: React.FC = () => {
           <div className="config-row config-row--two-col">
             <div className="config-field">
               <label className="config-label" htmlFor="template-path">
-                Prompt Template
+                {t('converter.promptTemplate')}
               </label>
               <select
                 id="template-path"
@@ -449,7 +450,7 @@ export const StandaloneConverterPage: React.FC = () => {
 
             <div className="config-field">
               <label className="config-label" htmlFor="local-file-upload">
-                Local Files
+                {t('converter.localFiles')}
               </label>
               {uploadedFile ? (
                 <div className="file-upload-display">
@@ -526,7 +527,7 @@ export const StandaloneConverterPage: React.FC = () => {
           <div className="config-row config-row--bottom">
             <div className="config-field config-field--small">
               <label className="config-label" htmlFor="max-retries">
-                Max Retries
+                {t('converter.maxRetries')}
               </label>
               <input
                 id="max-retries"
@@ -603,14 +604,14 @@ export const StandaloneConverterPage: React.FC = () => {
         {/* Source code input (left) */}
         <div className="converter-pane converter-pane--source">
           <div className="pane-header">
-            <span className="pane-title">Source Code</span>
+            <span className="pane-title">{t('converter.sourceCode')}</span>
             <span className="pane-dialect">{sourceDialect}</span>
           </div>
           <textarea
             className="source-textarea"
             value={sourceCode}
             onChange={(e) => setSourceCode(e.target.value)}
-            placeholder="Paste your SQL or database code here…"
+            placeholder={t('converter.pastePlaceholder')}
             spellCheck={false}
             aria-label="Source code input"
           />
@@ -622,7 +623,7 @@ export const StandaloneConverterPage: React.FC = () => {
               loading={converting}
               disabled={!canConvert || converting}
             >
-              {converting ? 'Converting…' : 'Convert'}
+              {converting ? t('converter.converting') : t('converter.convert')}
             </Button>
           </div>
         </div>
@@ -630,7 +631,7 @@ export const StandaloneConverterPage: React.FC = () => {
         {/* Converted code output (right) */}
         <div className="converter-pane converter-pane--target">
           <div className="pane-header">
-            <span className="pane-title">Converted Code</span>
+            <span className="pane-title">{t('converter.convertedCode')}</span>
             <span className="pane-dialect">{targetDialect}</span>
             {result?.target_code && (
               <div className="pane-actions">

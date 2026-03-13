@@ -1,18 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { useLanguage } from '../contexts/LanguageContext';
-import { useTheme } from '../contexts/ThemeContext';
-import { LANGUAGES } from '../contexts/LanguageContext';
+import { useLanguage, LANGUAGES, LanguageCode } from '../contexts/LanguageContext';
+import { api } from '../services/api';
 import './ProfilePage.css';
 
 export const ProfilePage: React.FC = () => {
   const { user } = useAuth();
   const { t, language, setLanguage } = useLanguage();
-  const { theme } = useTheme();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [stats, setStats] = useState({ connections: 0, assessments: 0, migrations: 0, jobs: 0 });
+
+  useEffect(() => {
+    api.get<any>('/api/dashboard/summary').then(d => {
+      setStats({
+        connections: d.total_connections || 0,
+        assessments: d.total_assessments || 0,
+        migrations: d.total_migrations || 0,
+        jobs: d.total_jobs || 0,
+      });
+    }).catch(() => {});
+  }, []);
 
   const handlePasswordChange = (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,7 +51,7 @@ export const ProfilePage: React.FC = () => {
 
       <div className="profile-header">
         <h1 className="profile-title">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
             <circle cx="10" cy="7" r="4" />
             <path d="M3 17c0-3 3-5 7-5s7 2 7 5" strokeLinecap="round" />
           </svg>
@@ -52,7 +62,7 @@ export const ProfilePage: React.FC = () => {
 
       <div className="profile-content">
         {/* User Info Card */}
-        <div className="profile-card">
+        <div className="profile-card full-width">
           <div className="profile-card-header">{t('profile.userInfo')}</div>
           <div className="profile-user-section">
             <div className="profile-avatar">{initials}</div>
@@ -66,13 +76,32 @@ export const ProfilePage: React.FC = () => {
                 <span className="profile-role-badge">{user?.role || 'member'}</span>
               </div>
               <div className="profile-field">
-                <label>{t('profile.theme')}</label>
-                <span>{theme === 'dark' ? t('sidebar.darkMode') : t('sidebar.lightMode')}</span>
-              </div>
-              <div className="profile-field">
                 <label>{t('profile.language')}</label>
                 <span>{LANGUAGES.find(l => l.code === language)?.label || language}</span>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Activity Stats */}
+        <div className="profile-card full-width">
+          <div className="profile-card-header">{t('profile.activity')}</div>
+          <div className="profile-stats">
+            <div className="profile-stat">
+              <span className="profile-stat-value">{stats.connections}</span>
+              <span className="profile-stat-label">{t('dashboard.connections')}</span>
+            </div>
+            <div className="profile-stat">
+              <span className="profile-stat-value">{stats.assessments}</span>
+              <span className="profile-stat-label">{t('dashboard.assessments')}</span>
+            </div>
+            <div className="profile-stat">
+              <span className="profile-stat-value">{stats.migrations}</span>
+              <span className="profile-stat-label">{t('dashboard.migrations')}</span>
+            </div>
+            <div className="profile-stat">
+              <span className="profile-stat-value">{stats.jobs}</span>
+              <span className="profile-stat-label">{t('jobs.title')}</span>
             </div>
           </div>
         </div>
@@ -86,7 +115,7 @@ export const ProfilePage: React.FC = () => {
               <select
                 className="profile-select"
                 value={language}
-                onChange={(e) => setLanguage(e.target.value as any)}
+                onChange={(e) => setLanguage(e.target.value as LanguageCode)}
               >
                 {LANGUAGES.map(l => (
                   <option key={l.code} value={l.code}>{l.flag} {l.label} ({l.labelEn})</option>

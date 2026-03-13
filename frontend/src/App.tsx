@@ -195,6 +195,9 @@ const AppContent: React.FC = () => {
                   <Route path="/monitoring/copy-history" element={<CopyHistoryPage />} />
                   <Route path="/monitoring/task-history" element={<TaskHistoryPage />} />
                   <Route path="/jobs" element={<JobsPage />} />
+                  <Route path="/jobs/running" element={<JobsPage />} />
+                  <Route path="/jobs/queued" element={<JobsPage />} />
+                  <Route path="/jobs/history" element={<JobsPage />} />
                   <Route path="/profile" element={<ProfilePage />} />
                   <Route
                     path="/administration"

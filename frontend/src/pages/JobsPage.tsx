@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../services/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import './JobsPage.css';
@@ -33,12 +33,28 @@ type FilterTab = 'all' | 'running' | 'completed' | 'failed' | 'pending';
 
 export const JobsPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { t } = useLanguage();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [summary, setSummary] = useState<JobsSummary>({ total: 0, running: 0, completed: 0, failed: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Derive initial filter from URL path
+  const getFilterFromPath = (): FilterTab => {
+    const path = location.pathname;
+    if (path.endsWith('/running')) return 'running';
+    if (path.endsWith('/queued')) return 'pending';
+    if (path.endsWith('/history')) return 'completed';
+    return 'all';
+  };
+
+  const [activeFilter, setActiveFilter] = useState<FilterTab>(getFilterFromPath());
+
+  // Update filter when URL changes
+  useEffect(() => {
+    setActiveFilter(getFilterFromPath());
+  }, [location.pathname]);
 
   const fetchJobs = async () => {
     try {

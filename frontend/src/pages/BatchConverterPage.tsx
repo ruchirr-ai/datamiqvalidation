@@ -38,6 +38,7 @@ import { AssetSelector, assetKey } from '../components/conversion/AssetSelector'
 import { BatchHistoryTable } from '../components/conversion/BatchHistoryTable';
 import { BatchPreviewWindow } from '../components/conversion/BatchPreviewWindow';
 import './BatchConverterPage.css';
+import { useLanguage } from '../contexts/LanguageContext';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -98,6 +99,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
   sourceDialect: initialSourceDialect,
   targetDialect: initialTargetDialect,
 }) => {
+  const { t } = useLanguage();
   // --- Wizard state ---
   const [currentStep, setCurrentStep] = useState(1);
 
@@ -711,7 +713,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
       <div className="batch-config-row">
         <div className="batch-config-field">
           <label className="batch-config-label" htmlFor="batch-source-conn">
-            Source Connection
+            {t('converter.sourceConnection')}
           </label>
           <select
             id="batch-source-conn"
@@ -732,7 +734,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
         </div>
         <div className="batch-config-field">
           <label className="batch-config-label" htmlFor="batch-target-conn">
-            Target Connection
+            {t('converter.targetConnection')}
           </label>
           <select
             id="batch-target-conn"
@@ -757,7 +759,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
       <div className="batch-config-row">
         <div className="batch-config-field">
           <label className="batch-config-label" htmlFor="batch-source-dialect">
-            Source Dialect
+            {t('converter.sourceDialect')}
           </label>
           <select
             id="batch-source-dialect"
@@ -774,7 +776,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
         </div>
         <div className="batch-config-field">
           <label className="batch-config-label" htmlFor="batch-target-dialect">
-            Target Dialect
+            {t('converter.targetDialect')}
           </label>
           <select
             id="batch-target-dialect"
@@ -808,7 +810,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
         </div>
         <div className="batch-config-field">
           <label className="batch-config-label" htmlFor="batch-model">
-            Bedrock Model
+            {t('converter.bedrockModel')}
           </label>
           <select
             id="batch-model"
@@ -832,7 +834,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
         </div>
         <div className="batch-config-field">
           <label className="batch-config-label" htmlFor="batch-template">
-            Prompt Template
+            {t('converter.promptTemplate')}
           </label>
           <select
             id="batch-template"
@@ -882,7 +884,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
       <div className="batch-config-row batch-config-row--actions">
         <div className="batch-config-field batch-config-field--small">
           <label className="batch-config-label" htmlFor="batch-retries">
-            Max Retries
+            {t('converter.maxRetries')}
           </label>
           <input
             id="batch-retries"
@@ -1227,7 +1229,7 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
           Batch Code Converter
         </h1>
         <p className="batch-subtitle">
-          Convert SQL and database code between dialects
+          {t('converter.subtitle')}
         </p>
       </div>
 

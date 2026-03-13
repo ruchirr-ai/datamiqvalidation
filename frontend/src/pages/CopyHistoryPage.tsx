@@ -84,16 +84,16 @@ export const CopyHistoryPage: React.FC = () => {
   };
 
   const getStatusBadge = (status: string) => {
-    const styles: Record<string, { bg: string; color: string; label: string }> = {
-      completed: { bg: '#ECFDF5', color: '#059669', label: 'Completed' },
-      running: { bg: '#EFF6FF', color: '#2563EB', label: 'Running' },
-      failed: { bg: '#FEF2F2', color: '#DC2626', label: 'Failed' },
+    const styles: Record<string, { bg: string; color: string; key: string }> = {
+      completed: { bg: '#ECFDF5', color: '#059669', key: 'copyHistory.completed' },
+      running: { bg: '#EFF6FF', color: '#2563EB', key: 'copyHistory.running' },
+      failed: { bg: '#FEF2F2', color: '#DC2626', key: 'copyHistory.failed' },
     };
     const s = styles[status] || styles.failed;
     return (
       <span className="copy-status-badge" style={{ background: s.bg, color: s.color }}>
         {status === 'running' && <span className="copy-status-dot" style={{ background: s.color }} />}
-        {s.label}
+        {t(s.key)}
       </span>
     );
   };
@@ -118,7 +118,7 @@ export const CopyHistoryPage: React.FC = () => {
             Copy History
           </h1>
           <div className="copy-history-subheader">
-            <span className="copy-history-count">{total} {t('dashboard.copyHistory')}</span>
+            <span className="copy-history-count">{total} {t('copyHistory.title')}</span>
             <div className="copy-history-actions">
               <div className="search-box">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -127,7 +127,7 @@ export const CopyHistoryPage: React.FC = () => {
                 </svg>
                 <input
                   type="text"
-                  placeholder="Search by migration or table..."
+                  placeholder={t('copyHistory.searchPlaceholder')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={handleKeyDown}
@@ -139,10 +139,10 @@ export const CopyHistoryPage: React.FC = () => {
                 value={statusFilter}
                 onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
               >
-                <option value="all">All Status</option>
-                <option value="completed">Completed</option>
-                <option value="running">Running</option>
-                <option value="failed">Failed</option>
+                <option value="all">{t('copyHistory.allStatus')}</option>
+                <option value="completed">{t('copyHistory.completed')}</option>
+                <option value="running">{t('copyHistory.running')}</option>
+                <option value="failed">{t('copyHistory.failed')}</option>
               </select>
             </div>
           </div>
@@ -154,28 +154,28 @@ export const CopyHistoryPage: React.FC = () => {
         {loading ? (
           <div className="copy-loading">
             <div className="copy-spinner" />
-            <p>Loading copy history...</p>
+            <p>{t('copyHistory.loading')}</p>
           </div>
         ) : records.length === 0 ? (
           <div className="copy-empty">
             <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#9CA3AF" strokeWidth="2">
               <path d="M12 12h24M12 20h24M12 28h16" strokeLinecap="round" />
             </svg>
-            <h4>No COPY Records Found</h4>
-            <p>COPY commands will appear here when migrations are executed.</p>
+            <h4>{t('copyHistory.noRecords')}</h4>
+            <p>{t('copyHistory.noRecordsDesc')}</p>
           </div>
         ) : (
           <table className="copy-table">
             <thead>
               <tr>
-                <th>Migration</th>
-                <th>Table</th>
-                <th>Status</th>
-                <th>Rows</th>
-                <th>Size</th>
-                <th>Duration</th>
-                <th>Started At</th>
-                <th>Format</th>
+                <th>{t('copyHistory.migration')}</th>
+                <th>{t('copyHistory.table')}</th>
+                <th>{t('copyHistory.status')}</th>
+                <th>{t('copyHistory.rows')}</th>
+                <th>{t('copyHistory.size')}</th>
+                <th>{t('copyHistory.duration')}</th>
+                <th>{t('copyHistory.startedAt')}</th>
+                <th>{t('copyHistory.format')}</th>
                 <th></th>
               </tr>
             </thead>
@@ -214,11 +214,11 @@ export const CopyHistoryPage: React.FC = () => {
       {total > 0 && (
         <div className="copy-pagination">
           <span className="pagination-info">
-            Showing {Math.min((currentPage - 1) * rowsPerPage + 1, total)}–{Math.min(currentPage * rowsPerPage, total)} of {total}
+            {t('copyHistory.showing')} {Math.min((currentPage - 1) * rowsPerPage + 1, total)}–{Math.min(currentPage * rowsPerPage, total)} {t('copyHistory.of')} {total}
           </span>
           <div className="pagination-controls">
             <div className="rows-per-page">
-              <span>Rows per page:</span>
+              <span>{t('copyHistory.rowsPerPage')}</span>
               <select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}>
                 <option value={10}>10</option>
                 <option value={15}>15</option>
@@ -232,7 +232,7 @@ export const CopyHistoryPage: React.FC = () => {
                   <path d="M10 4L6 8l4 4" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </button>
-              <span style={{ fontSize: '13px', color: '#6B7280' }}>Page {currentPage} of {totalPages}</span>
+              <span style={{ fontSize: '13px', color: '#6B7280' }}>{t('copyHistory.page')} {currentPage} {t('copyHistory.of')} {totalPages}</span>
               <button className="pagination-btn" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
@@ -248,7 +248,7 @@ export const CopyHistoryPage: React.FC = () => {
         <div className="copy-modal-overlay" onClick={() => setSelectedRecord(null)}>
           <div className="copy-modal" onClick={(e) => e.stopPropagation()}>
             <div className="copy-modal-header">
-              <h3>COPY Command Details</h3>
+              <h3>{t('copyHistory.details')}</h3>
               <button className="modal-close" onClick={() => setSelectedRecord(null)}>
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M6 6l8 8M14 6l-8 8" strokeLinecap="round" />
@@ -258,69 +258,69 @@ export const CopyHistoryPage: React.FC = () => {
             <div className="copy-modal-body">
               <div className="copy-detail-grid">
                 <div className="copy-detail-item">
-                  <label>Migration</label>
+                  <label>{t('copyHistory.migration')}</label>
                   <span>{selectedRecord.migration_name} (ID: {selectedRecord.migration_id})</span>
                 </div>
                 <div className="copy-detail-item">
-                  <label>Table</label>
+                  <label>{t('copyHistory.table')}</label>
                   <span>{selectedRecord.schema_name}.{selectedRecord.table_name}</span>
                 </div>
                 <div className="copy-detail-item">
-                  <label>Status</label>
+                  <label>{t('copyHistory.status')}</label>
                   <span>{getStatusBadge(selectedRecord.status)}</span>
                 </div>
                 <div className="copy-detail-item">
-                  <label>Started</label>
+                  <label>{t('copyHistory.started')}</label>
                   <span>{formatTimestamp(selectedRecord.started_at)}</span>
                 </div>
                 <div className="copy-detail-item">
-                  <label>Completed</label>
+                  <label>{t('copyHistory.completed2')}</label>
                   <span>{formatTimestamp(selectedRecord.completed_at)}</span>
                 </div>
                 <div className="copy-detail-item">
-                  <label>Duration</label>
+                  <label>{t('copyHistory.duration')}</label>
                   <span>{formatDuration(selectedRecord.duration_seconds)}</span>
                 </div>
                 <div className="copy-detail-item">
-                  <label>Rows Loaded</label>
+                  <label>{t('copyHistory.rowsLoaded')}</label>
                   <span>{formatRows(selectedRecord.rows_loaded)}</span>
                 </div>
                 <div className="copy-detail-item">
-                  <label>Bytes Loaded</label>
+                  <label>{t('copyHistory.bytesLoaded')}</label>
                   <span>{formatBytes(selectedRecord.bytes_loaded)}</span>
                 </div>
                 <div className="copy-detail-item">
-                  <label>Format</label>
+                  <label>{t('copyHistory.format')}</label>
                   <span>{selectedRecord.file_format || '—'}</span>
                 </div>
                 <div className="copy-detail-item">
-                  <label>Compression</label>
+                  <label>{t('copyHistory.compression')}</label>
                   <span>{selectedRecord.compression || 'NONE'}</span>
                 </div>
               </div>
 
               {selectedRecord.source_uri && (
                 <div className="copy-detail-section">
-                  <label>Source URI</label>
+                  <label>{t('copyHistory.sourceUri')}</label>
                   <pre className="copy-code-block">{selectedRecord.source_uri}</pre>
                 </div>
               )}
 
               <div className="copy-detail-section">
-                <label>COPY Command</label>
+                <label>{t('copyHistory.copyCommand')}</label>
                 <pre className="copy-code-block">{selectedRecord.copy_command}</pre>
               </div>
 
               {selectedRecord.error_message && (
                 <div className="copy-detail-section copy-error-section">
-                  <label>Error</label>
+                  <label>{t('copyHistory.error')}</label>
                   <pre className="copy-code-block copy-error-block">{selectedRecord.error_message}</pre>
                 </div>
               )}
 
               {selectedRecord.error_details && (
                 <div className="copy-detail-section copy-error-section">
-                  <label>Error Details</label>
+                  <label>{t('copyHistory.errorDetails')}</label>
                   <pre className="copy-code-block copy-error-block">{JSON.stringify(selectedRecord.error_details, null, 2)}</pre>
                 </div>
               )}
