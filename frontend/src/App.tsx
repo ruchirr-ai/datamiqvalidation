@@ -34,6 +34,9 @@ import { CopyHistoryPage } from './pages/CopyHistoryPage';
 import { TaskHistoryPage } from './pages/TaskHistoryPage';
 import { DocumentationPage } from './pages/DocumentationPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { QueryHistoryPage } from './pages/QueryHistoryPage';
+import { DynamicTablesPage } from './pages/DynamicTablesPage';
+import { GovernancePage } from './pages/GovernancePage';
 import './styles/global.css';
 
 // Navigation items configuration
@@ -194,6 +197,9 @@ const AppContent: React.FC = () => {
                   <Route path="/validations/:runId" element={<ValidationDetailPage />} />
                   <Route path="/monitoring/copy-history" element={<CopyHistoryPage />} />
                   <Route path="/monitoring/task-history" element={<TaskHistoryPage />} />
+                  <Route path="/monitoring/query-history" element={<QueryHistoryPage />} />
+                  <Route path="/monitoring/dynamic-tables" element={<DynamicTablesPage />} />
+                  <Route path="/monitoring/governance" element={<GovernancePage />} />
                   <Route path="/jobs" element={<JobsPage />} />
                   <Route path="/jobs/running" element={<JobsPage />} />
                   <Route path="/jobs/queued" element={<JobsPage />} />

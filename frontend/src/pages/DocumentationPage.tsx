@@ -8,6 +8,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
 import { Logo } from '../components/ui/Logo';
+import { ChatAgent } from '../components/ChatAgent/ChatAgent';
 import { ChevronRight, Search, ExternalLink, BookOpen, Cable, Shield, BarChart3, Code, CheckCircle, Activity, Settings, Layers, ArrowRight } from 'lucide-react';
 import './DocumentationPage.css';
 
@@ -630,6 +631,9 @@ export const DocumentationPage: React.FC = () => {
           </footer>
         </main>
       </div>
+
+      {/* ChatAgent on documentation page */}
+      <ChatAgent currentPage="documentation" hasAssessments={true} />
     </div>
   );
 };
