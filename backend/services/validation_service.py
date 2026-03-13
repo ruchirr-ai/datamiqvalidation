@@ -154,6 +154,9 @@ class ValidationService:
         # Extract per-table row counts from checkpoint_data export_results
         table_row_counts: Dict[str, Optional[int]] = {}
         tables = migration.source_tables or []
+        # Build a case-insensitive lookup for source_tables
+        tables_lower_map = {t.lower(): t for t in tables}
+
         if migration.checkpoint_data and isinstance(migration.checkpoint_data, dict):
             # Primary source: export_results list (populated after export stage)
             export_results = migration.checkpoint_data.get("export_results", [])
@@ -161,10 +164,16 @@ class ValidationService:
                 for result in export_results:
                     if isinstance(result, dict) and result.get("success"):
                         table_ref = result.get("table", "")
-                        table_name = table_ref.rsplit(".", 1)[-1] if "." in table_ref else table_ref
+                        # Extract last segment from fully-qualified refs (project.dataset.table)
+                        extracted = table_ref.rsplit(".", 1)[-1] if "." in table_ref else table_ref
+                        # Case-insensitive match against source_tables
+                        matched_name = tables_lower_map.get(extracted.lower(), extracted)
+                        # Try num_rows first, then total_rows_exported as fallback
                         num_rows = result.get("num_rows")
-                        if table_name:
-                            table_row_counts[table_name] = num_rows
+                        if num_rows is None:
+                            num_rows = result.get("total_rows_exported")
+                        if matched_name:
+                            table_row_counts[matched_name] = num_rows
             # Fallback: check per-table keys in checkpoint_data
             for t in tables:
                 if t not in table_row_counts:
@@ -178,6 +187,42 @@ class ValidationService:
         else:
             for t in tables:
                 table_row_counts[t] = None
+
+        # Final fallback: query AssessmentTable for any tables still missing counts
+        tables_needing_counts = [t for t in tables if table_row_counts.get(t) is None]
+        if tables_needing_counts and migration.source_connection_id:
+            try:
+                from models.assessment import Assessment
+                assessment = (
+                    self.db.query(Assessment)
+                    .filter(
+                        Assessment.source_connection_id == migration.source_connection_id,
+                        Assessment.workspace_id == workspace_id,
+                        Assessment.status == "completed",
+                    )
+                    .order_by(Assessment.id.desc())
+                    .first()
+                )
+                if assessment:
+                    assessment_tables = (
+                        self.db.query(AssessmentTable)
+                        .filter(
+                            AssessmentTable.assessment_id == assessment.id,
+                            AssessmentTable.table_name.in_(tables_needing_counts),
+                        )
+                        .all()
+                    )
+                    for at in assessment_tables:
+                        if at.row_count is not None:
+                            table_row_counts[at.table_name] = at.row_count
+            except Exception as exc:
+                logger.warning(
+                    "Failed to fetch row counts from assessment metadata",
+                    extra={
+                        "migration_id": migration_id,
+                        "error": str(exc),
+                    },
+                )
 
         return {
             "migration_id": migration.id,
