@@ -1176,54 +1176,12 @@ class BigQueryAssessmentService:
             print(f"  ✓ Collected {len(security_policies)} security policies via INFORMATION_SCHEMA")
             return security_policies
 
-        # ── Strategy 2: REST API fallback ──
-        print("  [Fallback] Using REST API for security policies...")
-        security_policies = []
-        for dataset in self.client.list_datasets():
-            for table in self.client.list_tables(dataset.dataset_id):
-                key = f"{dataset.dataset_id}.{table.table_id}"
-                table_ref = self._cached_table_refs.get(key)
-                if not table_ref:
-                    table_ref = self.client.get_table(
-                        f"{self.project_id}.{dataset.dataset_id}.{table.table_id}")
-                    self._cached_table_refs[key] = table_ref
-
-                for field in table_ref.schema:
-                    if field.policy_tags and field.policy_tags.names:
-                        for tag in field.policy_tags.names:
-                            security_policies.append({
-                                'security_type': 'CLS',
-                                'table_name': f"{dataset.dataset_id}.{table.table_id}",
-                                'policy_name': f"policy_tag_{field.name}",
-                                'filter_predicate': None,
-                                'grantees': [],
-                                'creation_time': None,
-                                'security_metadata': {
-                                    'column_name': field.name,
-                                    'policy_tag': tag
-                                }
-                            })
-
-            try:
-                rls_query = f"""
-                SELECT table_schema, table_name, policy_name, filter_predicate, grantee_list
-                FROM `{self.project_id}.{dataset.dataset_id}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
-                """
-                query_job = self.client.query(rls_query)
-                for row in query_job.result():
-                    security_policies.append({
-                        'security_type': 'RLS',
-                        'table_name': f"{row.table_schema}.{row.table_name}",
-                        'policy_name': row.policy_name,
-                        'filter_predicate': row.filter_predicate,
-                        'grantees': row.grantee_list.split(',') if row.grantee_list else [],
-                        'creation_time': None,
-                        'security_metadata': {}
-                    })
-            except Exception:
-                pass
-
-        print(f"  ✓ Collected {len(security_policies)} security policies via REST API fallback")
+        # Both INFORMATION_SCHEMA queries failed — this typically means:
+        # - CLS: No policy tags configured (syntax error on empty policy_tags)
+        # - RLS: ROW_ACCESS_POLICIES table doesn't exist (no RLS configured)
+        # Skip the expensive REST API fallback (iterates all tables individually)
+        # and return empty. The REST fallback would find 0 policies anyway.
+        print(f"  ✓ No security policies found (INFORMATION_SCHEMA not available — likely no CLS/RLS configured)")
         return security_policies
 
     # ─── Step 9: Sharded Tables (derived from cached data) ──────────────

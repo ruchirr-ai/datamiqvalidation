@@ -1239,6 +1239,112 @@ async def get_query_insights(
         # slot-time = concurrent_slots × wall_clock, so slot-time > wall-clock for parallel queries.
         avg_execution_time_seconds = (avg_slot_ms_per_query / 1000) if avg_slot_ms_per_query > 0 else 0
 
+        # ── Q3: Duration distribution histogram (bucket by minutes) ──
+        duration_buckets = {}
+        for q in query_stats:
+            q_runtime_ms = 0
+            if q.query_metadata and isinstance(q.query_metadata, dict):
+                q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
+            if not q_runtime_ms and q.slot_milliseconds:
+                q_runtime_ms = (q.slot_milliseconds or 0) / max(est_concurrent_slots, 1)
+            bucket_mins = round((q_runtime_ms or 0) / 60000)
+            duration_buckets[bucket_mins] = duration_buckets.get(bucket_mins, 0) + 1
+        duration_distribution = sorted(
+            [{"duration_mins": k, "query_count": v} for k, v in duration_buckets.items()],
+            key=lambda x: x["duration_mins"]
+        )
+
+        # ── Q4: Concurrent query percentiles (per-minute windows) ──
+        minute_counts = sorted(minute_buckets.values()) if minute_buckets else []
+        n_min = len(minute_counts)
+        concurrent_query_percentiles = {}
+        if n_min > 0:
+            concurrent_query_percentiles = {
+                "p50": minute_counts[min(int(n_min * 0.50), n_min - 1)],
+                "p90": minute_counts[min(int(n_min * 0.90), n_min - 1)],
+                "p95": minute_counts[min(int(n_min * 0.95), n_min - 1)],
+                "p99": minute_counts[min(int(n_min * 0.99), n_min - 1)],
+                "max": max(minute_counts),
+                "avg": round(sum(minute_counts) / n_min, 1),
+            }
+
+        # ── Q5: Hourly slot usage by hour-of-day (0-23) ──
+        hourly_slots = {}
+        hourly_query_counts = {}
+        for q in query_stats:
+            if q.execution_time:
+                hod = q.execution_time.hour
+                hourly_slots[hod] = hourly_slots.get(hod, 0) + (q.slot_milliseconds or 0)
+                hourly_query_counts[hod] = hourly_query_counts.get(hod, 0) + 1
+        hourly_slot_usage = sorted(
+            [{
+                "hour": h,
+                "query_count": hourly_query_counts.get(h, 0),
+                "total_slot_seconds": round(hourly_slots.get(h, 0) / 1000, 1),
+                "avg_slot_seconds_per_query": round(
+                    (hourly_slots.get(h, 0) / 1000) / hourly_query_counts[h], 1
+                ) if hourly_query_counts.get(h, 0) > 0 else 0,
+                "avg_slots_used": round(hourly_slots.get(h, 0) / (3600 * 1000), 1),
+            } for h in range(24)],
+            key=lambda x: x["hour"]
+        )
+
+        # ── Q7: Write pattern breakdown by statement_type ──
+        stmt_type_breakdown = {}
+        for q in query_stats:
+            meta = q.query_metadata if isinstance(q.query_metadata, dict) else {}
+            st = (meta.get('statement_type') or 'UNKNOWN').upper()
+            if st not in stmt_type_breakdown:
+                stmt_type_breakdown[st] = {
+                    "count": 0, "total_bytes_processed": 0,
+                    "total_duration_ms": 0, "max_duration_ms": 0,
+                }
+            entry = stmt_type_breakdown[st]
+            entry["count"] += 1
+            entry["total_bytes_processed"] += (q.bytes_scanned or 0)
+            q_dur = meta.get('total_elapsed_time_ms', 0) or 0
+            entry["total_duration_ms"] += q_dur
+            if q_dur > entry["max_duration_ms"]:
+                entry["max_duration_ms"] = q_dur
+        write_pattern_breakdown = sorted(
+            [{
+                "statement_type": st,
+                "job_count": v["count"],
+                "tib_processed": round(v["total_bytes_processed"] / (1024**4), 6),
+                "avg_duration_sec": round((v["total_duration_ms"] / v["count"]) / 1000, 2) if v["count"] > 0 else 0,
+                "max_duration_sec": round(v["max_duration_ms"] / 1000, 2),
+            } for st, v in stmt_type_breakdown.items()],
+            key=lambda x: x["job_count"], reverse=True
+        )
+
+        # ── Q8: User & connection patterns by hour-of-day ──
+        hourly_users = {}
+        for q in query_stats:
+            if q.execution_time and q.user_email:
+                hod = q.execution_time.hour
+                if hod not in hourly_users:
+                    hourly_users[hod] = {"users": set(), "queries": 0, "peak_concurrent": 0}
+                hourly_users[hod]["users"].add(q.user_email)
+                hourly_users[hod]["queries"] += 1
+        # Compute peak concurrent per hour from minute buckets
+        hourly_peak_concurrent = {}
+        for q in query_stats:
+            if q.execution_time:
+                hod = q.execution_time.hour
+                min_key = q.execution_time.strftime('%Y-%m-%d %H:%M')
+                if hod not in hourly_peak_concurrent:
+                    hourly_peak_concurrent[hod] = {}
+                hourly_peak_concurrent[hod][min_key] = hourly_peak_concurrent[hod].get(min_key, 0) + 1
+        user_patterns_by_hour = sorted(
+            [{
+                "hour": h,
+                "distinct_users": len(hourly_users.get(h, {}).get("users", set())),
+                "total_queries": hourly_users.get(h, {}).get("queries", 0),
+                "peak_concurrent_in_hour": max(hourly_peak_concurrent.get(h, {}).values()) if hourly_peak_concurrent.get(h) else 0,
+            } for h in range(24)],
+            key=lambda x: x["hour"]
+        )
+
         queries = []
         for q in page_stats:
             q_slot_ms = q.slot_milliseconds or 0
@@ -1312,7 +1418,12 @@ async def get_query_insights(
                     "hourly": hourly_data,
                     "daily": daily_data,
                     "weekly": weekly_data
-                }
+                },
+                "duration_distribution": duration_distribution,
+                "concurrent_query_percentiles": concurrent_query_percentiles,
+                "hourly_slot_usage": hourly_slot_usage,
+                "write_pattern_breakdown": write_pattern_breakdown,
+                "user_patterns_by_hour": user_patterns_by_hour
             },
             "queries": queries,
             "pagination": {
