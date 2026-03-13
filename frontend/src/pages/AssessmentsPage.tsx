@@ -52,6 +52,27 @@ export const AssessmentsPage: React.FC = () => {
     fetchAssessments();
   }, []);
 
+  // Smart polling: only poll when there are running/pending assessments
+  // Polls the API (not a page reload) every 10s, stops when all done
+  useEffect(() => {
+    const hasRunning = assessments.some(a =>
+      a.status?.trim().toLowerCase() === 'running' || a.status?.trim().toLowerCase() === 'pending'
+    );
+    if (!hasRunning) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const data = await listAssessments();
+        setAssessments(data.assessments || []);
+        // If none are running anymore, the next effect cycle will clear the interval
+      } catch {
+        // Silently ignore poll errors
+      }
+    }, 10000);
+
+    return () => clearInterval(pollInterval);
+  }, [assessments]);
+
   const fetchAssessments = async () => {
     try {
       setLoading(true);
@@ -92,17 +113,6 @@ export const AssessmentsPage: React.FC = () => {
       setToast({ message: 'Assessment started', type: 'success' });
       // Immediately refresh to show 'running' status
       await fetchAssessments();
-      
-      // Poll for status updates every 3 seconds
-      const pollInterval = setInterval(async () => {
-        await fetchAssessments();
-      }, 3000);
-      
-      // Stop polling after 5 minutes (adjust as needed)
-      setTimeout(() => {
-        clearInterval(pollInterval);
-      }, 300000);
-      
     } catch (error: any) {
       setToast({ message: `Failed to run assessment: ${error.detail || error.message}`, type: 'error' });
     }
