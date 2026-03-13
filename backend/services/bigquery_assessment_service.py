@@ -1176,12 +1176,55 @@ class BigQueryAssessmentService:
             print(f"  ✓ Collected {len(security_policies)} security policies via INFORMATION_SCHEMA")
             return security_policies
 
-        # Both INFORMATION_SCHEMA queries failed — this typically means:
-        # - CLS: No policy tags configured (syntax error on empty policy_tags)
-        # - RLS: ROW_ACCESS_POLICIES table doesn't exist (no RLS configured)
-        # Skip the expensive REST API fallback (iterates all tables individually)
-        # and return empty. The REST fallback would find 0 policies anyway.
-        print(f"  ✓ No security policies found (INFORMATION_SCHEMA not available — likely no CLS/RLS configured)")
+        # ── Strategy 2: REST API fallback (uses cached table refs when available) ──
+        # Only makes per-table API calls if cache is empty (i.e. Step 2 also used REST).
+        # If Step 2 used INFORMATION_SCHEMA, cache is empty — use per-dataset
+        # INFORMATION_SCHEMA.ROW_ACCESS_POLICIES as a lighter fallback first.
+        print("  [Fallback] Using REST API for security policies...")
+        security_policies = []
+
+        if self._cached_table_refs:
+            # Fast path: iterate already-cached table objects (no extra API calls)
+            print(f"    Using {len(self._cached_table_refs)} cached table refs")
+            for key, table_ref in self._cached_table_refs.items():
+                for field in table_ref.schema:
+                    if field.policy_tags and field.policy_tags.names:
+                        for tag in field.policy_tags.names:
+                            security_policies.append({
+                                'security_type': 'CLS',
+                                'table_name': key,
+                                'policy_name': f"policy_tag_{field.name}",
+                                'filter_predicate': None,
+                                'grantees': [],
+                                'creation_time': None,
+                                'security_metadata': {
+                                    'column_name': field.name,
+                                    'policy_tag': tag
+                                }
+                            })
+        else:
+            # No cached refs — try per-dataset RLS query (much faster than per-table)
+            print("    No cached table refs — trying per-dataset RLS queries")
+            for dataset in self.client.list_datasets():
+                try:
+                    rls_q = f"""
+                    SELECT table_schema, table_name, policy_name, filter_predicate, grantee_list
+                    FROM `{self.project_id}.{dataset.dataset_id}.INFORMATION_SCHEMA.ROW_ACCESS_POLICIES`
+                    """
+                    for row in self.client.query(rls_q).result():
+                        security_policies.append({
+                            'security_type': 'RLS',
+                            'table_name': f"{row.table_schema}.{row.table_name}",
+                            'policy_name': row.policy_name,
+                            'filter_predicate': row.filter_predicate,
+                            'grantees': row.grantee_list.split(',') if row.grantee_list else [],
+                            'creation_time': None,
+                            'security_metadata': {}
+                        })
+                except Exception:
+                    pass  # Dataset may not have RLS table — expected
+
+        print(f"  ✓ Collected {len(security_policies)} security policies via REST API fallback")
         return security_policies
 
     # ─── Step 9: Sharded Tables (derived from cached data) ──────────────
