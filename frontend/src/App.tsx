@@ -33,6 +33,7 @@ import { WorkspacesPage } from './pages/WorkspacesPage';
 import { CopyHistoryPage } from './pages/CopyHistoryPage';
 import { TaskHistoryPage } from './pages/TaskHistoryPage';
 import { DocumentationPage } from './pages/DocumentationPage';
+import { ProfilePage } from './pages/ProfilePage';
 import './styles/global.css';
 
 // Navigation items configuration
@@ -194,6 +195,7 @@ const AppContent: React.FC = () => {
                   <Route path="/monitoring/copy-history" element={<CopyHistoryPage />} />
                   <Route path="/monitoring/task-history" element={<TaskHistoryPage />} />
                   <Route path="/jobs" element={<JobsPage />} />
+                  <Route path="/profile" element={<ProfilePage />} />
                   <Route
                     path="/administration"
                     element={

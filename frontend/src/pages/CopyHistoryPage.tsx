@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { copyHistoryApi, CopyRecord } from '../services/copyHistoryApi';
+import { useLanguage } from '../contexts/LanguageContext';
 import './CopyHistoryPage.css';
 
 export const CopyHistoryPage: React.FC = () => {
+  const { t } = useLanguage();
   const [records, setRecords] = useState<CopyRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -116,7 +118,7 @@ export const CopyHistoryPage: React.FC = () => {
             Copy History
           </h1>
           <div className="copy-history-subheader">
-            <span className="copy-history-count">{total} record{total !== 1 ? 's' : ''}</span>
+            <span className="copy-history-count">{total} {t('dashboard.copyHistory')}</span>
             <div className="copy-history-actions">
               <div className="search-box">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">

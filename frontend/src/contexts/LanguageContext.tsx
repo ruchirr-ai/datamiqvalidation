@@ -144,6 +144,23 @@ const en: TranslationMap = {
   'common.loading': 'Loading...', 'common.noData': 'No data',
   'common.showing': 'Showing', 'common.rowsPerPage': 'Rows per page:',
   'common.never': 'Never', 'common.justNow': 'Just now',
+  // Profile page
+  'profile.title': 'My Profile', 'profile.subtitle': 'Manage your account settings and preferences',
+  'profile.userInfo': 'User Information', 'profile.username': 'Username', 'profile.role': 'Role',
+  'profile.theme': 'Theme', 'profile.language': 'Language', 'profile.preferences': 'Preferences',
+  'profile.selectLanguage': 'Select Language', 'profile.changePassword': 'Change Password',
+  'profile.currentPassword': 'Current Password', 'profile.newPassword': 'New Password',
+  'profile.confirmPassword': 'Confirm Password', 'profile.updatePassword': 'Update Password',
+  'profile.passwordMismatch': 'Passwords do not match', 'profile.passwordTooShort': 'Password must be at least 6 characters',
+  'profile.passwordChanged': 'Password updated successfully',
+  // Admin
+  'admin.settingsDesc': 'Administration settings (Admin only)',
+  'admin.targets': 'Targets', 'admin.targetsDesc': 'Target database connections management',
+  'admin.awsAccounts': 'AWS Accounts', 'admin.awsAccountsDesc': 'AWS Accounts management interface',
+  'admin.users': 'Users', 'admin.usersDesc': 'Users management interface',
+  'admin.dataConnections': 'Data Connections', 'admin.sources': 'Sources',
+  // Validation extra
+  'validation.subtitle': 'Post-migration data integrity verification',
 };
 
 const ko: TranslationMap = {
@@ -264,6 +281,21 @@ const ko: TranslationMap = {
   'common.loading': '로딩 중...', 'common.noData': '데이터 없음',
   'common.showing': '표시 중', 'common.rowsPerPage': '페이지당 행:',
   'common.never': '없음', 'common.justNow': '방금 전',
+  // Profile
+  'profile.title': '내 프로필', 'profile.subtitle': '계정 설정 및 환경설정 관리',
+  'profile.userInfo': '사용자 정보', 'profile.username': '사용자 이름', 'profile.role': '역할',
+  'profile.theme': '테마', 'profile.language': '언어', 'profile.preferences': '환경설정',
+  'profile.selectLanguage': '언어 선택', 'profile.changePassword': '비밀번호 변경',
+  'profile.currentPassword': '현재 비밀번호', 'profile.newPassword': '새 비밀번호',
+  'profile.confirmPassword': '비밀번호 확인', 'profile.updatePassword': '비밀번호 업데이트',
+  'profile.passwordMismatch': '비밀번호가 일치하지 않습니다', 'profile.passwordTooShort': '비밀번호는 6자 이상이어야 합니다',
+  'profile.passwordChanged': '비밀번호가 성공적으로 변경되었습니다',
+  'admin.settingsDesc': '관리 설정 (관리자 전용)',
+  'admin.targets': '대상', 'admin.targetsDesc': '대상 데이터베이스 연결 관리',
+  'admin.awsAccounts': 'AWS 계정', 'admin.awsAccountsDesc': 'AWS 계정 관리 인터페이스',
+  'admin.users': '사용자', 'admin.usersDesc': '사용자 관리 인터페이스',
+  'admin.dataConnections': '데이터 연결', 'admin.sources': '소스',
+  'validation.subtitle': '마이그레이션 후 데이터 무결성 검증',
 };
 
 const zh: TranslationMap = {
@@ -365,6 +397,21 @@ const zh: TranslationMap = {
   'common.loading': '加载中...', 'common.noData': '无数据',
   'common.showing': '显示', 'common.rowsPerPage': '每页行数:',
   'common.never': '从未', 'common.justNow': '刚刚',
+  // Profile
+  'profile.title': '我的资料', 'profile.subtitle': '管理您的账户设置和偏好',
+  'profile.userInfo': '用户信息', 'profile.username': '用户名', 'profile.role': '角色',
+  'profile.theme': '主题', 'profile.language': '语言', 'profile.preferences': '偏好设置',
+  'profile.selectLanguage': '选择语言', 'profile.changePassword': '修改密码',
+  'profile.currentPassword': '当前密码', 'profile.newPassword': '新密码',
+  'profile.confirmPassword': '确认密码', 'profile.updatePassword': '更新密码',
+  'profile.passwordMismatch': '密码不匹配', 'profile.passwordTooShort': '密码至少需要6个字符',
+  'profile.passwordChanged': '密码更新成功',
+  'admin.settingsDesc': '管理设置（仅管理员）',
+  'admin.targets': '目标', 'admin.targetsDesc': '目标数据库连接管理',
+  'admin.awsAccounts': 'AWS 账户', 'admin.awsAccountsDesc': 'AWS 账户管理界面',
+  'admin.users': '用户', 'admin.usersDesc': '用户管理界面',
+  'admin.dataConnections': '数据连接', 'admin.sources': '源',
+  'validation.subtitle': '迁移后数据完整性验证',
 };
 
 const ja: TranslationMap = {
@@ -472,8 +519,7 @@ const es: TranslationMap = {
   'dashboard.tables': 'Tablas', 'dashboard.views': 'Vistas', 'dashboard.routines': 'Rutinas',
   'dashboard.totalDataVolume': 'Volumen total', 'dashboard.migrationStatus': 'Estado de migraciones',
   'dashboard.completed': 'Completado', 'dashboard.recentActivity': 'Actividad reciente',
-  'das
-hboard.noRecentActivity': 'Sin actividad reciente',
+  'dashboard.noRecentActivity': 'Sin actividad reciente',
   'connections.title': 'Conexiones', 'connections.loading': 'Cargando...',
   'assessments.title': 'Evaluaciones', 'assessments.loading': 'Cargando...',
   'migrations.title': 'Migraciones', 'migrations.loading': 'Cargando...',

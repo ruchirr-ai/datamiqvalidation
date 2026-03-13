@@ -86,9 +86,9 @@ export const DashboardPage: React.FC = () => {
     return (
       <div className="dashboard-page">
         <div className="dashboard-header">
-          <h1 className="dashboard-title">Dashboard</h1>
+          <h1 className="dashboard-title">{t('dashboard.title')}</h1>
         </div>
-        <div className="dashboard-loading">Failed to load dashboard data.</div>
+        <div className="dashboard-loading">{t('dashboard.loadFailed')}</div>
       </div>
     );
   }
@@ -110,7 +110,7 @@ export const DashboardPage: React.FC = () => {
             <rect x="3" y="11" width="6" height="6" rx="1" />
             <rect x="11" y="11" width="6" height="6" rx="1" />
           </svg>
-          Dashboard
+          {t('dashboard.title')}
         </h1>
         <p className="dashboard-subtitle">{t('dashboard.subtitle')}</p>
       </div>
@@ -219,7 +219,7 @@ export const DashboardPage: React.FC = () => {
           </div>
           {data.total_size_mb > 0 && (
             <div style={{ textAlign: 'center', marginTop: 12, fontSize: 13, color: '#6B7280' }}>
-              Total data volume: <strong style={{ color: '#111827' }}>{formatSize(data.total_size_mb)}</strong>
+              {t('dashboard.totalDataVolume')}: <strong style={{ color: '#111827' }}>{formatSize(data.total_size_mb)}</strong>
             </div>
           )}
         </div>
@@ -273,7 +273,7 @@ export const DashboardPage: React.FC = () => {
             className={`recent-tab ${recentTab === 'assessments' ? 'active' : ''}`}
             onClick={() => setRecentTab('assessments')}
           >
-            Assessments
+            {t('dashboard.assessments')}
           </button>
           <button
             className={`recent-tab ${recentTab === 'migrations' ? 'active' : ''}`}

@@ -22,6 +22,7 @@ import {
   StandaloneConversionRequest,
 } from '../services/conversionApi';
 import './StandaloneConverterPage.css';
+import { useLanguage } from '../contexts/LanguageContext';
 
 /** Restricted source dialect options (Req 3.1) */
 const SOURCE_DIALECT_OPTIONS = ['BigQuery', 'SQL Server', 'Redshift'];

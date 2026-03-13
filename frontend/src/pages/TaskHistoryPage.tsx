@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { taskHistoryApi, TaskRecord } from '../services/taskHistoryApi';
+import { useLanguage } from '../contexts/LanguageContext';
 import './TaskHistoryPage.css';
 
 export const TaskHistoryPage: React.FC = () => {
+  const { t } = useLanguage();
   const [records, setRecords] = useState<TaskRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -95,7 +97,7 @@ export const TaskHistoryPage: React.FC = () => {
             Task History
           </h1>
           <div className="task-history-subheader">
-            <span className="task-history-count">{total} task{total !== 1 ? 's' : ''}</span>
+            <span className="task-history-count">{total} {t('nav.taskHistory')}</span>
             <div className="task-history-actions">
               <div className="search-box">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">

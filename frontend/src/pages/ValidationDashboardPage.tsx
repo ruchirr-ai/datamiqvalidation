@@ -34,6 +34,8 @@ const AUTO_REFRESH_MS = 5000;
 const STATUS_OPTIONS = ['all', 'pending', 'running', 'completed', 'failed'];
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
+import { useLanguage } from '../contexts/LanguageContext';
+
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -50,6 +52,7 @@ function formatDuration(seconds: number | null): string {
 
 export const ValidationDashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   // --- Data state ---
   const [runs, setRuns] = useState<ValidationRun[]>([]);
@@ -351,7 +354,7 @@ export const ValidationDashboardPage: React.FC = () => {
             </svg>
             Data Validation
           </h1>
-          <p className="validation-subtitle">Post-migration data integrity verification</p>
+          <p className="validation-subtitle">{t('validation.subtitle')}</p>
         </div>
         <div className="validation-compact-stats">
           <div className="compact-stat">
