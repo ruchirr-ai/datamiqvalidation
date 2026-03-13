@@ -1638,7 +1638,6 @@ class PathwayB:
                 ciphertext=encrypted,
                 credential_type='gcp_hmac_secret',
                 resource_type='migration',
-                resource_id=migration_id,
                 allow_plaintext_fallback=True
             )
         except Exception:
@@ -1653,11 +1652,13 @@ class PathwayB:
         try:
             from services.unified_kms_service import get_unified_kms_service
             kms = get_unified_kms_service()
+            # Note: resource_id is NOT passed because it was not included
+            # in the encryption context when the credential was encrypted.
+            # Encryption context must match exactly for KMS decryption.
             return kms.decrypt_credential(
                 ciphertext=encrypted,
                 credential_type='aws_secret_key',
                 resource_type='migration',
-                resource_id=migration_id,
                 allow_plaintext_fallback=True
             )
         except Exception:
@@ -1676,7 +1677,6 @@ class PathwayB:
                 ciphertext=encrypted,
                 credential_type='gcp_service_account',
                 resource_type='migration',
-                resource_id=migration_id,
                 allow_plaintext_fallback=True
             )
         except Exception:
