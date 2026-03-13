@@ -852,7 +852,6 @@ class BigQueryAssessmentService:
             AND job_type = 'QUERY'
             AND state = 'DONE'
         ORDER BY creation_time DESC
-        LIMIT 50000
         """
 
         try:
@@ -967,7 +966,6 @@ class BigQueryAssessmentService:
                 min_creation_time=min_creation_time,
                 all_users=True,
                 state_filter="done",
-                max_results=50000,
             )
 
             count = 0
@@ -1019,8 +1017,6 @@ class BigQueryAssessmentService:
                     },
                 })
                 count += 1
-                if count >= 50000:
-                    break
 
             print(f"  ✓ Collected {len(query_stats)} query statistics via REST API fallback")
         except Exception as e2:
