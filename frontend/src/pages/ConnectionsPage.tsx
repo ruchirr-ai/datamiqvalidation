@@ -7,10 +7,12 @@ import { CreateConnectionModal, ConnectionFormData } from '../components/connect
 import { listConnections, createConnection, Connection, testConnection, api } from '../services/api';
 import { WorkspaceSelector } from '../components/WorkspaceSelector';
 import { useWorkspace } from '../contexts/WorkspaceContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import './ConnectionsPage.css';
 
 export const ConnectionsPage: React.FC = () => {
   const { selectedWorkspaceName } = useWorkspace();
+  const { t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(15);
@@ -391,7 +393,7 @@ export const ConnectionsPage: React.FC = () => {
             <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280', marginLeft: 8 }}>— {selectedWorkspaceName}</span>
           </h1>
           <div className="connections-subheader">
-            <span className="connections-count">{totalConnections} Connections</span>
+            <span className="connections-count">{totalConnections} {t('connections.count')}</span>
             
             <div className="connections-actions">
               <WorkspaceSelector />
@@ -419,10 +421,10 @@ export const ConnectionsPage: React.FC = () => {
                 align="right"
               >
                 <DropdownItem onClick={() => handleCreateConnection('source')}>
-                  Source Connection
+                  {t('connections.sourceConnection')}
                 </DropdownItem>
                 <DropdownItem onClick={() => handleCreateConnection('target')}>
-                  Target Connection
+                  {t('connections.targetConnection')}
                 </DropdownItem>
               </Dropdown>
             </div>
@@ -435,20 +437,20 @@ export const ConnectionsPage: React.FC = () => {
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
             <div className="spinner" style={{ margin: '0 auto' }}></div>
-            <p style={{ marginTop: '16px', color: '#66748C' }}>Loading connections...</p>
+            <p style={{ marginTop: '16px', color: '#66748C' }}>{t('connections.loading')}</p>
           </div>
         ) : error ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
             <p style={{ color: '#DC2626', marginBottom: '16px' }}>{error}</p>
             <Button variant="primary" onClick={fetchConnections}>
-              Retry
+              {t('connections.retry')}
             </Button>
           </div>
         ) : connections.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
-            <p style={{ color: '#66748C', marginBottom: '16px' }}>No connections found</p>
+            <p style={{ color: '#66748C', marginBottom: '16px' }}>{t('connections.noConnections')}</p>
             <Button variant="primary" onClick={() => setShowCreateMenu(true)}>
-              Create Your First Connection
+              {t('connections.createFirst')}
             </Button>
           </div>
         ) : (
@@ -463,11 +465,11 @@ export const ConnectionsPage: React.FC = () => {
                     </svg>
                   </div>
                 </th>
-                <th>TYPE</th>
-                <th>DATABASE</th>
-                <th>CREATED BY</th>
-                <th>CONNECTION STATUS</th>
-                <th>LAST TESTED AT</th>
+                <th>{t('connections.type')}</th>
+                <th>{t('connections.database')}</th>
+                <th>{t('connections.createdBy')}</th>
+                <th>{t('connections.connectionStatus')}</th>
+                <th>{t('connections.lastTestedAt')}</th>
                 <th></th>
               </tr>
             </thead>
@@ -504,17 +506,17 @@ export const ConnectionsPage: React.FC = () => {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onSelect={() => handleTestConnection(connection)}>
-                            <Clock size={15} /> Test Connection
+                            <Clock size={15} /> {t('connections.testConnection')}
                           </DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => handleUpdateConnection(connection)}>
-                            <Pencil size={15} /> Update Connection
+                            <Pencil size={15} /> {t('connections.updateConnection')}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="ddm-item-danger"
                             onSelect={() => setDeleteConfirmId(connection.id)}
                           >
-                            <Trash2 size={15} /> Delete Connection
+                            <Trash2 size={15} /> {t('connections.deleteConnection')}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>

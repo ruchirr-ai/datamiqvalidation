@@ -3,11 +3,13 @@ import { Users } from 'lucide-react';
 import { FaAws } from 'react-icons/fa';
 import { MdOutlineDatasetLinked } from 'react-icons/md';
 import { DatabaseFieldConfigPage } from './DatabaseFieldConfigPage';
+import { useLanguage } from '../contexts/LanguageContext';
 import './AdminPage.css';
 
 type AdminSection = 'sources' | 'targets' | 'aws-accounts' | 'users';
 
 export const AdminPage: React.FC = () => {
+  const { t } = useLanguage();
   const [activeSection, setActiveSection] = useState<AdminSection>('sources');
   const [isDataConnectionsExpanded, setIsDataConnectionsExpanded] = useState(true);
 
@@ -19,11 +21,10 @@ export const AdminPage: React.FC = () => {
         return (
           <div className="admin-content">
             <div className="admin-content-header">
-              <h1>Targets</h1>
+              <h1>{t('admin.targets')}</h1>
             </div>
             <div className="admin-content-body">
-              {/* Targets content will go here */}
-              <p>Target database connections management</p>
+              <p>{t('admin.targetsDesc')}</p>
             </div>
           </div>
         );
@@ -31,11 +32,10 @@ export const AdminPage: React.FC = () => {
         return (
           <div className="admin-content">
             <div className="admin-content-header">
-              <h1>AWS Accounts</h1>
+              <h1>{t('admin.awsAccounts')}</h1>
             </div>
             <div className="admin-content-body">
-              {/* AWS Accounts content will go here */}
-              <p>AWS Accounts management interface</p>
+              <p>{t('admin.awsAccountsDesc')}</p>
             </div>
           </div>
         );
@@ -43,11 +43,10 @@ export const AdminPage: React.FC = () => {
         return (
           <div className="admin-content">
             <div className="admin-content-header">
-              <h1>Users</h1>
+              <h1>{t('admin.users')}</h1>
             </div>
             <div className="admin-content-body">
-              {/* Users content will go here */}
-              <p>Users management interface</p>
+              <p>{t('admin.usersDesc')}</p>
             </div>
           </div>
         );
@@ -67,7 +66,7 @@ export const AdminPage: React.FC = () => {
               onClick={() => setIsDataConnectionsExpanded(!isDataConnectionsExpanded)}
             >
               <MdOutlineDatasetLinked size={17} className="admin-nav-icon" />
-              <span>Data Connections</span>
+              <span>{t('admin.dataConnections')}</span>
             </button>
             
             {isDataConnectionsExpanded && (
@@ -76,13 +75,13 @@ export const AdminPage: React.FC = () => {
                   className={`admin-nav-item submenu-item ${activeSection === 'sources' ? 'active' : ''}`}
                   onClick={() => setActiveSection('sources')}
                 >
-                  <span>Sources</span>
+                  <span>{t('admin.sources')}</span>
                 </button>
                 <button
                   className={`admin-nav-item submenu-item ${activeSection === 'targets' ? 'active' : ''}`}
                   onClick={() => setActiveSection('targets')}
                 >
-                  <span>Targets</span>
+                  <span>{t('admin.targets')}</span>
                 </button>
               </div>
             )}
@@ -93,14 +92,14 @@ export const AdminPage: React.FC = () => {
             onClick={() => setActiveSection('aws-accounts')}
           >
             <FaAws size={17} className="admin-nav-icon" />
-            <span>AWS Accounts</span>
+            <span>{t('admin.awsAccounts')}</span>
           </button>
           <button
             className={`admin-nav-item ${activeSection === 'users' ? 'active' : ''}`}
             onClick={() => setActiveSection('users')}
           >
             <Users size={17} className="admin-nav-icon" />
-            <span>Users</span>
+            <span>{t('admin.users')}</span>
           </button>
         </nav>
       </div>

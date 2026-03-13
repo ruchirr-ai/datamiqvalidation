@@ -27,6 +27,7 @@ import {
   PaginatedJobsResponse,
 } from '../../services/conversionApi';
 import { ConversionLogsPanel } from './ConversionLogsPanel';
+import { useLanguage } from '../../contexts/LanguageContext';
 import './ConversionHistoryTable.css';
 
 export interface ConversionHistoryTableProps {
@@ -91,6 +92,7 @@ export const ConversionHistoryTable: React.FC<ConversionHistoryTableProps> = ({
   selectedJobId,
   refreshToken = 0,
 }) => {
+  const { t } = useLanguage();
   const [jobs, setJobs] = useState<ConversionJob[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -229,7 +231,7 @@ export const ConversionHistoryTable: React.FC<ConversionHistoryTableProps> = ({
             <circle cx="8" cy="8" r="6" />
             <path d="M8 5v3l2 2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          Conversion History
+          {t('converter.conversionHistory')}
           {total > 0 && (
             <span className="conversion-history__count">({total})</span>
           )}

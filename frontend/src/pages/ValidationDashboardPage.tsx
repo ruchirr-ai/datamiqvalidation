@@ -34,6 +34,8 @@ const AUTO_REFRESH_MS = 5000;
 const STATUS_OPTIONS = ['all', 'pending', 'running', 'completed', 'failed'];
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
+import { useLanguage } from '../contexts/LanguageContext';
+
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -50,6 +52,7 @@ function formatDuration(seconds: number | null): string {
 
 export const ValidationDashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   // --- Data state ---
   const [runs, setRuns] = useState<ValidationRun[]>([]);
@@ -351,23 +354,23 @@ export const ValidationDashboardPage: React.FC = () => {
             </svg>
             Data Validation
           </h1>
-          <p className="validation-subtitle">Post-migration data integrity verification</p>
+          <p className="validation-subtitle">{t('validation.subtitle')}</p>
         </div>
         <div className="validation-compact-stats">
           <div className="compact-stat">
             <span className="compact-stat-dot completed" />
             <span className="compact-stat-value">{passedRuns}</span>
-            <span className="compact-stat-label">Passed</span>
+            <span className="compact-stat-label">{t('validation.passed')}</span>
           </div>
           <div className="compact-stat">
             <span className="compact-stat-dot failed" />
             <span className="compact-stat-value">{failedRuns}</span>
-            <span className="compact-stat-label">Failed</span>
+            <span className="compact-stat-label">{t('validation.failed')}</span>
           </div>
           <div className="compact-stat">
             <span className="compact-stat-dot running" />
             <span className="compact-stat-value">{runningRuns}</span>
-            <span className="compact-stat-label">Active</span>
+            <span className="compact-stat-label">{t('validation.active')}</span>
           </div>
         </div>
       </div>
@@ -379,7 +382,7 @@ export const ValidationDashboardPage: React.FC = () => {
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M7 1v12M1 7h12" strokeLinecap="round" />
             </svg>
-            New Validation
+            {t('validation.newValidation')}
           </button>
           <select
             className="validation-filter-select"
@@ -398,19 +401,19 @@ export const ValidationDashboardPage: React.FC = () => {
       {/* Create Form */}
       {showForm && (
         <div className="validation-create-form">
-          <h3 className="validation-create-title">New Validation Run</h3>
+          <h3 className="validation-create-title">{t('validation.newRun')}</h3>
 
           {/* Row 1: Migration selector */}
           <div className="validation-form-grid">
             <div className="validation-form-field validation-form-field-wide">
-              <label className="validation-form-label" htmlFor="vf-migration-id">Migration</label>
+              <label className="validation-form-label" htmlFor="vf-migration-id">{t('validation.migration')}</label>
               <select
                 id="vf-migration-id"
                 className="validation-form-input"
                 value={formMigrationId || ''}
                 onChange={(e) => setFormMigrationId(Number(e.target.value) || 0)}
               >
-                <option value="">Select a migration</option>
+                <option value="">{t('validation.selectMigration')}</option>
                 {migrations.map((m) => (
                   <option key={m.id} value={m.id}>{m.migration_name}</option>
                 ))}
@@ -438,7 +441,7 @@ export const ValidationDashboardPage: React.FC = () => {
           )}
           {migrationInfoLoading && (
             <div className="validation-autofill-info">
-              <span className="autofill-loading">Loading migration details...</span>
+              <span className="autofill-loading">{t('validation.loadingMigration')}</span>
             </div>
           )}
 
@@ -446,7 +449,7 @@ export const ValidationDashboardPage: React.FC = () => {
           {migrationInfo && migrationInfo.tables.length > 0 && (
             <div className="validation-form-field" ref={tablesDropdownRef}>
               <label className="validation-form-label">
-                Tables ({selectedTables.length} of {migrationInfo.tables.length} selected)
+                {t('validation.tables')} ({selectedTables.length} of {migrationInfo.tables.length} selected)
               </label>
               <button
                 type="button"
@@ -454,9 +457,9 @@ export const ValidationDashboardPage: React.FC = () => {
                 onClick={() => setShowTablesDropdown((v) => !v)}
               >
                 {selectedTables.length === 0
-                  ? 'Select tables...'
+                  ? t('validation.selectTables')
                   : selectedTables.length === migrationInfo.tables.length
-                    ? 'All tables selected'
+                    ? t('validation.allTablesSelected')
                     : selectedTables.join(', ')}
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                   <path d="M3 4.5l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
@@ -471,7 +474,7 @@ export const ValidationDashboardPage: React.FC = () => {
                         checked={selectedTables.length === migrationInfo.tables.length}
                         onChange={toggleAllTables}
                       />
-                      <span className="table-check-name">Select All</span>
+                      <span className="table-check-name">{t('validation.selectAll')}</span>
                     </label>
                   </div>
                   <div className="validation-tables-dropdown-list">
@@ -495,7 +498,7 @@ export const ValidationDashboardPage: React.FC = () => {
           {selectedTables.length > 0 && (
             <div className="validation-table-configs">
               <div className="vtc-label-row">
-                <span className="validation-form-label">Validation Checks per Table</span>
+                <span className="validation-form-label">{t('validation.checksPerTable')}</span>
                 <div className="vtc-info-pills">
                   <span className="vtc-info-pill">
                     <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="5.5" /><path d="M7 6v3M7 4.5h.01" strokeLinecap="round" /></svg>
@@ -518,12 +521,12 @@ export const ValidationDashboardPage: React.FC = () => {
               <table className="vtc-table">
                 <thead>
                   <tr>
-                    <th className="vtc-th-name">Table</th>
-                    <th className="vtc-th-rows">Total Rows</th>
+                    <th className="vtc-th-name">{t('taskHistory.table')}</th>
+                    <th className="vtc-th-rows">{t('validation.totalRows')}</th>
                     <th className="vtc-th-center">DDL</th>
                     <th className="vtc-th-center">Row Count</th>
                     <th className="vtc-th-center">Data Match</th>
-                    <th className="vtc-th-sampling">Records to Validate</th>
+                    <th className="vtc-th-sampling">{t('validation.recordsToValidate')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -592,7 +595,7 @@ export const ValidationDashboardPage: React.FC = () => {
             <div className="validation-form-field validation-form-field-wide">
               <div className="vtc-label-row">
                 <label className="validation-form-label" htmlFor="vf-bedrock-model">
-                  Bedrock Model (optional)
+                  {t('validation.bedrockModel')}
                 </label>
                 <span className="vtc-info-pill">
                   <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="5.5" /><path d="M7 6v3M7 4.5h.01" strokeLinecap="round" /></svg>
@@ -608,7 +611,7 @@ export const ValidationDashboardPage: React.FC = () => {
                 disabled={modelsLoading}
               >
                 <option value="">
-                  {modelsLoading ? 'Loading models...' : 'None (skip AI analysis)'}
+                  {modelsLoading ? t('validation.loadingModels') : t('validation.noneSkipAi')}
                 </option>
                 {bedrockModels.map((m) => (
                   <option key={m.model_id} value={m.model_id}>
@@ -630,14 +633,14 @@ export const ValidationDashboardPage: React.FC = () => {
               onClick={handleCreate}
               type="button"
             >
-              {creating ? 'Creating…' : 'Create & Start'}
+              {creating ? t('validation.creating') : t('validation.createStart')}
             </button>
             <button
               className="validation-form-cancel"
               onClick={() => { setShowForm(false); resetForm(); }}
               type="button"
             >
-              Cancel
+              {t('common.cancel')}
             </button>
           </div>
         </div>
@@ -647,7 +650,7 @@ export const ValidationDashboardPage: React.FC = () => {
       {loading ? (
         <div className="validation-loading">
           <div className="validation-spinner" />
-          Loading validation runs…
+          {t('validation.loading')}
         </div>
       ) : error ? (
         <div className="validation-error">
@@ -663,20 +666,20 @@ export const ValidationDashboardPage: React.FC = () => {
             <rect x="6" y="6" width="24" height="24" rx="3" />
             <path d="M14 18h8M18 14v8" strokeLinecap="round" />
           </svg>
-          <p className="validation-empty-text">No validation runs found. Click "New Validation" to get started.</p>
+          <p className="validation-empty-text">{t('validation.noRunsDesc')}</p>
         </div>
       ) : (
         <div className="validation-table-wrapper">
           <table className="validation-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Status</th>
-                <th>Progress</th>
-                <th>Tables</th>
-                <th>Started</th>
-                <th>Duration</th>
-                <th>Actions</th>
+                <th>{t('validation.id')}</th>
+                <th>{t('jobs.status')}</th>
+                <th>{t('validation.progress')}</th>
+                <th>{t('validation.tables')}</th>
+                <th>{t('validation.started')}</th>
+                <th>{t('validation.duration')}</th>
+                <th>{t('validation.actions')}</th>
               </tr>
             </thead>
             <tbody>

@@ -21,11 +21,13 @@ import { CreateAssessmentModal, EditAssessmentModal, ViewLogsModal } from '../co
 import { listAssessments, deleteAssessment, runAssessment, Assessment } from '../services/assessmentsApi';
 import { WorkspaceSelector } from '../components/WorkspaceSelector';
 import { useWorkspace } from '../contexts/WorkspaceContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import './AssessmentsPage.css';
 
 export const AssessmentsPage: React.FC = () => {
   const navigate = useNavigate();
   const { selectedWorkspaceName } = useWorkspace();
+  const { t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(15);
@@ -51,6 +53,27 @@ export const AssessmentsPage: React.FC = () => {
   useEffect(() => {
     fetchAssessments();
   }, []);
+
+  // Smart polling: only poll when there are running/pending assessments
+  // Polls the API (not a page reload) every 10s, stops when all done
+  useEffect(() => {
+    const hasRunning = assessments.some(a =>
+      a.status?.trim().toLowerCase() === 'running' || a.status?.trim().toLowerCase() === 'pending'
+    );
+    if (!hasRunning) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const data = await listAssessments();
+        setAssessments(data.assessments || []);
+        // If none are running anymore, the next effect cycle will clear the interval
+      } catch {
+        // Silently ignore poll errors
+      }
+    }, 10000);
+
+    return () => clearInterval(pollInterval);
+  }, [assessments]);
 
   const fetchAssessments = async () => {
     try {
@@ -92,17 +115,6 @@ export const AssessmentsPage: React.FC = () => {
       setToast({ message: 'Assessment started', type: 'success' });
       // Immediately refresh to show 'running' status
       await fetchAssessments();
-      
-      // Poll for status updates every 3 seconds
-      const pollInterval = setInterval(async () => {
-        await fetchAssessments();
-      }, 3000);
-      
-      // Stop polling after 5 minutes (adjust as needed)
-      setTimeout(() => {
-        clearInterval(pollInterval);
-      }, 300000);
-      
     } catch (error: any) {
       setToast({ message: `Failed to run assessment: ${error.detail || error.message}`, type: 'error' });
     }
@@ -206,7 +218,7 @@ export const AssessmentsPage: React.FC = () => {
             <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280', marginLeft: 8 }}>— {selectedWorkspaceName}</span>
           </h1>
           <div className="assessments-subheader">
-            <span className="assessments-count">{totalAssessments} Assessments</span>
+            <span className="assessments-count">{totalAssessments} {t('assessments.title')}</span>
             
             <div className="assessments-actions">
               <WorkspaceSelector />
@@ -217,14 +229,14 @@ export const AssessmentsPage: React.FC = () => {
                 </svg>
                 <input
                   type="text"
-                  placeholder="Search assessments"
+                  placeholder={t('assessments.search')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
 
               <Button variant="primary" onClick={() => setShowCreateModal(true)}>
-                + New
+                {t('assessments.new')}
               </Button>
             </div>
           </div>
@@ -236,35 +248,35 @@ export const AssessmentsPage: React.FC = () => {
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
             <div className="spinner" style={{ margin: '0 auto' }}></div>
-            <p style={{ marginTop: '16px', color: '#66748C' }}>Loading assessments...</p>
+            <p style={{ marginTop: '16px', color: '#66748C' }}>{t('assessments.loading')}</p>
           </div>
         ) : error ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
             <p style={{ color: '#DC2626', marginBottom: '16px' }}>{error}</p>
             <Button variant="primary" onClick={fetchAssessments}>
-              Retry
+              {t('common.retry')}
             </Button>
           </div>
         ) : assessments.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
             <FileSearch size={48} style={{ color: '#9AA6B2', margin: '0 auto 16px' }} />
-            <p style={{ color: '#66748C', marginBottom: '8px', fontSize: '16px', fontWeight: 500 }}>No assessments yet</p>
-            <p style={{ color: '#9AA6B2', marginBottom: '16px', fontSize: '14px' }}>Create your first BigQuery assessment to analyze your data</p>
+            <p style={{ color: '#66748C', marginBottom: '8px', fontSize: '16px', fontWeight: 500 }}>{t('assessments.noAssessments')}</p>
+            <p style={{ color: '#9AA6B2', marginBottom: '16px', fontSize: '14px' }}>{t('assessments.noAssessmentsDesc')}</p>
             <Button variant="primary" onClick={() => setShowCreateModal(true)}>
-              Create Your First Assessment
+              {t('assessments.createFirst')}
             </Button>
           </div>
         ) : (
           <table className="assessments-table">
             <thead>
               <tr>
-                <th>NAME</th>
-                <th>STATUS</th>
-                <th>DATASETS</th>
-                <th>TABLES</th>
-                <th>TOTAL SIZE</th>
-                <th>STARTED AT</th>
-                <th>COMPLETED AT</th>
+                <th>{t('assessments.name')}</th>
+                <th>{t('assessments.status')}</th>
+                <th>{t('assessments.datasets')}</th>
+                <th>{t('assessments.tables')}</th>
+                <th>{t('assessments.totalSize')}</th>
+                <th>{t('assessments.startedAt')}</th>
+                <th>{t('assessments.completedAt')}</th>
                 <th></th>
               </tr>
             </thead>
@@ -306,32 +318,32 @@ export const AssessmentsPage: React.FC = () => {
                             disabled={assessment.status === 'running'}
                             onSelect={() => handleRunAssessment(assessment.id)}
                           >
-                            <Play size={15} /> Run Assessment
+                            <Play size={15} /> {t('assessments.run')}
                           </DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => handleViewLogs(assessment.id)}>
-                            <ClipboardList size={15} /> View Logs
+                            <ClipboardList size={15} /> {t('assessments.viewLogs')}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={assessment.status?.trim() !== 'completed'}
                             onSelect={() => handleViewReport(assessment.id)}
                           >
-                            <FileText size={15} /> View Report
+                            <FileText size={15} /> {t('assessments.viewReport')}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={assessment.status?.trim() !== 'completed'}
                             onSelect={() => handleDownloadReport(assessment)}
                           >
-                            <Download size={15} /> Download Report
+                            <Download size={15} /> {t('assessments.downloadReport')}
                           </DropdownMenuItem>
                           <DropdownMenuItem onSelect={() => handleEditAssessment(assessment.id)}>
-                            <Pencil size={15} /> Edit Assessment
+                            <Pencil size={15} /> {t('assessments.edit')}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="ddm-item-danger"
                             onSelect={() => setDeleteConfirmId(assessment.id)}
                           >
-                            <Trash2 size={15} /> Delete Assessment
+                            <Trash2 size={15} /> {t('assessments.delete')}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -347,12 +359,12 @@ export const AssessmentsPage: React.FC = () => {
       {/* Pagination - Design pattern from Connections Page */}
       <div className="assessments-pagination">
         <div className="pagination-info">
-          Showing {((currentPage - 1) * rowsPerPage) + 1} to {Math.min(currentPage * rowsPerPage, totalAssessments)} of {totalAssessments} assessments
+          {t('assessments.showing')} {((currentPage - 1) * rowsPerPage) + 1} to {Math.min(currentPage * rowsPerPage, totalAssessments)} {t('common.of')} {totalAssessments}
         </div>
 
         <div className="pagination-controls">
           <div className="rows-per-page">
-            <span>Rows per page:</span>
+            <span>{t('assessments.rowsPerPage')}</span>
             <Select
               value={rowsPerPage}
               onChange={(value) => {
@@ -437,18 +449,18 @@ export const AssessmentsPage: React.FC = () => {
       {deleteConfirmId && (
         <div className="confirm-dialog-overlay" onClick={() => setDeleteConfirmId(null)}>
           <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>Delete Assessment</h3>
-            <p>Are you sure you want to delete this assessment? This action cannot be undone.</p>
+            <h3>{t('assessments.deleteConfirm')}</h3>
+            <p>{t('assessments.deleteConfirmMsg')}</p>
             <div className="confirm-actions">
               <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
-                Cancel
+                {t('assessments.cancel')}
               </Button>
               <Button 
                 variant="primary" 
                 onClick={() => handleDeleteAssessment(deleteConfirmId)}
                 style={{ background: 'var(--color-error)', borderColor: 'var(--color-error)' }}
               >
-                Delete Assessment
+                {t('assessments.delete')}
               </Button>
             </div>
           </div>

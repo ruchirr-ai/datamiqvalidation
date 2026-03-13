@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { WorkspaceProvider } from './contexts/WorkspaceContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { LanguageProvider } from './contexts/LanguageContext';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { MainLayout } from './components/layout/MainLayout';
 import { ChatAgent } from './components/ChatAgent/ChatAgent';
@@ -31,6 +32,11 @@ import { ValidationDetailPage } from './pages/ValidationDetailPage';
 import { WorkspacesPage } from './pages/WorkspacesPage';
 import { CopyHistoryPage } from './pages/CopyHistoryPage';
 import { TaskHistoryPage } from './pages/TaskHistoryPage';
+import { DocumentationPage } from './pages/DocumentationPage';
+import { ProfilePage } from './pages/ProfilePage';
+import { QueryHistoryPage } from './pages/QueryHistoryPage';
+import { DynamicTablesPage } from './pages/DynamicTablesPage';
+import { GovernancePage } from './pages/GovernancePage';
 import './styles/global.css';
 
 // Navigation items configuration
@@ -152,6 +158,7 @@ const AppContent: React.FC = () => {
     <>
       <Routes>
         <Route path="/login" element={<LoginScreen />} />
+        <Route path="/docs" element={<DocumentationPage />} />
         
         <Route
           path="/*"
@@ -190,7 +197,14 @@ const AppContent: React.FC = () => {
                   <Route path="/validations/:runId" element={<ValidationDetailPage />} />
                   <Route path="/monitoring/copy-history" element={<CopyHistoryPage />} />
                   <Route path="/monitoring/task-history" element={<TaskHistoryPage />} />
+                  <Route path="/monitoring/query-history" element={<QueryHistoryPage />} />
+                  <Route path="/monitoring/dynamic-tables" element={<DynamicTablesPage />} />
+                  <Route path="/monitoring/governance" element={<GovernancePage />} />
                   <Route path="/jobs" element={<JobsPage />} />
+                  <Route path="/jobs/running" element={<JobsPage />} />
+                  <Route path="/jobs/queued" element={<JobsPage />} />
+                  <Route path="/jobs/history" element={<JobsPage />} />
+                  <Route path="/profile" element={<ProfilePage />} />
                   <Route
                     path="/administration"
                     element={
@@ -238,11 +252,13 @@ const App: React.FC = () => {
   return (
     <BrowserRouter>
       <ThemeProvider>
-        <AuthProvider>
-          <WorkspaceProvider>
-            <AppContent />
-          </WorkspaceProvider>
-        </AuthProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <WorkspaceProvider>
+              <AppContent />
+            </WorkspaceProvider>
+          </AuthProvider>
+        </LanguageProvider>
       </ThemeProvider>
     </BrowserRouter>
   );
