@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.validation_schemas import (
     CreateValidationRunRequest,
+    MigrationInfoResponse,
+    BedrockModelResponse,
     PaginatedValidationRunsResponse,
     ValidationReportResponse,
     ValidationRunResponse,
@@ -65,14 +67,32 @@ async def create_validation_run(
     """Create and start a validation run as a background task."""
     try:
         service = _build_service(db)
+
+        # Auto-fill source/target connections from migration if not provided
+        source_conn_id = request.source_connection_id
+        target_conn_id = request.target_connection_id
+        if not source_conn_id or not target_conn_id:
+            migration_info = service.get_migration_info(
+                migration_id=request.migration_id, workspace_id=workspace_id
+            )
+            if not source_conn_id:
+                source_conn_id = migration_info.get("source_connection_id")
+            if not target_conn_id:
+                target_conn_id = migration_info.get("target_connection_id")
+        if not source_conn_id or not target_conn_id:
+            raise ValueError("Could not determine source/target connections from migration")
+
         run = service.create_validation_run(
             workspace_id=workspace_id,
             migration_id=request.migration_id,
-            source_connection_id=request.source_connection_id,
-            target_connection_id=request.target_connection_id,
+            source_connection_id=source_conn_id,
+            target_connection_id=target_conn_id,
             tables=request.tables,
+            table_configs=[tc.model_dump() for tc in request.table_configs] if request.table_configs else None,
             bedrock_model=request.bedrock_model,
             batch_size=request.batch_size,
+            sampling_mode=request.sampling_mode.value if request.sampling_mode else "all",
+            sample_limit=request.sample_limit,
             type_mapping_overrides=request.type_mapping_overrides,
             created_by=str(current_user.user_id),
         )
@@ -142,6 +162,81 @@ async def list_validation_runs(
         logger.error(
             "Failed to list validation runs",
             extra={"workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while processing the request",
+        )
+
+
+# ---------------------------------------------------------------------------
+# List Bedrock models (MUST be before /{run_id} to avoid path conflict)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/bedrock-models", response_model=list[BedrockModelResponse])
+async def list_bedrock_models(
+    region: str = "us-east-1",
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """List available Bedrock foundation models for AI analysis."""
+    try:
+        from services.bedrock_client import BedrockClient
+        client = BedrockClient()
+        models = client.list_models(region=region)
+        return [
+            BedrockModelResponse(
+                model_id=m.model_id,
+                model_name=m.model_name,
+                provider=m.provider,
+            )
+            for m in models
+        ]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Failed to list Bedrock models",
+            extra={"workspace_id": workspace_id, "region": region, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while listing Bedrock models",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Get migration info for validation form auto-fill
+# ---------------------------------------------------------------------------
+
+
+@router.get("/migration/{migration_id}/info", response_model=MigrationInfoResponse)
+async def get_migration_info(
+    migration_id: int,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """Get migration details for auto-filling the validation form."""
+    try:
+        service = _build_service(db)
+        info = service.get_migration_info(
+            migration_id=migration_id, workspace_id=workspace_id
+        )
+        if info is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Migration {migration_id} not found",
+            )
+        return MigrationInfoResponse(**info)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Failed to get migration info",
+            extra={"workspace_id": workspace_id, "migration_id": migration_id, "error": str(exc)},
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

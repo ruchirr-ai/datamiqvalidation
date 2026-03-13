@@ -1,59 +1,52 @@
 /**
  * Validation Dashboard Page
  *
- * Lists validation runs with summary stats, status filtering, pagination,
- * and an inline creation form. Clicking a row navigates to the detail page.
- *
- * Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6, 13.7, 13.8, 13.9, 13.10
+ * Overhauled UI with:
+ * 1. Compact side visual instead of stats cards
+ * 2. Tables dropdown from migration (multi-select)
+ * 3. Per-table validation type selection (DDL, row count, data sampling)
+ * 4. Sampling mode (all / random) with sample limit
+ * 5. Bedrock model dropdown (like conversion module)
+ * 6. Source/target connections filtered by type
+ * 7. Auto-fill connections from selected migration
+ * 8. View Logs button + improved progress bar
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  listValidationRuns,
-  createValidationRun,
-  deleteValidationRun,
-  ValidationRun,
   CreateValidationRunRequest,
+  TableValidationConfig,
+  ValidationRun,
+  BedrockModel,
+  MigrationInfo,
+  createValidationRun,
+  listValidationRuns,
+  deleteValidationRun,
+  getMigrationInfo,
+  listValidationBedrockModels,
+  getValidationTableResults,
 } from '../services/validationApi';
-import { listConnections, Connection } from '../services/api';
 import { bqRedshiftApi } from '../services/bqRedshiftApi';
 import './ValidationDashboardPage.css';
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
+const AUTO_REFRESH_MS = 5000;
+const STATUS_OPTIONS = ['all', 'pending', 'running', 'completed', 'failed'];
+const PAGE_SIZE_OPTIONS = [10, 20, 50];
 
-const STATUS_OPTIONS = ['all', 'pending', 'running', 'completed', 'failed'] as const;
-const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
-const AUTO_REFRESH_MS = 10_000;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Format an ISO date string to a readable locale string */
 function formatDate(iso: string | null): string {
   if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return '—';
-  }
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-/** Format duration in seconds to "Xm Ys" or "Xs" */
 function formatDuration(seconds: number | null): string {
-  if (seconds === null || seconds === undefined) return '—';
+  if (seconds == null) return '—';
   if (seconds < 60) return `${seconds}s`;
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
-  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  return `${m}m ${s}s`;
 }
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export const ValidationDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -71,18 +64,30 @@ export const ValidationDashboardPage: React.FC = () => {
 
   // --- Create form ---
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState<CreateValidationRunRequest>({
-    migration_id: 0,
-    source_connection_id: 0,
-    target_connection_id: 0,
-  });
-  const [tablesInput, setTablesInput] = useState('');
+  const [formMigrationId, setFormMigrationId] = useState<number>(0);
+  const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  const [tableConfigs, setTableConfigs] = useState<Record<string, { ddl: boolean; row_count: boolean; data_match: boolean; sampling_mode: 'all' | 'random'; sample_limit: number | undefined; batch_size: number }>>({});
+  const [bedrockModel, setBedrockModel] = useState<string>('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // --- Migration info (auto-fill) ---
+  const [migrationInfo, setMigrationInfo] = useState<MigrationInfo | null>(null);
+  const [migrationInfoLoading, setMigrationInfoLoading] = useState(false);
+
   // --- Dropdown data ---
-  const [connections, setConnections] = useState<Connection[]>([]);
   const [migrations, setMigrations] = useState<{ id: number; migration_name: string }[]>([]);
+  const [bedrockModels, setBedrockModels] = useState<BedrockModel[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+
+  // --- Tables dropdown ---
+  const [showTablesDropdown, setShowTablesDropdown] = useState(false);
+  const tablesDropdownRef = useRef<HTMLDivElement>(null);
+
+  // --- Logs modal ---
+  const [logsRunId, setLogsRunId] = useState<number | null>(null);
+  const [logsData, setLogsData] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   // --- Auto-refresh ---
   const refreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -90,14 +95,71 @@ export const ValidationDashboardPage: React.FC = () => {
   // --- Fetch dropdown data when form opens ---
   useEffect(() => {
     if (!showForm) return;
-    listConnections()
-      .then(setConnections)
-      .catch(() => setConnections([]));
     bqRedshiftApi
       .listMigrations()
       .then((m) => setMigrations(m.map((x) => ({ id: x.id, migration_name: x.migration_name }))))
       .catch(() => setMigrations([]));
   }, [showForm]);
+
+  // --- Load bedrock models ---
+  useEffect(() => {
+    if (!showForm) return;
+    const fetchModels = async () => {
+      try {
+        setModelsLoading(true);
+        const data = await listValidationBedrockModels('us-east-1');
+        setBedrockModels(data);
+      } catch {
+        setBedrockModels([]);
+      } finally {
+        setModelsLoading(false);
+      }
+    };
+    fetchModels();
+  }, [showForm]);
+
+  // --- When migration changes, auto-fill connections + tables ---
+  useEffect(() => {
+    if (!formMigrationId) {
+      setMigrationInfo(null);
+      setSelectedTables([]);
+      setTableConfigs({});
+      return;
+    }
+    const fetchInfo = async () => {
+      try {
+        setMigrationInfoLoading(true);
+        const info = await getMigrationInfo(formMigrationId);
+        setMigrationInfo(info);
+        // Auto-select all tables
+        setSelectedTables(info.tables || []);
+        // Initialize per-table configs with all checks enabled + default sampling
+        const configs: Record<string, { ddl: boolean; row_count: boolean; data_match: boolean; sampling_mode: 'all' | 'random'; sample_limit: number | undefined; batch_size: number }> = {};
+        (info.tables || []).forEach((t) => {
+          const rowCount = info.table_row_counts?.[t] ?? 0;
+          const defaultBatch = Math.min(10000, rowCount || 10000);
+          configs[t] = { ddl: true, row_count: true, data_match: true, sampling_mode: 'all', sample_limit: undefined, batch_size: defaultBatch };
+        });
+        setTableConfigs(configs);
+      } catch {
+        setMigrationInfo(null);
+      } finally {
+        setMigrationInfoLoading(false);
+      }
+    };
+    fetchInfo();
+  }, [formMigrationId]);
+
+  // --- Close tables dropdown on outside click ---
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (tablesDropdownRef.current && !tablesDropdownRef.current.contains(e.target as Node)) {
+        setShowTablesDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   // --- Fetch runs ---
   const fetchRuns = useCallback(async () => {
@@ -118,7 +180,6 @@ export const ValidationDashboardPage: React.FC = () => {
     }
   }, [page, pageSize, statusFilter]);
 
-  // Initial load + refetch on filter/page change
   useEffect(() => {
     setLoading(true);
     fetchRuns();
@@ -126,14 +187,10 @@ export const ValidationDashboardPage: React.FC = () => {
 
   // Auto-refresh when any run is running or pending
   useEffect(() => {
-    const hasActive = runs.some(
-      (r) => r.status === 'running' || r.status === 'pending'
-    );
-
+    const hasActive = runs.some((r) => r.status === 'running' || r.status === 'pending');
     if (hasActive) {
       refreshRef.current = setInterval(fetchRuns, AUTO_REFRESH_MS);
     }
-
     return () => {
       if (refreshRef.current) {
         clearInterval(refreshRef.current);
@@ -143,20 +200,13 @@ export const ValidationDashboardPage: React.FC = () => {
   }, [runs, fetchRuns]);
 
   // --- Summary stats ---
-  const totalRuns = total;
   const passedRuns = runs.filter((r) => r.status === 'completed').length;
   const failedRuns = runs.filter((r) => r.status === 'failed').length;
-  const runningRuns = runs.filter(
-    (r) => r.status === 'running' || r.status === 'pending'
-  ).length;
-
-  // --- Pagination ---
+  const runningRuns = runs.filter((r) => r.status === 'running' || r.status === 'pending').length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // --- Handlers ---
-  const handleRowClick = (runId: number) => {
-    navigate(`/validations/${runId}`);
-  };
+  const handleRowClick = (runId: number) => navigate(`/validations/${runId}`);
 
   const handleDelete = async (e: React.MouseEvent, runId: number) => {
     e.stopPropagation();
@@ -165,9 +215,66 @@ export const ValidationDashboardPage: React.FC = () => {
       await deleteValidationRun(runId);
       fetchRuns();
     } catch {
-      // Silently refresh — the run may already be gone
       fetchRuns();
     }
+  };
+
+  const handleViewLogs = async (e: React.MouseEvent, runId: number) => {
+    e.stopPropagation();
+    setLogsRunId(runId);
+    setLogsLoading(true);
+    try {
+      const results = await getValidationTableResults(runId);
+      setLogsData(results);
+    } catch {
+      setLogsData([]);
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  const toggleTable = (tableName: string) => {
+    setSelectedTables((prev) => {
+      if (prev.includes(tableName)) {
+        const next = prev.filter((t) => t !== tableName);
+        setTableConfigs((c) => {
+          const copy = { ...c };
+          delete copy[tableName];
+          return copy;
+        });
+        return next;
+      } else {
+        setTableConfigs((c) => ({
+          ...c,
+          [tableName]: { ddl: true, row_count: true, data_match: true, sampling_mode: 'all' as const, sample_limit: undefined, batch_size: 10000 },
+        }));
+        return [...prev, tableName];
+      }
+    });
+  };
+
+  const toggleAllTables = () => {
+    const allTables = migrationInfo?.tables || [];
+    if (selectedTables.length === allTables.length) {
+      setSelectedTables([]);
+      setTableConfigs({});
+    } else {
+      setSelectedTables([...allTables]);
+      const configs: Record<string, { ddl: boolean; row_count: boolean; data_match: boolean; sampling_mode: 'all' | 'random'; sample_limit: number | undefined; batch_size: number }> = {};
+      allTables.forEach((t) => {
+        const rowCount = migrationInfo?.table_row_counts?.[t] ?? 0;
+        const defaultBatch = Math.min(10000, rowCount || 10000);
+        configs[t] = { ddl: true, row_count: true, data_match: true, sampling_mode: 'all', sample_limit: undefined, batch_size: defaultBatch };
+      });
+      setTableConfigs(configs);
+    }
+  };
+
+  const toggleTableCheck = (tableName: string, check: 'ddl' | 'row_count' | 'data_match') => {
+    setTableConfigs((prev) => ({
+      ...prev,
+      [tableName]: { ...prev[tableName], [check]: !prev[tableName]?.[check] },
+    }));
   };
 
   const handleCreate = async () => {
@@ -175,21 +282,34 @@ export const ValidationDashboardPage: React.FC = () => {
     setCreating(true);
     setCreateError(null);
 
+    const tableConfigsList: TableValidationConfig[] = selectedTables.map((t) => ({
+      table_name: t,
+      ddl_check: tableConfigs[t]?.ddl ?? true,
+      row_count_check: tableConfigs[t]?.row_count ?? true,
+      data_match_check: tableConfigs[t]?.data_match ?? true,
+      sampling_mode: tableConfigs[t]?.sampling_mode ?? 'all',
+      sample_limit: tableConfigs[t]?.sampling_mode === 'random' ? tableConfigs[t]?.sample_limit : undefined,
+    }));
+
     const payload: CreateValidationRunRequest = {
-      ...formData,
+      migration_id: formMigrationId,
+      tables: selectedTables.length > 0 ? selectedTables : undefined,
+      table_configs: tableConfigsList.length > 0 ? tableConfigsList : undefined,
+      bedrock_model: bedrockModel || undefined,
     };
 
-    // Parse comma-separated tables
-    const trimmed = tablesInput.trim();
-    if (trimmed) {
-      payload.tables = trimmed.split(',').map((t) => t.trim()).filter(Boolean);
+    // Auto-fill connections from migration info
+    if (migrationInfo?.source_connection_id) {
+      payload.source_connection_id = migrationInfo.source_connection_id;
+    }
+    if (migrationInfo?.target_connection_id) {
+      payload.target_connection_id = migrationInfo.target_connection_id;
     }
 
     try {
       await createValidationRun(payload);
       setShowForm(false);
-      setFormData({ migration_id: 0, source_connection_id: 0, target_connection_id: 0 });
-      setTablesInput('');
+      resetForm();
       fetchRuns();
     } catch (err: unknown) {
       let msg = 'Failed to create validation run';
@@ -207,60 +327,60 @@ export const ValidationDashboardPage: React.FC = () => {
     }
   };
 
-  const canSubmit =
-    formData.migration_id > 0 &&
-    formData.source_connection_id > 0 &&
-    formData.target_connection_id > 0;
+  const resetForm = () => {
+    setFormMigrationId(0);
+    setSelectedTables([]);
+    setTableConfigs({});
+    setBedrockModel('');
+    setMigrationInfo(null);
+    setCreateError(null);
+  };
+
+  const canSubmit = formMigrationId > 0 && selectedTables.length > 0;
 
   // --- Render ---
   return (
     <div className="validation-dashboard">
-      {/* Header */}
-      <div className="validation-header">
-        <h1 className="validation-title">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-            <path d="M9 11l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="11" cy="11" r="8" />
-          </svg>
-          Data Validation
-        </h1>
-        <p className="validation-subtitle">Post-migration data integrity verification</p>
-      </div>
-
-      {/* Stats */}
-      <div className="validation-stats">
-        <div className="validation-stat-card">
-          <span className="validation-stat-count">{totalRuns}</span>
-          <span className="validation-stat-label">Total Runs</span>
+      {/* Header + Compact Side Visual */}
+      <div className="validation-header-row">
+        <div className="validation-header">
+          <h1 className="validation-title">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d="M9 11l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+              <circle cx="11" cy="11" r="8" />
+            </svg>
+            Data Validation
+          </h1>
+          <p className="validation-subtitle">Post-migration data integrity verification</p>
         </div>
-        <div className="validation-stat-card">
-          <span className="validation-stat-count passed">{passedRuns}</span>
-          <span className="validation-stat-label">Passed</span>
-        </div>
-        <div className="validation-stat-card">
-          <span className="validation-stat-count failed">{failedRuns}</span>
-          <span className="validation-stat-label">Failed</span>
-        </div>
-        <div className="validation-stat-card">
-          <span className="validation-stat-count running">{runningRuns}</span>
-          <span className="validation-stat-label">Running</span>
+        <div className="validation-compact-stats">
+          <div className="compact-stat">
+            <span className="compact-stat-dot completed" />
+            <span className="compact-stat-value">{passedRuns}</span>
+            <span className="compact-stat-label">Passed</span>
+          </div>
+          <div className="compact-stat">
+            <span className="compact-stat-dot failed" />
+            <span className="compact-stat-value">{failedRuns}</span>
+            <span className="compact-stat-label">Failed</span>
+          </div>
+          <div className="compact-stat">
+            <span className="compact-stat-dot running" />
+            <span className="compact-stat-value">{runningRuns}</span>
+            <span className="compact-stat-label">Active</span>
+          </div>
         </div>
       </div>
 
       {/* Toolbar */}
       <div className="validation-toolbar">
         <div className="validation-toolbar-left">
-          <button
-            className="validation-new-btn"
-            onClick={() => setShowForm((v) => !v)}
-            type="button"
-          >
+          <button className="validation-new-btn" onClick={() => setShowForm((v) => !v)} type="button">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M7 1v12M1 7h12" strokeLinecap="round" />
             </svg>
             New Validation
           </button>
-
           <select
             className="validation-filter-select"
             value={statusFilter}
@@ -268,55 +388,11 @@ export const ValidationDashboardPage: React.FC = () => {
             aria-label="Filter by status"
           >
             {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
-              </option>
+              <option key={s} value={s}>{s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}</option>
             ))}
           </select>
         </div>
-
-        <div className="validation-toolbar-right">
-          <div className="validation-pagination">
-            <select
-              className="validation-page-size-select"
-              value={pageSize}
-              onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
-              aria-label="Page size"
-            >
-              {PAGE_SIZE_OPTIONS.map((s) => (
-                <option key={s} value={s}>{s} / page</option>
-              ))}
-            </select>
-
-            <button
-              className="validation-page-btn"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              aria-label="Previous page"
-              type="button"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M8 3L4 7l4 4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-
-            <span className="validation-pagination-info">
-              {page} / {totalPages}
-            </span>
-
-            <button
-              className="validation-page-btn"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              aria-label="Next page"
-              type="button"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                <path d="M6 3l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          </div>
-        </div>
+        <div className="validation-toolbar-right" />
       </div>
 
       {/* Create Form */}
@@ -324,129 +400,227 @@ export const ValidationDashboardPage: React.FC = () => {
         <div className="validation-create-form">
           <h3 className="validation-create-title">New Validation Run</h3>
 
+          {/* Row 1: Migration selector */}
           <div className="validation-form-grid">
-            <div className="validation-form-field">
-              <label className="validation-form-label" htmlFor="vf-migration-id">
-                Migration *
-              </label>
+            <div className="validation-form-field validation-form-field-wide">
+              <label className="validation-form-label" htmlFor="vf-migration-id">Migration</label>
               <select
                 id="vf-migration-id"
                 className="validation-form-input"
-                value={formData.migration_id || ''}
-                onChange={(e) =>
-                  setFormData((d) => ({ ...d, migration_id: Number(e.target.value) || 0 }))
-                }
+                value={formMigrationId || ''}
+                onChange={(e) => setFormMigrationId(Number(e.target.value) || 0)}
               >
                 <option value="">Select a migration</option>
                 {migrations.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.migration_name}
-                  </option>
+                  <option key={m.id} value={m.id}>{m.migration_name}</option>
                 ))}
               </select>
             </div>
+          </div>
 
-            <div className="validation-form-field">
-              <label className="validation-form-label" htmlFor="vf-source-conn">
-                Source Connection *
+          {/* Auto-filled connection info */}
+          {migrationInfo && (
+            <div className="validation-autofill-info">
+              <div className="autofill-chip">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                  <circle cx="7" cy="7" r="5.5" />
+                  <path d="M7 4.5v3l2 1" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Source: {migrationInfo.source_connection_name || 'N/A'}
+              </div>
+              <div className="autofill-chip">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                  <path d="M2 7h10M8 3l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Target: {migrationInfo.target_connection_name || 'N/A'}
+              </div>
+            </div>
+          )}
+          {migrationInfoLoading && (
+            <div className="validation-autofill-info">
+              <span className="autofill-loading">Loading migration details...</span>
+            </div>
+          )}
+
+          {/* Tables multi-select dropdown */}
+          {migrationInfo && migrationInfo.tables.length > 0 && (
+            <div className="validation-form-field" ref={tablesDropdownRef}>
+              <label className="validation-form-label">
+                Tables ({selectedTables.length} of {migrationInfo.tables.length} selected)
               </label>
-              <select
-                id="vf-source-conn"
-                className="validation-form-input"
-                value={formData.source_connection_id || ''}
-                onChange={(e) =>
-                  setFormData((d) => ({ ...d, source_connection_id: Number(e.target.value) || 0 }))
-                }
+              <button
+                type="button"
+                className="validation-form-input validation-tables-trigger"
+                onClick={() => setShowTablesDropdown((v) => !v)}
               >
-                <option value="">Select source connection</option>
-                {connections.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.type})
-                  </option>
-                ))}
-              </select>
+                {selectedTables.length === 0
+                  ? 'Select tables...'
+                  : selectedTables.length === migrationInfo.tables.length
+                    ? 'All tables selected'
+                    : selectedTables.join(', ')}
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M3 4.5l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              {showTablesDropdown && (
+                <div className="validation-tables-dropdown">
+                  <div className="validation-tables-dropdown-header">
+                    <label className="validation-table-check-row">
+                      <input
+                        type="checkbox"
+                        checked={selectedTables.length === migrationInfo.tables.length}
+                        onChange={toggleAllTables}
+                      />
+                      <span className="table-check-name">Select All</span>
+                    </label>
+                  </div>
+                  <div className="validation-tables-dropdown-list">
+                    {migrationInfo.tables.map((t) => (
+                      <label key={t} className="validation-table-check-row">
+                        <input
+                          type="checkbox"
+                          checked={selectedTables.includes(t)}
+                          onChange={() => toggleTable(t)}
+                        />
+                        <span className="table-check-name">{t}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+          )}
 
-            <div className="validation-form-field">
-              <label className="validation-form-label" htmlFor="vf-target-conn">
-                Target Connection *
-              </label>
+          {/* Per-table validation config — using HTML table for reliable layout */}
+          {selectedTables.length > 0 && (
+            <div className="validation-table-configs">
+              <div className="vtc-label-row">
+                <span className="validation-form-label">Validation Checks per Table</span>
+                <div className="vtc-info-pills">
+                  <span className="vtc-info-pill">
+                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="5.5" /><path d="M7 6v3M7 4.5h.01" strokeLinecap="round" /></svg>
+                    DDL
+                    <span className="vtc-tooltip">Compares the schema (DDL) of source and target tables. Checks column names, data types, nullability, and constraints to ensure the target structure matches the source after migration.</span>
+                  </span>
+                  <span className="vtc-info-pill">
+                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="5.5" /><path d="M7 6v3M7 4.5h.01" strokeLinecap="round" /></svg>
+                    Row Count
+                    <span className="vtc-tooltip">Counts total rows in both source and target tables and compares them. A mismatch indicates missing or extra records. Fast, lightweight check that runs before deeper data matching.</span>
+                  </span>
+                  <span className="vtc-info-pill">
+                    <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="5.5" /><path d="M7 6v3M7 4.5h.01" strokeLinecap="round" /></svg>
+                    Data Match
+                    <span className="vtc-tooltip">Record-by-record comparison between source and target data. Fetches rows in batches and compares field values to detect mismatches, truncation, or encoding issues. Toggle All or type a sample count per table.</span>
+                  </span>
+                </div>
+              </div>
+
+              <table className="vtc-table">
+                <thead>
+                  <tr>
+                    <th className="vtc-th-name">Table</th>
+                    <th className="vtc-th-rows">Total Rows</th>
+                    <th className="vtc-th-center">DDL</th>
+                    <th className="vtc-th-center">Row Count</th>
+                    <th className="vtc-th-center">Data Match</th>
+                    <th className="vtc-th-sampling">Records to Validate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedTables.map((t) => {
+                    const rowCount = migrationInfo?.table_row_counts?.[t];
+                    const cfg = tableConfigs[t];
+                    const isAll = (cfg?.sampling_mode ?? 'all') === 'all';
+                    return (
+                      <tr key={t}>
+                        <td className="vtc-td-name" title={t}>{t}</td>
+                        <td className="vtc-td-rows">{rowCount != null ? rowCount.toLocaleString() : '—'}</td>
+                        <td className="vtc-td-center">
+                          <input type="checkbox" checked={cfg?.ddl ?? true} onChange={() => toggleTableCheck(t, 'ddl')} />
+                        </td>
+                        <td className="vtc-td-center">
+                          <input type="checkbox" checked={cfg?.row_count ?? true} onChange={() => toggleTableCheck(t, 'row_count')} />
+                        </td>
+                        <td className="vtc-td-center">
+                          <input type="checkbox" checked={cfg?.data_match ?? true} onChange={() => toggleTableCheck(t, 'data_match')} />
+                        </td>
+                        <td className="vtc-td-sampling">
+                          <div className="vtc-sampling-control">
+                            <button
+                              type="button"
+                              className={`vtc-all-btn ${isAll ? 'active' : ''}`}
+                              onClick={() => setTableConfigs((prev) => ({
+                                ...prev,
+                                [t]: { ...prev[t], sampling_mode: 'all', sample_limit: undefined },
+                              }))}
+                            >All</button>
+                            <input
+                              type="number"
+                              className="vtc-sample-input"
+                              placeholder="e.g. 5000"
+                              min={1}
+                              max={rowCount ?? 10000000}
+                              value={isAll ? '' : (cfg?.sample_limit ?? '')}
+                              onChange={(e) => {
+                                const val = e.target.value ? Number(e.target.value) : undefined;
+                                setTableConfigs((prev) => ({
+                                  ...prev,
+                                  [t]: { ...prev[t], sampling_mode: val ? 'random' : 'all', sample_limit: val },
+                                }));
+                              }}
+                              onFocus={() => {
+                                if (isAll) {
+                                  setTableConfigs((prev) => ({
+                                    ...prev,
+                                    [t]: { ...prev[t], sampling_mode: 'random' },
+                                  }));
+                                }
+                              }}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Bedrock model selector with info tooltip */}
+          <div className="validation-form-grid">
+            <div className="validation-form-field validation-form-field-wide">
+              <div className="vtc-label-row">
+                <label className="validation-form-label" htmlFor="vf-bedrock-model">
+                  Bedrock Model (optional)
+                </label>
+                <span className="vtc-info-pill">
+                  <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="5.5" /><path d="M7 6v3M7 4.5h.01" strokeLinecap="round" /></svg>
+                  Info
+                  <span className="vtc-tooltip">When selected, an AI model from Amazon Bedrock analyzes validation mismatches and provides intelligent explanations for data differences. Helps identify root causes like encoding issues, type casting, or truncation. Leave empty to skip AI analysis.</span>
+                </span>
+              </div>
               <select
-                id="vf-target-conn"
-                className="validation-form-input"
-                value={formData.target_connection_id || ''}
-                onChange={(e) =>
-                  setFormData((d) => ({ ...d, target_connection_id: Number(e.target.value) || 0 }))
-                }
-              >
-                <option value="">Select target connection</option>
-                {connections.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} ({c.type})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="validation-form-field">
-              <label className="validation-form-label" htmlFor="vf-tables">
-                Tables (comma-separated)
-              </label>
-              <input
-                id="vf-tables"
-                className="validation-form-input"
-                type="text"
-                placeholder="e.g. users, orders"
-                value={tablesInput}
-                onChange={(e) => setTablesInput(e.target.value)}
-              />
-            </div>
-
-            <div className="validation-form-field">
-              <label className="validation-form-label" htmlFor="vf-batch-size">
-                Batch Size
-              </label>
-              <input
-                id="vf-batch-size"
-                className="validation-form-input"
-                type="number"
-                min={100}
-                max={100000}
-                placeholder="10000"
-                value={formData.batch_size ?? ''}
-                onChange={(e) =>
-                  setFormData((d) => ({
-                    ...d,
-                    batch_size: e.target.value ? Number(e.target.value) : undefined,
-                  }))
-                }
-              />
-            </div>
-
-            <div className="validation-form-field">
-              <label className="validation-form-label" htmlFor="vf-bedrock-model">
-                Bedrock Model
-              </label>
-              <input
                 id="vf-bedrock-model"
                 className="validation-form-input"
-                type="text"
-                placeholder="Optional"
-                value={formData.bedrock_model ?? ''}
-                onChange={(e) =>
-                  setFormData((d) => ({
-                    ...d,
-                    bedrock_model: e.target.value || undefined,
-                  }))
-                }
-              />
+                value={bedrockModel}
+                onChange={(e) => setBedrockModel(e.target.value)}
+                disabled={modelsLoading}
+              >
+                <option value="">
+                  {modelsLoading ? 'Loading models...' : 'None (skip AI analysis)'}
+                </option>
+                {bedrockModels.map((m) => (
+                  <option key={m.model_id} value={m.model_id}>
+                    {m.model_name} ({m.provider})
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
           {createError && (
-            <p className="validation-error-text" style={{ margin: 0 }}>
-              {createError}
-            </p>
+            <p className="validation-error-text" style={{ margin: 0 }}>{createError}</p>
           )}
 
           <div className="validation-form-actions">
@@ -460,7 +634,7 @@ export const ValidationDashboardPage: React.FC = () => {
             </button>
             <button
               className="validation-form-cancel"
-              onClick={() => { setShowForm(false); setCreateError(null); }}
+              onClick={() => { setShowForm(false); resetForm(); }}
               type="button"
             >
               Cancel
@@ -489,9 +663,7 @@ export const ValidationDashboardPage: React.FC = () => {
             <rect x="6" y="6" width="24" height="24" rx="3" />
             <path d="M14 18h8M18 14v8" strokeLinecap="round" />
           </svg>
-          <p className="validation-empty-text">
-            No validation runs found. Click "New Validation" to get started.
-          </p>
+          <p className="validation-empty-text">No validation runs found. Click "New Validation" to get started.</p>
         </div>
       ) : (
         <div className="validation-table-wrapper">
@@ -512,22 +684,19 @@ export const ValidationDashboardPage: React.FC = () => {
                 <tr key={run.id} onClick={() => handleRowClick(run.id)}>
                   <td>{run.id}</td>
                   <td>
-                    <span className={`validation-status-badge ${run.status}`}>
-                      {run.status}
-                    </span>
+                    <span className={`validation-status-badge ${run.status}`}>{run.status}</span>
                   </td>
+
                   <td>
                     {run.status === 'running' ? (
                       <div className="validation-progress-cell">
-                        <div className="validation-progress-bar">
+                        <div className="validation-progress-bar-enhanced">
                           <div
-                            className="validation-progress-fill"
+                            className="validation-progress-fill-enhanced"
                             style={{ width: `${run.progress_percentage}%` }}
                           />
                         </div>
-                        <span className="validation-progress-text">
-                          {run.progress_percentage}%
-                        </span>
+                        <span className="validation-progress-text">{run.progress_percentage}%</span>
                       </div>
                     ) : run.status === 'completed' || run.status === 'failed' ? (
                       <span className="validation-progress-text">100%</span>
@@ -547,16 +716,30 @@ export const ValidationDashboardPage: React.FC = () => {
                   <td>{formatDate(run.started_at)}</td>
                   <td>{formatDuration(run.duration_seconds)}</td>
                   <td>
-                    <button
-                      className="validation-delete-btn"
-                      onClick={(e) => handleDelete(e, run.id)}
-                      aria-label={`Delete run ${run.id}`}
-                      type="button"
-                    >
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                        <path d="M3 4h10M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1M5 4v8a1 1 0 001 1h4a1 1 0 001-1V4" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </button>
+                    <div className="validation-actions-cell">
+                      <button
+                        className="validation-logs-btn"
+                        onClick={(e) => handleViewLogs(e, run.id)}
+                        aria-label={`View logs for run ${run.id}`}
+                        title="View Logs"
+                        type="button"
+                      >
+                        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                          <path d="M3 3h9M3 6h9M3 9h6M3 12h4" strokeLinecap="round" />
+                        </svg>
+                      </button>
+                      <button
+                        className="validation-delete-btn"
+                        onClick={(e) => handleDelete(e, run.id)}
+                        aria-label={`Delete run ${run.id}`}
+                        title="Delete"
+                        type="button"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                          <path d="M3 4h10M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1M5 4v8a1 1 0 001 1h4a1 1 0 001-1V4" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -564,6 +747,83 @@ export const ValidationDashboardPage: React.FC = () => {
           </table>
         </div>
       )}
+
+      {/* Bottom Pagination */}
+      {!loading && !error && runs.length > 0 && (
+        <div className="validation-bottom-pagination">
+          <select
+            className="validation-page-size-select"
+            value={pageSize}
+            onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+            aria-label="Page size"
+          >
+            {PAGE_SIZE_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s} / page</option>
+            ))}
+          </select>
+          <div className="validation-pagination">
+            <button className="validation-page-btn" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} aria-label="Previous page" type="button">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M8 3L4 7l4 4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+            <span className="validation-pagination-info">{page} / {totalPages}</span>
+            <button className="validation-page-btn" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} aria-label="Next page" type="button">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M6 3l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Logs Modal */}
+      {logsRunId !== null && (
+        <div className="validation-logs-overlay" onClick={() => setLogsRunId(null)}>
+          <div className="validation-logs-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="validation-logs-modal-header">
+              <h3>Validation Run #{logsRunId} — Table Progress</h3>
+              <button type="button" className="validation-logs-close" onClick={() => setLogsRunId(null)} aria-label="Close logs">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <div className="validation-logs-modal-body">
+              {logsLoading ? (
+                <div className="validation-loading"><div className="validation-spinner" /> Loading...</div>
+              ) : logsData.length === 0 ? (
+                <p className="validation-empty-text">No table results yet.</p>
+              ) : (
+                <table className="validation-logs-table">
+                  <thead>
+                    <tr>
+                      <th>Table</th>
+                      <th>DDL</th>
+                      <th>Row Count</th>
+                      <th>Data Match</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logsData.map((r: any) => (
+                      <tr key={r.id}>
+                        <td className="logs-table-name">{r.table_name}</td>
+                        <td><span className={`log-step-badge ${r.ddl_status || 'pending'}`}>{r.ddl_status || '—'}</span></td>
+                        <td><span className={`log-step-badge ${r.row_count_status || 'pending'}`}>{r.row_count_status || '—'}</span></td>
+                        <td><span className={`log-step-badge ${r.data_match_status || 'pending'}`}>{r.data_match_status || '—'}</span></td>
+                        <td><span className={`validation-status-badge ${r.status}`}>{r.status}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
+export default ValidationDashboardPage;

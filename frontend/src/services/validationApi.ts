@@ -9,11 +9,22 @@ import { api } from './api';
 // Request types
 // ---------------------------------------------------------------------------
 
+export interface TableValidationConfig {
+  table_name: string;
+  ddl_check: boolean;
+  row_count_check: boolean;
+  data_match_check: boolean;
+  sampling_mode?: 'all' | 'random';
+  sample_limit?: number;
+  batch_size?: number;
+}
+
 export interface CreateValidationRunRequest {
   migration_id: number;
-  source_connection_id: number;
-  target_connection_id: number;
+  source_connection_id?: number;
+  target_connection_id?: number;
   tables?: string[];
+  table_configs?: TableValidationConfig[];
   bedrock_model?: string;
   batch_size?: number;
   type_mapping_overrides?: Record<string, string>;
@@ -162,4 +173,47 @@ export const deleteValidationRun = async (
   runId: number
 ): Promise<void> => {
   return api.delete<void>(`/api/validations/${runId}`);
+};
+
+// ---------------------------------------------------------------------------
+// Migration info for form auto-fill
+// ---------------------------------------------------------------------------
+
+export interface MigrationInfo {
+  migration_id: number;
+  migration_name: string;
+  source_connection_id: number | null;
+  target_connection_id: number | null;
+  source_connection_name: string | null;
+  target_connection_name: string | null;
+  tables: string[];
+  table_row_counts: Record<string, number | null> | null;
+}
+
+/**
+ * Get migration info for auto-filling the validation form
+ */
+export const getMigrationInfo = async (
+  migrationId: number
+): Promise<MigrationInfo> => {
+  return api.get<MigrationInfo>(`/api/validations/migration/${migrationId}/info`);
+};
+
+// ---------------------------------------------------------------------------
+// Bedrock models for validation
+// ---------------------------------------------------------------------------
+
+export interface BedrockModel {
+  model_id: string;
+  model_name: string;
+  provider: string;
+}
+
+/**
+ * List available Bedrock models for AI analysis
+ */
+export const listValidationBedrockModels = async (
+  region: string = 'us-east-1'
+): Promise<BedrockModel[]> => {
+  return api.get<BedrockModel[]>(`/api/validations/bedrock-models?region=${encodeURIComponent(region)}`);
 };

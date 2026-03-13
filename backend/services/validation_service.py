@@ -124,6 +124,72 @@ class ValidationService:
 
     MAX_CONCURRENT_RUNS_PER_WORKSPACE = 10
 
+    def get_migration_info(self, migration_id: int, workspace_id: int) -> Optional[Dict[str, Any]]:
+        """Get migration details for auto-filling the validation form.
+
+        Returns migration name, source/target connection IDs and names, and table list.
+        """
+        migration = (
+            self.db.query(MigrationBQRedshift)
+            .filter(
+                MigrationBQRedshift.id == migration_id,
+                MigrationBQRedshift.workspace_id == workspace_id,
+            )
+            .first()
+        )
+        if not migration:
+            return None
+
+        source_name = None
+        target_name = None
+        if migration.source_connection_id:
+            src = self.db.query(Connection).filter(Connection.id == migration.source_connection_id).first()
+            if src:
+                source_name = src.name
+        if migration.target_connection_id:
+            tgt = self.db.query(Connection).filter(Connection.id == migration.target_connection_id).first()
+            if tgt:
+                target_name = tgt.name
+
+        # Extract per-table row counts from checkpoint_data export_results
+        table_row_counts: Dict[str, Optional[int]] = {}
+        tables = migration.source_tables or []
+        if migration.checkpoint_data and isinstance(migration.checkpoint_data, dict):
+            # Primary source: export_results list (populated after export stage)
+            export_results = migration.checkpoint_data.get("export_results", [])
+            if isinstance(export_results, list):
+                for result in export_results:
+                    if isinstance(result, dict) and result.get("success"):
+                        table_ref = result.get("table", "")
+                        table_name = table_ref.rsplit(".", 1)[-1] if "." in table_ref else table_ref
+                        num_rows = result.get("num_rows")
+                        if table_name:
+                            table_row_counts[table_name] = num_rows
+            # Fallback: check per-table keys in checkpoint_data
+            for t in tables:
+                if t not in table_row_counts:
+                    tdata = migration.checkpoint_data.get(t, {})
+                    if isinstance(tdata, dict) and "row_count" in tdata:
+                        table_row_counts[t] = tdata["row_count"]
+                    elif isinstance(tdata, dict) and "total_rows" in tdata:
+                        table_row_counts[t] = tdata["total_rows"]
+                    else:
+                        table_row_counts[t] = None
+        else:
+            for t in tables:
+                table_row_counts[t] = None
+
+        return {
+            "migration_id": migration.id,
+            "migration_name": migration.migration_name,
+            "source_connection_id": migration.source_connection_id,
+            "target_connection_id": migration.target_connection_id,
+            "source_connection_name": source_name,
+            "target_connection_name": target_name,
+            "tables": tables,
+            "table_row_counts": table_row_counts,
+        }
+
     def create_validation_run(
         self,
         workspace_id: int,
@@ -131,8 +197,11 @@ class ValidationService:
         source_connection_id: int,
         target_connection_id: int,
         tables: Optional[List[str]] = None,
+        table_configs: Optional[List[Dict[str, Any]]] = None,
         bedrock_model: Optional[str] = None,
         batch_size: int = 10000,
+        sampling_mode: str = "all",
+        sample_limit: Optional[int] = None,
         type_mapping_overrides: Optional[Dict[str, str]] = None,
         created_by: str = "",
     ) -> Dict[str, Any]:
