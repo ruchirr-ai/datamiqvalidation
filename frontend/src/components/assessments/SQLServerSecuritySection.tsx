@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { Shield, Users, Lock, Database, Key, UserCheck, FileText, Link2 } from 'lucide-react';
+import { Shield, Users, Lock, Key, UserCheck, FileText, Link2 } from 'lucide-react';
 import { Badge } from '../ui';
 
 interface SecurityUser {
@@ -112,7 +112,7 @@ interface SQLServerSecuritySectionProps {
 }
 
 export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> = ({ security, formatDate }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'permissions' | 'roles' | 'schemas' | 'policies' | 'logins' | 'encryption' | 'linkedServers'>('users');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'permissions' | 'roles' | 'policies' | 'logins' | 'encryption' | 'linkedServers'>('users');
 
   if (!security || (!security.users && !security.permissions && !security.roles && !security.schemas && !security.policies && !security.logins && !security.encryption && !security.linkedServers)) {
     return (
@@ -245,27 +245,7 @@ export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> =
           <FileText size={16} />
           Policies ({policies.length})
         </button>
-        <button
-          className={`sub-tab ${activeSubTab === 'schemas' ? 'active' : ''}`}
-          onClick={() => setActiveSubTab('schemas')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '12px 16px',
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: 500,
-            color: activeSubTab === 'schemas' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            borderBottom: activeSubTab === 'schemas' ? '2px solid var(--color-primary)' : '2px solid transparent',
-            transition: 'all 0.2s ease'
-          }}
-        >
-          <Database size={16} />
-          Schemas ({schemas.length})
-        </button>
+
         <button
           className={`sub-tab ${activeSubTab === 'encryption' ? 'active' : ''}`}
           onClick={() => setActiveSubTab('encryption')}
@@ -457,43 +437,6 @@ export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> =
                     </td>
                     <td style={{ textAlign: 'left' }}>{role.members_count}</td>
                     <td style={{ textAlign: 'left' }}>{role.description || 'No description'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {/* Schemas Tab */}
-      {activeSubTab === 'schemas' && (
-        <div className="table-container">
-          {schemas.length === 0 ? (
-            <div className="empty-state">
-              <Database size={48} />
-              <p>No schemas found</p>
-            </div>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th style={{ textAlign: 'left' }}>Schema Name</th>
-                  <th style={{ textAlign: 'left' }}>Owner</th>
-                  <th style={{ textAlign: 'left' }}>Owner Type</th>
-                  <th style={{ textAlign: 'left' }}>Created Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {schemas.map((schema, idx) => (
-                  <tr key={idx}>
-                    <td style={{ textAlign: 'left' }}>{schema.schema_name}</td>
-                    <td style={{ textAlign: 'left' }}>{schema.owner_name}</td>
-                    <td style={{ textAlign: 'left' }}>
-                      <Badge variant="default">{schema.owner_type}</Badge>
-                    </td>
-                    <td style={{ textAlign: 'left' }} className="timestamp-value">
-                      {formatDate(schema.created_date)}
-                    </td>
                   </tr>
                 ))}
               </tbody>

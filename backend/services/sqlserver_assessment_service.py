@@ -26,6 +26,7 @@ from datetime import datetime
 import re
 
 from repositories.assessment_repository import AssessmentRepository
+from models.assessment import AssessmentDataset
 
 
 class SQLServerAssessmentService:
@@ -188,6 +189,15 @@ class SQLServerAssessmentService:
             if tables_data:
                 repo.bulk_create_tables(assessment_id, tables_data)
                 db.commit()
+                
+                # Update dataset table_count with actual count of BASE TABLEs
+                base_table_count = len([t for t in tables_data if t.get('table_type') == 'BASE TABLE'])
+                dataset = db.query(AssessmentDataset).filter(
+                    AssessmentDataset.assessment_id == assessment_id
+                ).first()
+                if dataset:
+                    dataset.table_count = base_table_count
+                    db.commit()
             
             print(f"[SQL Server Assessment] ✓ Collected {len(tables_data)} tables", flush=True)
             repo.create_log(
@@ -554,7 +564,15 @@ class SQLServerAssessmentService:
             d.recovery_model_desc AS recovery_model,
             CAST(SERVERPROPERTY('ProductVersion') AS VARCHAR(50)) AS version,
             CONVERT(VARCHAR(50), d.create_date, 120) AS create_date,
-            d.compatibility_level AS compatibility_level
+            d.compatibility_level AS compatibility_level,
+            CAST(SERVERPROPERTY('Edition') AS VARCHAR(255)) AS edition,
+            CAST(SERVERPROPERTY('ProductLevel') AS VARCHAR(50)) AS product_level,
+            CAST(SERVERPROPERTY('MachineName') AS VARCHAR(255)) AS machine_name,
+            CAST(SERVERPROPERTY('ServerName') AS VARCHAR(255)) AS server_name,
+            CAST(SERVERPROPERTY('InstanceName') AS VARCHAR(255)) AS instance_name_prop,
+            CAST(SERVERPROPERTY('IsClustered') AS INT) AS is_clustered,
+            CAST(SERVERPROPERTY('IsHadrEnabled') AS INT) AS is_hadr_enabled,
+            CAST(COALESCE(SERVERPROPERTY('HadrManagerStatus'), 0) AS INT) AS hadr_manager_status
         FROM sys.databases d
         WHERE d.name = DB_NAME()
         """
@@ -580,6 +598,25 @@ class SQLServerAssessmentService:
         data_size_mb = float(size_row.data_size_mb) if size_row and size_row.data_size_mb else 0.0
         log_size_mb = float(size_row.log_size_mb) if size_row and size_row.log_size_mb else 0.0
         
+        # Determine instance role (Primary, Secondary, Standalone)
+        instance_role = 'Standalone'
+        try:
+            if row.is_hadr_enabled:
+                role_query = """
+                SELECT role_desc 
+                FROM sys.dm_hadr_availability_replica_states rs
+                INNER JOIN sys.availability_replicas r ON rs.replica_id = r.replica_id
+                WHERE rs.is_local = 1
+                """
+                cursor.execute(role_query)
+                role_row = cursor.fetchone()
+                if role_row:
+                    instance_role = role_row.role_desc  # PRIMARY or SECONDARY
+            elif row.is_clustered:
+                instance_role = 'Clustered'
+        except Exception:
+            instance_role = 'Standalone'
+        
         return {
             'dataset_name': row.database_name,
             'location': f"{self.host}\\{self.instance_name}" if self.instance_name else self.host,
@@ -593,7 +630,13 @@ class SQLServerAssessmentService:
                 'compatibility_level': row.compatibility_level,
                 'data_size_mb': data_size_mb,
                 'log_size_mb': log_size_mb,
-                'version': row.version
+                'version': row.version,
+                'edition': row.edition,
+                'product_level': row.product_level,
+                'machine_name': row.machine_name,
+                'server_name': row.server_name,
+                'instance_name': row.instance_name_prop or 'Default',
+                'instance_role': instance_role
             }
         }
 
@@ -2168,7 +2211,7 @@ class SQLServerAssessmentService:
                     'slot_milliseconds': int(row.avg_cpu_time_sec * 1000),
                     'cache_hit': row.avg_physical_reads == 0,
                     'referenced_tables': [],
-                    'user_email': 'SQL Server User',
+                    'user_email': self.username or 'SQL Server User',
                     'query_metadata': {
                         'query_id': row.query_id,
                         'query_hash': query_hash,
@@ -2314,7 +2357,7 @@ class SQLServerAssessmentService:
                     'slot_milliseconds': int(row.total_cpu_time_sec * 1000),
                     'cache_hit': row.total_physical_reads == 0,
                     'referenced_tables': [],
-                    'user_email': 'SQL Server User',
+                    'user_email': self.username or 'SQL Server User',
                     'query_metadata': {
                         'execution_count': row.execution_count,
                         'total_cpu_time_sec': float(row.total_cpu_time_sec),
@@ -2574,7 +2617,7 @@ class SQLServerAssessmentService:
                 NULL AS created_date
             FROM sys.schemas s
             LEFT JOIN sys.database_principals pr ON s.principal_id = pr.principal_id
-            WHERE s.name NOT IN ('dbo', 'guest', 'INFORMATION_SCHEMA', 'sys')
+            WHERE s.name NOT IN ('guest', 'INFORMATION_SCHEMA', 'sys')
             ORDER BY s.name
             """
 

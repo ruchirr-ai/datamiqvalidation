@@ -3,11 +3,11 @@
  * 
  * Simplified table view for SQL Server stored procedures, functions, and triggers
  * Shows: NAME, TYPE, LANGUAGE, CREATED TIME (left-aligned)
- * Expandable rows show execution stats and dependencies
+ * Expandable rows show tabs: Definition, Dependencies, Execution Statistics
  */
 
 import React, { useState } from 'react';
-import { Code, Database, Eye, TableIcon } from 'lucide-react';
+import { Code, Database, Eye, TableIcon, BarChart3 } from 'lucide-react';
 import { Badge } from '../ui';
 
 interface SQLServerRoutinesSectionProps {
@@ -22,9 +22,15 @@ export const SQLServerRoutinesSection: React.FC<SQLServerRoutinesSectionProps> =
   formatDate 
 }) => {
   const [expandedRoutine, setExpandedRoutine] = useState<number | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = useState<'definition' | 'dependencies' | 'execution'>('definition');
 
   const handleRoutineClick = (index: number) => {
-    setExpandedRoutine(expandedRoutine === index ? null : index);
+    if (expandedRoutine === index) {
+      setExpandedRoutine(null);
+    } else {
+      setExpandedRoutine(index);
+      setActiveDetailTab('definition');
+    }
   };
 
   return (
@@ -54,7 +60,6 @@ export const SQLServerRoutinesSection: React.FC<SQLServerRoutinesSectionProps> =
                                  (routine.dependent_functions?.length || 0) +
                                  (routine.calls_procedures?.length || 0);
                 
-                // Get execution stats from routine_metadata
                 const metadata = routine.routine_metadata || {};
                 const totalExecutions = metadata.total_executions || routine.call_frequency || 0;
                 const executionsToday = metadata.executions_today || 0;
@@ -90,147 +95,135 @@ export const SQLServerRoutinesSection: React.FC<SQLServerRoutinesSectionProps> =
                     {isExpanded && (
                       <tr className="expanded-row">
                         <td colSpan={4}>
-                          <div className="dependency-details">
-                            {/* Execution Statistics Section - Always show FIRST */}
-                            <div className="dependency-section">
-                              <h4 className="dependency-section-title">
-                                <Code size={16} />
-                                Execution Statistics
-                              </h4>
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                                <div>
-                                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '4px', textAlign: 'left' }}>
-                                    Total Executions
-                                  </div>
-                                  <div style={{ fontSize: '20px', fontWeight: 600, color: 'var(--color-text-primary)', textAlign: 'left' }}>
-                                    {totalExecutions > 0 ? totalExecutions.toLocaleString() : '-'}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '4px', textAlign: 'left' }}>
-                                    Today
-                                  </div>
-                                  <div style={{ fontSize: '20px', fontWeight: 600, color: 'var(--color-text-primary)', textAlign: 'left' }}>
-                                    {executionsToday > 0 ? executionsToday.toLocaleString() : '-'}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '4px', textAlign: 'left' }}>
-                                    Last 7 Days
-                                  </div>
-                                  <div style={{ fontSize: '20px', fontWeight: 600, color: 'var(--color-text-primary)', textAlign: 'left' }}>
-                                    {executions7Days > 0 ? executions7Days.toLocaleString() : '-'}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '4px', textAlign: 'left' }}>
-                                    Last 30 Days
-                                  </div>
-                                  <div style={{ fontSize: '20px', fontWeight: 600, color: 'var(--color-text-primary)', textAlign: 'left' }}>
-                                    {executions30Days > 0 ? executions30Days.toLocaleString() : '-'}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '4px', textAlign: 'left' }}>
-                                    Avg Duration (ms)
-                                  </div>
-                                  <div style={{ fontSize: '20px', fontWeight: 600, color: 'var(--color-text-primary)', textAlign: 'left' }}>
-                                    {avgDurationMs > 0 ? avgDurationMs.toFixed(2) : '-'}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '4px', textAlign: 'left' }}>
-                                    Last Executed
-                                  </div>
-                                  <div style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-text-secondary)', textAlign: 'left' }}>
-                                    {lastExecutionTime ? formatDate(lastExecutionTime) : 'Never'}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                            
-                            {/* Dependencies Section */}
-                            {totalDeps > 0 && (
-                              <div className="dependency-section">
-                                <h4 className="dependency-section-title">
-                                  <Database size={16} />
-                                  Dependencies ({totalDeps})
-                                </h4>
-                                
-                                {routine.dependent_tables && routine.dependent_tables.length > 0 && (
-                                  <div className="dependency-group">
-                                    <h5 className="dependency-group-title">
-                                      <TableIcon size={14} />
-                                      Tables ({routine.dependent_tables.length})
-                                    </h5>
-                                    <div className="dependency-list">
-                                      {routine.dependent_tables.map((table: string, idx: number) => (
-                                        <Badge key={idx} variant="default" className="dependency-badge">
-                                          {table}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                
-                                {routine.dependent_views && routine.dependent_views.length > 0 && (
-                                  <div className="dependency-group">
-                                    <h5 className="dependency-group-title">
-                                      <Eye size={14} />
-                                      Views ({routine.dependent_views.length})
-                                    </h5>
-                                    <div className="dependency-list">
-                                      {routine.dependent_views.map((v: string, idx: number) => (
-                                        <Badge key={idx} variant="info" className="dependency-badge">
-                                          {v}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                
-                                {routine.dependent_functions && routine.dependent_functions.length > 0 && (
-                                  <div className="dependency-group">
-                                    <h5 className="dependency-group-title">
-                                      <Code size={14} />
-                                      Functions ({routine.dependent_functions.length})
-                                    </h5>
-                                    <div className="dependency-list">
-                                      {routine.dependent_functions.map((func: string, idx: number) => (
-                                        <Badge key={idx} variant="warning" className="dependency-badge">
-                                          {func}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                
-                                {routine.calls_procedures && routine.calls_procedures.length > 0 && (
-                                  <div className="dependency-group">
-                                    <h5 className="dependency-group-title">
-                                      <Code size={14} />
-                                      Calls Procedures ({routine.calls_procedures.length})
-                                    </h5>
-                                    <div className="dependency-list">
-                                      {routine.calls_procedures.map((proc: string, idx: number) => (
-                                        <Badge key={idx} variant="success" className="dependency-badge">
-                                          {proc}
-                                        </Badge>
-                                      ))}
-                                    </div>
+                          {/* Detail Tabs */}
+                          <div style={{ display: 'flex', gap: '8px', padding: '12px 0', borderBottom: '1px solid var(--color-divider)' }}>
+                            <button
+                              onClick={() => setActiveDetailTab('definition')}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                padding: '6px 14px', border: 'none', background: 'none', cursor: 'pointer',
+                                fontSize: '13px', fontWeight: 500,
+                                color: activeDetailTab === 'definition' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                                borderBottom: activeDetailTab === 'definition' ? '2px solid var(--color-primary)' : '2px solid transparent'
+                              }}
+                            >
+                              <Code size={14} /> Definition
+                            </button>
+                            <button
+                              onClick={() => setActiveDetailTab('dependencies')}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                padding: '6px 14px', border: 'none', background: 'none', cursor: 'pointer',
+                                fontSize: '13px', fontWeight: 500,
+                                color: activeDetailTab === 'dependencies' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                                borderBottom: activeDetailTab === 'dependencies' ? '2px solid var(--color-primary)' : '2px solid transparent'
+                              }}
+                            >
+                              <Database size={14} /> Dependencies ({totalDeps})
+                            </button>
+                            <button
+                              onClick={() => setActiveDetailTab('execution')}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                padding: '6px 14px', border: 'none', background: 'none', cursor: 'pointer',
+                                fontSize: '13px', fontWeight: 500,
+                                color: activeDetailTab === 'execution' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                                borderBottom: activeDetailTab === 'execution' ? '2px solid var(--color-primary)' : '2px solid transparent'
+                              }}
+                            >
+                              <BarChart3 size={14} /> Execution Statistics
+                            </button>
+                          </div>
+
+                          <div style={{ padding: '16px 0' }}>
+                            {/* Definition Tab */}
+                            {activeDetailTab === 'definition' && routine.definition && (
+                              <pre className="sql-code"><code>{routine.definition}</code></pre>
+                            )}
+                            {activeDetailTab === 'definition' && !routine.definition && (
+                              <p className="text-muted">No definition available</p>
+                            )}
+
+                            {/* Dependencies Tab */}
+                            {activeDetailTab === 'dependencies' && (
+                              <div>
+                                {totalDeps === 0 ? (
+                                  <p className="text-muted">No dependencies found</p>
+                                ) : (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {routine.dependent_tables?.length > 0 && (
+                                      <div>
+                                        <h5 style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          <TableIcon size={14} /> Tables ({routine.dependent_tables.length})
+                                        </h5>
+                                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                          {routine.dependent_tables.map((table: string, idx: number) => (
+                                            <Badge key={idx} variant="default">{table}</Badge>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {routine.dependent_views?.length > 0 && (
+                                      <div>
+                                        <h5 style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          <Eye size={14} /> Views ({routine.dependent_views.length})
+                                        </h5>
+                                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                          {routine.dependent_views.map((v: string, idx: number) => (
+                                            <Badge key={idx} variant="info">{v}</Badge>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {routine.dependent_functions?.length > 0 && (
+                                      <div>
+                                        <h5 style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          <Code size={14} /> Functions ({routine.dependent_functions.length})
+                                        </h5>
+                                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                          {routine.dependent_functions.map((func: string, idx: number) => (
+                                            <Badge key={idx} variant="warning">{func}</Badge>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {routine.calls_procedures?.length > 0 && (
+                                      <div>
+                                        <h5 style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          <Code size={14} /> Calls Procedures ({routine.calls_procedures.length})
+                                        </h5>
+                                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                          {routine.calls_procedures.map((proc: string, idx: number) => (
+                                            <Badge key={idx} variant="success">{proc}</Badge>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                               </div>
                             )}
-                            
-                            {/* SQL Definition */}
-                            {routine.definition && (
-                              <div className="dependency-section">
-                                <h4 className="dependency-section-title">
-                                  <Code size={16} />
-                                  Definition
-                                </h4>
-                                <pre className="sql-code"><code>{routine.definition}</code></pre>
+
+                            {/* Execution Statistics Tab */}
+                            {activeDetailTab === 'execution' && (
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginTop: '4px' }}>
+                                {[
+                                  { label: 'Total Executions', value: totalExecutions > 0 ? totalExecutions.toLocaleString() : '-' },
+                                  { label: 'Today', value: executionsToday > 0 ? executionsToday.toLocaleString() : '-' },
+                                  { label: 'Last 7 Days', value: executions7Days > 0 ? executions7Days.toLocaleString() : '-' },
+                                  { label: 'Last 30 Days', value: executions30Days > 0 ? executions30Days.toLocaleString() : '-' },
+                                  { label: 'Avg Duration (ms)', value: avgDurationMs > 0 ? avgDurationMs.toFixed(2) : '-' },
+                                  { label: 'Last Executed', value: lastExecutionTime ? formatDate(lastExecutionTime) : 'Never', small: true },
+                                ].map((stat, i) => (
+                                  <div key={i} style={{ background: '#f9fafb', borderRadius: '6px', padding: '12px 14px' }}>
+                                    <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginBottom: '6px', textAlign: 'left' }}>
+                                      {stat.label}
+                                    </div>
+                                    <div style={{ fontSize: stat.small ? '13px' : '18px', fontWeight: stat.small ? 500 : 600, color: 'var(--color-text-primary)', textAlign: 'left' }}>
+                                      {stat.value}
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
                             )}
                           </div>
