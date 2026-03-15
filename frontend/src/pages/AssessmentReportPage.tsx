@@ -32,7 +32,7 @@ import './AssessmentReportPage.css';
 // Transform security policies data for SQL Server Security Section
 const transformSecurityDataForSQLServer = (securityPolicies: any[]) => {
   if (!securityPolicies || securityPolicies.length === 0) {
-    return { users: [], permissions: [], roles: [], schemas: [], policies: [], logins: [], encryption: [] };
+    return { users: [], permissions: [], roles: [], schemas: [], policies: [], logins: [], encryption: [], linkedServers: [] };
   }
 
   const users: any[] = [];
@@ -42,6 +42,7 @@ const transformSecurityDataForSQLServer = (securityPolicies: any[]) => {
   const policies: any[] = [];
   const logins: any[] = [];
   const encryption: any[] = [];
+  const linkedServers: any[] = [];
 
   securityPolicies.forEach((policy: any) => {
     const metadata = policy.security_metadata || {};
@@ -123,10 +124,24 @@ const transformSecurityDataForSQLServer = (securityPolicies: any[]) => {
           created_date: metadata.created_date
         });
         break;
+      case 'LINKED_SERVER':
+        linkedServers.push({
+          server_name: metadata.server_name || policy.policy_name,
+          product: metadata.product || '',
+          provider_name: metadata.provider_name || '',
+          data_source: metadata.data_source || '',
+          default_catalog: metadata.default_catalog || '',
+          is_remote_login_enabled: metadata.is_remote_login_enabled || false,
+          is_rpc_out_enabled: metadata.is_rpc_out_enabled || false,
+          is_data_access_enabled: metadata.is_data_access_enabled || false,
+          mapped_logins: metadata.mapped_logins || '',
+          modified_date: metadata.modified_date
+        });
+        break;
     }
   });
 
-  return { users, permissions, roles, schemas, policies, logins, encryption };
+  return { users, permissions, roles, schemas, policies, logins, encryption, linkedServers };
 };
 
 export const AssessmentReportPage: React.FC = () => {

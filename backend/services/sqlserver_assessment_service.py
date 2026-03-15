@@ -2425,8 +2425,8 @@ class SQLServerAssessmentService:
                 sp.name AS login_name,
                 sp.type_desc AS login_type,
                 sp.is_disabled,
-                CASE WHEN sp.is_policy_checked = 1 THEN 1 ELSE 0 END AS password_policy_enforced,
-                CASE WHEN sp.is_expiration_checked = 1 THEN 1 ELSE 0 END AS password_expiration_enforced,
+                ISNULL(sl.is_policy_checked, 0) AS password_policy_enforced,
+                ISNULL(sl.is_expiration_checked, 0) AS password_expiration_enforced,
                 0 AS failed_login_attempts,
                 sp.create_date,
                 STUFF((
@@ -2437,9 +2437,10 @@ class SQLServerAssessmentService:
                     FOR XML PATH(''), TYPE
                 ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS server_roles
             FROM sys.server_principals sp
+            LEFT JOIN sys.sql_logins sl ON sp.principal_id = sl.principal_id
             WHERE sp.type IN ('S', 'U', 'G')
                 AND sp.name NOT LIKE '##%'
-                AND sp.name NOT IN ('sa', 'BUILTIN\\Administrators')
+                AND sp.name NOT LIKE 'NT %'
             ORDER BY sp.name
             """
 
@@ -2697,6 +2698,60 @@ class SQLServerAssessmentService:
                 })
         except Exception as e:
             print(f"[SQL Server Assessment] Note: Encryption information not available: {e}", flush=True)
+
+        # 8. Collect Linked Servers
+        try:
+            print("[SQL Server Assessment] Collecting linked servers...", flush=True)
+            linked_servers_query = """
+            SELECT 
+                s.name AS server_name,
+                s.product,
+                s.provider AS provider_name,
+                s.data_source,
+                s.catalog AS default_catalog,
+                s.is_linked,
+                s.is_remote_login_enabled,
+                s.is_rpc_out_enabled,
+                s.is_data_access_enabled,
+                s.modify_date,
+                STUFF((
+                    SELECT ', ' + ll.remote_name
+                    FROM sys.linked_logins ll
+                    WHERE ll.server_id = s.server_id AND ll.remote_name IS NOT NULL
+                    FOR XML PATH(''), TYPE
+                ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS mapped_logins
+            FROM sys.servers s
+            WHERE s.is_linked = 1
+            ORDER BY s.name
+            """
+
+            cursor.execute(linked_servers_query)
+            linked_rows = cursor.fetchall()
+            print(f"[SQL Server Assessment] Found {len(linked_rows)} linked servers", flush=True)
+
+            for row in linked_rows:
+                security_policies.append({
+                    'security_type': 'LINKED_SERVER',
+                    'table_name': None,
+                    'policy_name': row.server_name,
+                    'filter_predicate': None,
+                    'grantees': [],
+                    'creation_time': row.modify_date,
+                    'security_metadata': {
+                        'server_name': row.server_name,
+                        'product': row.product or '',
+                        'provider_name': row.provider_name or '',
+                        'data_source': row.data_source or '',
+                        'default_catalog': row.default_catalog or '',
+                        'is_remote_login_enabled': bool(row.is_remote_login_enabled),
+                        'is_rpc_out_enabled': bool(row.is_rpc_out_enabled),
+                        'is_data_access_enabled': bool(row.is_data_access_enabled),
+                        'mapped_logins': row.mapped_logins or '',
+                        'modified_date': row.modify_date.isoformat() if row.modify_date else None
+                    }
+                })
+        except Exception as e:
+            print(f"[SQL Server Assessment] Note: Linked servers not available: {e}", flush=True)
 
         print(f"[SQL Server Assessment] ✓ Collected {len(security_policies)} total security policies", flush=True)
         return security_policies
