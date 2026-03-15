@@ -32,7 +32,7 @@ import './AssessmentReportPage.css';
 // Transform security policies data for SQL Server Security Section
 const transformSecurityDataForSQLServer = (securityPolicies: any[]) => {
   if (!securityPolicies || securityPolicies.length === 0) {
-    return { users: [], permissions: [], roles: [], schemas: [], policies: [], logins: [], encryption: [] };
+    return { users: [], permissions: [], roles: [], schemas: [], policies: [], logins: [], encryption: [], linkedServers: [] };
   }
 
   const users: any[] = [];
@@ -42,6 +42,7 @@ const transformSecurityDataForSQLServer = (securityPolicies: any[]) => {
   const policies: any[] = [];
   const logins: any[] = [];
   const encryption: any[] = [];
+  const linkedServers: any[] = [];
 
   securityPolicies.forEach((policy: any) => {
     const metadata = policy.security_metadata || {};
@@ -123,10 +124,24 @@ const transformSecurityDataForSQLServer = (securityPolicies: any[]) => {
           created_date: metadata.created_date
         });
         break;
+      case 'LINKED_SERVER':
+        linkedServers.push({
+          server_name: metadata.server_name || policy.policy_name,
+          product: metadata.product || '',
+          provider_name: metadata.provider_name || '',
+          data_source: metadata.data_source || '',
+          default_catalog: metadata.default_catalog || '',
+          is_remote_login_enabled: metadata.is_remote_login_enabled || false,
+          is_rpc_out_enabled: metadata.is_rpc_out_enabled || false,
+          is_data_access_enabled: metadata.is_data_access_enabled || false,
+          mapped_logins: metadata.mapped_logins || '',
+          modified_date: metadata.modified_date
+        });
+        break;
     }
   });
 
-  return { users, permissions, roles, schemas, policies, logins, encryption };
+  return { users, permissions, roles, schemas, policies, logins, encryption, linkedServers };
 };
 
 export const AssessmentReportPage: React.FC = () => {
@@ -261,9 +276,13 @@ export const AssessmentReportPage: React.FC = () => {
   const isSQLServer = report?.assessment?.source_db_type?.toLowerCase() === 'sqlserver';
   const isBigQuery = !isSQLServer;
 
+  // Extract schemas from security data for SQL Server top-level tab
+  const sqlServerSchemas = isSQLServer ? transformSecurityDataForSQLServer(report.security_policies).schemas : [];
+
   const tabs = [
     { id: 'summary', label: 'Summary', icon: FileSearch },
     { id: 'datasets', label: 'Datasets', icon: Database },
+    ...(isSQLServer ? [{ id: 'schemas', label: 'Schemas', icon: Database }] : []),
     { id: 'tables', label: 'Tables', icon: TableIcon },
     { id: 'views', label: 'Views', icon: Eye },
     { id: 'procedures', label: 'Stored Procedures', icon: Code },
@@ -271,7 +290,7 @@ export const AssessmentReportPage: React.FC = () => {
     ...(isSQLServer ? [{ id: 'triggers', label: 'Triggers', icon: Zap }] : []),
     ...(isBigQuery ? [{ id: 'ml-models', label: 'ML & Spark Models', icon: Brain }] : []),
     { id: 'query-insights', label: 'Query Insights', icon: Activity },
-    { id: 'user-insights', label: 'User Insights', icon: Users },
+    { id: 'user-insights', label: isSQLServer ? 'Query Summary' : 'User Insights', icon: Users },
     { id: 'security', label: 'Security', icon: Shield },
     { id: 'recommendations', label: 'Recommendations', icon: TrendingUp },
     { id: 'tco', label: 'TCO Analysis', icon: DollarSign },
@@ -320,7 +339,10 @@ export const AssessmentReportPage: React.FC = () => {
           <SummarySection report={report} formatSize={formatSize} formatDate={formatDate} formatNumber={formatNumber} getSparkModels={getSparkModels} setActiveTab={setActiveTab} />
         )}
         {activeTab === 'datasets' && (
-          <DatasetsSection datasets={report.datasets} formatSize={formatSize} formatDate={formatDate} />
+          <DatasetsSection datasets={report.datasets} tables={report.tables} isSQLServer={isSQLServer} formatSize={formatSize} formatDate={formatDate} />
+        )}
+        {activeTab === 'schemas' && isSQLServer && (
+          <SchemasSection schemas={sqlServerSchemas} formatDate={formatDate} />
         )}
         {activeTab === 'tables' && (
           isSQLServer ? (
@@ -369,10 +391,10 @@ export const AssessmentReportPage: React.FC = () => {
           <MLModelsSection mlModels={report.ml_models} sparkModels={getSparkModels()} formatDate={formatDate} />
         )}
         {activeTab === 'query-insights' && (
-          <QueryInsightsSection assessmentId={parseInt(assessmentId!)} />
+          <QueryInsightsSection assessmentId={parseInt(assessmentId!)} isSQLServer={isSQLServer} />
         )}
         {activeTab === 'user-insights' && (
-          <UserInsightsSection queryStats={report.query_stats} />
+          <UserInsightsSection queryStats={report.query_stats} isSQLServer={isSQLServer} />
         )}
         {activeTab === 'security' && (
           isSQLServer ? (
@@ -408,9 +430,76 @@ export const AssessmentReportPage: React.FC = () => {
 }
 
 // Summary Section Component
-const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatNumber, getSparkModels, setActiveTab }) => (
+const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatNumber, getSparkModels, setActiveTab }) => {
+  const isSQLServer = report?.assessment?.source_db_type?.toLowerCase() === 'sqlserver';
+  const isBigQuery = !isSQLServer;
+  
+  // Get trigger count for SQL Server
+  const triggerCount = isSQLServer ? report.routines.filter((r: any) => r.routine_type === 'TRIGGER').length : 0;
+  // Get schemas count for SQL Server
+  const schemasCount = isSQLServer ? (report.security_policies || []).filter((p: any) => p.security_type === 'SCHEMA').length : 0;
+
+  return (
   <div className="section-content">
     <h2 className="section-heading">Assessment Summary</h2>
+
+    {/* SQL Server Instance Info Banner */}
+    {isSQLServer && report.datasets?.[0]?.dataset_metadata && (() => {
+      const meta = report.datasets[0].dataset_metadata;
+      const version = meta.version || '';
+      const edition = meta.edition || '';
+      const productLevel = meta.product_level || '';
+      const instanceRole = meta.instance_role || '';
+      const serverName = meta.server_name || meta.machine_name || report.datasets[0].location || '';
+      const instanceName = meta.instance_name || '';
+      const hasAnyInfo = version || edition || serverName;
+
+      if (!hasAnyInfo) return null;
+
+      const roleBadgeVariant = instanceRole === 'PRIMARY' ? 'success' : instanceRole === 'SECONDARY' ? 'warning' : 'default';
+
+      return (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap',
+          background: '#f8fafc', border: '1px solid var(--color-divider)', borderRadius: '8px',
+          padding: '14px 18px', marginBottom: '20px'
+        }}>
+          <Server size={18} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap', fontSize: '13px' }}>
+            {serverName && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Server:</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{serverName}{instanceName && instanceName !== 'Default' ? `\\${instanceName}` : ''}</span>
+              </div>
+            )}
+            {version && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Version:</span>
+                <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>{version}</span>
+              </div>
+            )}
+            {edition && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Edition:</span>
+                <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>{edition}</span>
+              </div>
+            )}
+            {productLevel && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Level:</span>
+                <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>{productLevel}</span>
+              </div>
+            )}
+            {instanceRole && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ color: 'var(--color-text-secondary)' }}>Role:</span>
+                <Badge variant={roleBadgeVariant}>{instanceRole}</Badge>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    })()}
     
     {/* Summary Cards */}
     <div className="summary-grid">
@@ -423,6 +512,18 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
           <div className="summary-label">Datasets</div>
         </div>
       </div>
+
+      {isSQLServer && (
+        <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('schemas')}>
+          <div className="summary-icon" style={{ background: '#F0F9FF', color: '#0284C7' }}>
+            <Database size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{schemasCount}</div>
+            <div className="summary-label">Schemas</div>
+          </div>
+        </div>
+      )}
 
       <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('tables')}>
         <div className="summary-icon" style={{ background: '#F0FDF4', color: '#16A34A' }}>
@@ -444,7 +545,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('stored-procedures')}>
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('procedures')}>
         <div className="summary-icon" style={{ background: '#FCE7F3', color: '#DB2777' }}>
           <Code size={24} />
         </div>
@@ -454,23 +555,49 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('ml-spark-models')}>
-        <div className="summary-icon" style={{ background: '#EDE9FE', color: '#7C3AED' }}>
-          <Brain size={24} />
+      {isSQLServer && (
+        <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('triggers')}>
+          <div className="summary-icon" style={{ background: '#FFF7ED', color: '#EA580C' }}>
+            <Zap size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{triggerCount}</div>
+            <div className="summary-label">Triggers</div>
+          </div>
         </div>
-        <div className="summary-content">
-          <div className="summary-value">{report.assessment.total_ml_models}</div>
-          <div className="summary-label">ML Models</div>
-        </div>
-      </div>
+      )}
 
-      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('ml-spark-models')}>
-        <div className="summary-icon" style={{ background: '#FFF7ED', color: '#EA580C' }}>
-          <Activity size={24} />
+      {isBigQuery && (
+        <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('ml-models')}>
+          <div className="summary-icon" style={{ background: '#EDE9FE', color: '#7C3AED' }}>
+            <Brain size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{report.assessment.total_ml_models}</div>
+            <div className="summary-label">ML Models</div>
+          </div>
+        </div>
+      )}
+
+      {isBigQuery && (
+        <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('ml-models')}>
+          <div className="summary-icon" style={{ background: '#FFF7ED', color: '#EA580C' }}>
+            <Activity size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{getSparkModels().length}</div>
+            <div className="summary-label">Spark Models</div>
+          </div>
+        </div>
+      )}
+
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('security')}>
+        <div className="summary-icon" style={{ background: '#FEF2F2', color: '#DC2626' }}>
+          <Shield size={24} />
         </div>
         <div className="summary-content">
-          <div className="summary-value">{getSparkModels().length}</div>
-          <div className="summary-label">Spark Models</div>
+          <div className="summary-value">{(report.security_policies || []).length}</div>
+          <div className="summary-label">Security Items</div>
         </div>
       </div>
 
@@ -504,12 +631,22 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
       </div>
     </div>
   </div>
-);
+  );
+};
 
 // Continue in next part...
 
 // Datasets Section Component
-const DatasetsSection: React.FC<any> = ({ datasets, formatSize, formatDate }) => (
+const DatasetsSection: React.FC<any> = ({ datasets, tables, isSQLServer, formatSize, formatDate }) => {
+  // For SQL Server, compute table count from actual tables data since the stored value may be 0
+  const getTableCount = (dataset: any) => {
+    if (isSQLServer && tables && tables.length > 0) {
+      return tables.filter((t: any) => t.table_type === 'BASE TABLE').length;
+    }
+    return dataset.table_count;
+  };
+
+  return (
   <div className="section-content">
     <h2 className="section-heading">Datasets ({datasets.length})</h2>
     {datasets.length === 0 ? (
@@ -535,8 +672,49 @@ const DatasetsSection: React.FC<any> = ({ datasets, formatSize, formatDate }) =>
                 <td className="font-medium">{dataset.dataset_name}</td>
                 <td>{dataset.location || 'N/A'}</td>
                 <td>{formatDate(dataset.creation_time)}</td>
-                <td>{dataset.table_count}</td>
+                <td>{getTableCount(dataset)}</td>
                 <td>{formatSize(dataset.total_size_mb)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+  );
+};
+
+// Schemas Section Component (SQL Server top-level tab)
+const SchemasSection: React.FC<{ schemas: any[]; formatDate: (date: string | null) => string }> = ({ schemas, formatDate }) => (
+  <div className="section-content">
+    <h2 className="section-heading">Schemas ({schemas.length})</h2>
+    {schemas.length === 0 ? (
+      <div className="empty-state">
+        <Database size={48} />
+        <p>No schemas found</p>
+      </div>
+    ) : (
+      <div className="table-container">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left' }}>Schema Name</th>
+              <th style={{ textAlign: 'left' }}>Owner</th>
+              <th style={{ textAlign: 'left' }}>Owner Type</th>
+              <th style={{ textAlign: 'left' }}>Created Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {schemas.map((schema: any, idx: number) => (
+              <tr key={idx}>
+                <td style={{ textAlign: 'left' }}>{schema.schema_name}</td>
+                <td style={{ textAlign: 'left' }}>{schema.owner_name}</td>
+                <td style={{ textAlign: 'left' }}>
+                  <Badge variant="default">{schema.owner_type}</Badge>
+                </td>
+                <td style={{ textAlign: 'left' }} className="timestamp-value">
+                  {formatDate(schema.created_date)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -1240,7 +1418,7 @@ const MLModelsSection: React.FC<any> = ({ mlModels, sparkModels, formatDate }) =
 // Query Insights Section Component with Time Filters and Charts
 
 // User Insights Section Component
-const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
+const UserInsightsSection: React.FC<any> = ({ queryStats, isSQLServer = false }) => {
   const [timeFilter, setTimeFilter] = useState('all'); // all, 24h, 7d, 30d
   
   // Filter queries by time frame
@@ -1315,6 +1493,11 @@ const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
   const formatSlots = (milliseconds: number) => {
     if (milliseconds === 0) return '0';
     const seconds = milliseconds / 1000;
+    if (isSQLServer) {
+      if (seconds >= 3600) return `${(seconds / 3600).toFixed(2)} hrs`;
+      if (seconds >= 60) return `${(seconds / 60).toFixed(2)} mins`;
+      return `${seconds.toFixed(2)} secs`;
+    }
     if (seconds >= 3600) return `${(seconds / 3600).toFixed(2)} slot-hrs`;
     if (seconds >= 60) return `${(seconds / 60).toFixed(2)} slot-mins`;
     return `${seconds.toFixed(2)} slot-secs`;
@@ -1323,7 +1506,7 @@ const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
   return (
     <div className="section-content">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 className="section-heading">User Insights ({users.length} users)</h2>
+        <h2 className="section-heading">{isSQLServer ? 'Query Summary' : 'User Insights'} ({users.length} {isSQLServer ? 'source' : 'users'})</h2>
         
         {/* Time Filter */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1351,10 +1534,10 @@ const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ textAlign: 'left' }}>User Email</th>
+                <th style={{ textAlign: 'left' }}>{isSQLServer ? 'Source' : 'User Email'}</th>
                 <th style={{ textAlign: 'right' }}>Queries Executed</th>
                 <th style={{ textAlign: 'right' }}>Total Data Scanned</th>
-                <th style={{ textAlign: 'right' }}>Slots Utilized</th>
+                <th style={{ textAlign: 'right' }}>{isSQLServer ? 'CPU Time' : 'Slots Utilized'}</th>
                 <th style={{ textAlign: 'right' }}>Cache Hit Ratio</th>
               </tr>
             </thead>

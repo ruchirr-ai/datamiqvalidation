@@ -72,9 +72,10 @@ interface QueryInsightsData {
 
 interface QueryInsightsSectionProps {
   assessmentId: number;
+  isSQLServer?: boolean;
 }
 
-const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentId }) => {
+const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentId, isSQLServer = false }) => {
   const [data, setData] = useState<QueryInsightsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState('all');
@@ -569,10 +570,12 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
           </div>
           <div className="summary-content">
             <div className="summary-value">{formatTime(data.summary.avg_execution_time_seconds)}</div>
-            <div className="summary-label">Avg Slot Time / Query</div>
-            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
-              Total CPU time per query
-            </div>
+            <div className="summary-label">{isSQLServer ? 'Avg CPU Time / Query' : 'Avg Slot Time / Query'}</div>
+            {!isSQLServer && (
+              <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+                Total CPU time per query
+              </div>
+            )}
           </div>
         </div>
 
@@ -582,7 +585,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
           </div>
           <div className="summary-content">
             <div className="summary-value">{formatBytes(data.summary.total_bytes_scanned)}</div>
-            <div className="summary-label">Bytes Scanned</div>
+            <div className="summary-label">{isSQLServer ? 'Logical Reads (bytes)' : 'Bytes Scanned'}</div>
           </div>
         </div>
 
@@ -618,9 +621,9 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
           </div>
           <div className="summary-content">
             <div className="summary-value">{data.summary.peak_slot_utilization ?? 0}</div>
-            <div className="summary-label">Peak Slot Utilization</div>
+            <div className="summary-label">{isSQLServer ? 'Peak CPU Utilization' : 'Peak Slot Utilization'}</div>
             <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
-              Avg: {data.summary.avg_slot_utilization ?? 0} slots
+              Avg: {data.summary.avg_slot_utilization ?? 0} {isSQLServer ? 'threads' : 'slots'}
             </div>
           </div>
         </div>
@@ -646,7 +649,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
             <div className="summary-value">{formatTime(data.summary.avg_query_runtime_seconds ?? 0)}</div>
             <div className="summary-label">Avg Query Runtime</div>
             <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
-              Est. wall-clock time · Avg Slot ms: {formatNumber(data.summary.avg_slot_ms_per_query ?? 0)}
+              Est. wall-clock time · Avg {isSQLServer ? 'CPU' : 'Slot'} ms: {formatNumber(data.summary.avg_slot_ms_per_query ?? 0)}
             </div>
           </div>
         </div>
@@ -660,10 +663,12 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
           </div>
           <div className="summary-content">
             <div className="summary-value">{((data.summary.total_slot_milliseconds ?? 0) / 3600000).toFixed(1)}h</div>
-            <div className="summary-label">Total Slot Hours</div>
-            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
-              Total BQ compute consumption
-            </div>
+            <div className="summary-label">{isSQLServer ? 'Total CPU Hours' : 'Total Slot Hours'}</div>
+            {!isSQLServer && (
+              <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+                Total BQ compute consumption
+              </div>
+            )}
           </div>
         </div>
 
@@ -673,7 +678,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
           </div>
           <div className="summary-content">
             <div className="summary-value">{data.summary.total_query_count > 0 ? formatBytes(data.summary.total_bytes_scanned / data.summary.total_query_count) : '0 B'}</div>
-            <div className="summary-label">Avg Bytes Scanned / Query</div>
+            <div className="summary-label">{isSQLServer ? 'Avg Logical Reads / Query' : 'Avg Bytes Scanned / Query'}</div>
           </div>
         </div>
 
@@ -727,8 +732,8 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="query-sort-trigger">
-                  {sortBy === 'bytes_scanned' ? 'Bytes Scanned (highest)' :
-                   sortBy === 'slot_milliseconds' ? 'Slot Time (highest)' :
+                  {sortBy === 'bytes_scanned' ? (isSQLServer ? 'Logical Reads (highest)' : 'Bytes Scanned (highest)') :
+                   sortBy === 'slot_milliseconds' ? (isSQLServer ? 'CPU Time (highest)' : 'Slot Time (highest)') :
                    sortBy === 'execution_time' ? 'Most Recent' :
                    'Execution Time (longest)'}
                   <ChevronDown size={14} />
@@ -738,8 +743,8 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
                 <DropdownMenuLabel>Sort queries by</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => { setSortBy(v); setPage(1); }}>
-                  <DropdownMenuRadioItem value="bytes_scanned">Bytes Scanned (highest)</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="slot_milliseconds">Slot Time (highest)</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="bytes_scanned">{isSQLServer ? 'Logical Reads (highest)' : 'Bytes Scanned (highest)'}</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="slot_milliseconds">{isSQLServer ? 'CPU Time (highest)' : 'Slot Time (highest)'}</DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="execution_time">Most Recent</DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="est_runtime">Execution Time (longest)</DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
@@ -761,12 +766,12 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
               <th>Job ID</th>
               <th>Execution Time</th>
               <th>Query Text</th>
-              <th>Bytes Scanned</th>
-              <th>Slot ms</th>
-              <th>Slot Util.</th>
+              <th>{isSQLServer ? 'Logical Reads' : 'Bytes Scanned'}</th>
+              <th>{isSQLServer ? 'CPU ms' : 'Slot ms'}</th>
+              <th>{isSQLServer ? 'CPU Util.' : 'Slot Util.'}</th>
               <th>Est. Runtime</th>
               <th>Cache Hit</th>
-              <th>User Email</th>
+              <th>{isSQLServer ? 'Source' : 'User Email'}</th>
             </tr>
           </thead>
           <tbody>
@@ -803,7 +808,7 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
                       </td>
                       <td>{formatBytes(query.bytes_scanned)}</td>
                       <td>{formatNumber(query.slot_milliseconds)}</td>
-                      <td>{query.slot_utilization ?? 0} slots</td>
+                      <td>{query.slot_utilization ?? 0} {isSQLServer ? 'threads' : 'slots'}</td>
                       <td>{formatTime(query.est_runtime_seconds ?? 0)}</td>
                       <td>
                         <span className={`cache-status ${query.cache_hit ? 'hit' : 'miss'}`}>

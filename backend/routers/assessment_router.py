@@ -669,7 +669,8 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                     "location": d.location,
                     "creation_time": d.creation_time.isoformat() if d.creation_time else None,
                     "table_count": d.table_count,
-                    "total_size_mb": d.total_size_mb
+                    "total_size_mb": d.total_size_mb,
+                    "dataset_metadata": d.dataset_metadata or {}
                 }
                 for d in datasets
             ],
@@ -734,7 +735,8 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                     "dependent_views": r.dependent_views or [],
                     "dependent_functions": r.dependent_functions or [],
                     "calls_procedures": r.calls_procedures or [],
-                    "dependency_depth": r.dependency_depth
+                    "dependency_depth": r.dependency_depth,
+                    "routine_metadata": r.routine_metadata or {}
                 }
                 for r in routines
             ],

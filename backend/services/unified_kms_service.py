@@ -122,7 +122,11 @@ class UnifiedKMSService:
             try:
                 if not self._check_aws_availability():
                     raise ValueError("AWS credentials not configured")
-                self._secrets_client = boto3.client('secretsmanager', region_name=self.region_name)
+                self._secrets_client = boto3.client(
+                    'secretsmanager',
+                    region_name=self.region_name,
+                    **self._get_explicit_credentials()
+                )
             except Exception as e:
                 self._initialization_error = e
                 logger.warning(f"Failed to initialize AWS Secrets Manager client: {e}")
@@ -138,7 +142,11 @@ class UnifiedKMSService:
             try:
                 if not self._check_aws_availability():
                     raise ValueError("AWS credentials not configured")
-                self._kms_client = boto3.client('kms', region_name=self.region_name)
+                self._kms_client = boto3.client(
+                    'kms',
+                    region_name=self.region_name,
+                    **self._get_explicit_credentials()
+                )
             except Exception as e:
                 self._initialization_error = e
                 logger.warning(f"Failed to initialize AWS KMS client: {e}")
@@ -146,6 +154,21 @@ class UnifiedKMSService:
         if self._initialization_error:
             raise ValueError(f"AWS credentials not configured: {self._initialization_error}")
         return self._kms_client
+    
+    def _get_explicit_credentials(self) -> dict:
+        """
+        Return explicit AWS credentials from environment if available.
+        This ensures the KMS/Secrets Manager clients use the .env credentials
+        rather than the EC2 instance role, which may lack kms:Decrypt permission.
+        """
+        access_key = os.getenv('AWS_ACCESS_KEY_ID', '').strip()
+        secret_key = os.getenv('AWS_SECRET_ACCESS_KEY', '').strip()
+        if access_key and secret_key:
+            return {
+                'aws_access_key_id': access_key,
+                'aws_secret_access_key': secret_key,
+            }
+        return {}
     
     def _get_kms_key_arn(self) -> str:
         """
