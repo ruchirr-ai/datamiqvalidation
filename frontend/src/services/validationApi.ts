@@ -28,6 +28,7 @@ export interface CreateValidationRunRequest {
   bedrock_model?: string;
   batch_size?: number;
   type_mapping_overrides?: Record<string, string>;
+  run_name?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +53,8 @@ export interface ValidationRun {
   created_by: string;
   created_at: string;
   updated_at: string;
+  run_name: string | null;
+  table_results?: ValidationTableResult[] | null;
 }
 
 export interface PaginatedValidationRunsResponse {
@@ -96,6 +99,7 @@ export interface ValidationReport {
   started_at: string | null;
   completed_at: string | null;
   duration_seconds: number | null;
+  run_name: string | null;
   tables: ValidationTableDetail[];
 }
 
@@ -119,13 +123,15 @@ export const listValidationRuns = async (
   page: number = 1,
   pageSize: number = 20,
   migrationId?: number,
-  statusFilter?: string
+  statusFilter?: string,
+  includeTableResults?: boolean
 ): Promise<PaginatedValidationRunsResponse> => {
   const params = new URLSearchParams();
   params.set('page', String(page));
   params.set('page_size', String(pageSize));
   if (migrationId) params.set('migration_id', String(migrationId));
   if (statusFilter) params.set('status_filter', statusFilter);
+  if (includeTableResults) params.set('include_table_results', 'true');
   return api.get<PaginatedValidationRunsResponse>(`/api/validations/?${params.toString()}`);
 };
 

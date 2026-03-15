@@ -93,6 +93,123 @@ class ValidationRepository:
 
         return runs, total_count
 
+    def list_runs_with_table_results(
+        self,
+        workspace_id: int,
+        migration_id: Optional[int] = None,
+        status: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Tuple[List[ValidationRun], int]:
+        """List validation runs with their table results eagerly loaded.
+
+        Fetches runs using the same filters and pagination as ``list_runs``,
+        then performs a secondary query to load ``ValidationTableResult``
+        records for the returned runs and attaches them as a transient
+        ``_table_results`` attribute on each run instance.
+
+        Args:
+            workspace_id: Tenant isolation filter.
+            migration_id: Optional filter by migration ID.
+            status: Optional filter by run status.
+            page: 1-based page number.
+            page_size: Number of results per page (default 20, max 100).
+
+        Returns:
+            Tuple of (list of runs with _table_results populated, total count).
+        """
+        runs, total_count = self.list_runs(
+            workspace_id=workspace_id,
+            migration_id=migration_id,
+            status=status,
+            page=page,
+            page_size=page_size,
+        )
+
+        if runs:
+            run_ids = [r.id for r in runs]
+            table_results = (
+                self.db.query(ValidationTableResult)
+                .filter(
+                    ValidationTableResult.run_id.in_(run_ids),
+                    ValidationTableResult.workspace_id == workspace_id,
+                )
+                .order_by(ValidationTableResult.id.asc())
+                .all()
+            )
+
+            # Group table results by run_id
+            results_by_run: dict = {}
+            for tr in table_results:
+                results_by_run.setdefault(tr.run_id, []).append(tr)
+
+            for run in runs:
+                run._table_results = results_by_run.get(run.id, [])
+        else:
+            for run in runs:
+                run._table_results = []
+
+        return runs, total_count
+
+
+    def list_runs_with_table_results(
+        self,
+        workspace_id: int,
+        migration_id: Optional[int] = None,
+        status: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Tuple[List[ValidationRun], int]:
+        """List validation runs with their table results eagerly loaded.
+
+        Fetches runs using the same filters and pagination as ``list_runs``,
+        then performs a secondary query to load ``ValidationTableResult``
+        records for the returned runs and attaches them as a transient
+        ``_table_results`` attribute on each run instance.
+
+        Args:
+            workspace_id: Tenant isolation filter.
+            migration_id: Optional filter by migration ID.
+            status: Optional filter by run status.
+            page: 1-based page number.
+            page_size: Number of results per page (default 20, max 100).
+
+        Returns:
+            Tuple of (list of runs with _table_results populated, total count).
+        """
+        runs, total_count = self.list_runs(
+            workspace_id=workspace_id,
+            migration_id=migration_id,
+            status=status,
+            page=page,
+            page_size=page_size,
+        )
+
+        if runs:
+            run_ids = [r.id for r in runs]
+            table_results = (
+                self.db.query(ValidationTableResult)
+                .filter(
+                    ValidationTableResult.run_id.in_(run_ids),
+                    ValidationTableResult.workspace_id == workspace_id,
+                )
+                .order_by(ValidationTableResult.id.asc())
+                .all()
+            )
+
+            # Group table results by run_id
+            results_by_run: dict = {}
+            for tr in table_results:
+                results_by_run.setdefault(tr.run_id, []).append(tr)
+
+            for run in runs:
+                run._table_results = results_by_run.get(run.id, [])
+        else:
+            for run in runs:
+                run._table_results = []
+
+        return runs, total_count
+
     def update_run(self, run_id: int, workspace_id: int, **kwargs) -> Optional[ValidationRun]:
         """Update fields on a validation run.
 

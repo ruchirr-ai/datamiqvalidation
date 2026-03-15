@@ -27,6 +27,7 @@ class ValidationRun(Base):
     source_connection_id = Column(Integer, nullable=False)
     target_connection_id = Column(Integer, nullable=False)
     bedrock_model = Column(String(255), nullable=True)
+    run_name = Column(String(255), nullable=True)
     batch_size = Column(Integer, nullable=False, default=10000)
     type_mapping_overrides = Column(JSONB, nullable=True)
     status = Column(String(50), nullable=False, default='pending')
@@ -66,6 +67,7 @@ class ValidationRun(Base):
             'bedrock_model': self.bedrock_model,
             'batch_size': self.batch_size,
             'type_mapping_overrides': self.type_mapping_overrides,
+            'run_name': self.run_name,
             'status': self.status,
             'progress_percentage': self.progress_percentage,
             'tables_total': self.tables_total,

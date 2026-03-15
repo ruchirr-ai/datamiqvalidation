@@ -114,6 +114,21 @@ class TestCreate:
         s = MagicMock(); s.create_validation_run.side_effect = TypeError("x"); mb.return_value = s
         assert client.post("/api/validations/", json=PL).status_code == 500
 
+    def test_run_name_passed(self, mb, client):
+        """Test POST /api/validations/ passes run_name from request body to service."""
+        s = MagicMock(); s.create_validation_run.return_value = _run(run_name="Nightly check"); mb.return_value = s
+        payload = {**PL, "run_name": "Nightly check"}
+        r = client.post("/api/validations/", json=payload)
+        assert r.status_code == 201
+        assert s.create_validation_run.call_args[1]["run_name"] == "Nightly check"
+
+    def test_run_name_omitted(self, mb, client):
+        """Test POST /api/validations/ without run_name passes None to service."""
+        s = MagicMock(); s.create_validation_run.return_value = _run(); mb.return_value = s
+        r = client.post("/api/validations/", json=PL)
+        assert r.status_code == 201
+        assert s.create_validation_run.call_args[1]["run_name"] is None
+
 @patch("routers.validation_router._build_service")
 class TestList:
     def test_200(self, mb, client):
@@ -129,7 +144,36 @@ class TestList:
         mb.return_value = s
         r = client.get("/api/validations/?migration_id=10&status_filter=completed&page=1&page_size=10")
         assert r.status_code == 200
-        s.list_runs.assert_called_once_with(workspace_id=1, page=1, page_size=10, migration_id=10, status="completed")
+        s.list_runs.assert_called_once_with(workspace_id=1, page=1, page_size=10, migration_id=10, status="completed", include_table_results=False)
+
+    def test_include_table_results_true(self, mb, client):
+        """Test GET /api/validations/?include_table_results=true passes param to service."""
+        s = MagicMock()
+        s.list_runs.return_value = {
+            "runs": [_run(table_results=[])],
+            "total": 1, "page": 1, "page_size": 20,
+        }
+        mb.return_value = s
+        r = client.get("/api/validations/?include_table_results=true")
+        assert r.status_code == 200
+        s.list_runs.assert_called_once_with(
+            workspace_id=1, page=1, page_size=20,
+            migration_id=None, status=None, include_table_results=True,
+        )
+
+    def test_include_table_results_false(self, mb, client):
+        """Test GET /api/validations/?include_table_results=false omits table_results."""
+        s = MagicMock()
+        s.list_runs.return_value = {
+            "runs": [_run()], "total": 1, "page": 1, "page_size": 20,
+        }
+        mb.return_value = s
+        r = client.get("/api/validations/?include_table_results=false")
+        assert r.status_code == 200
+        s.list_runs.assert_called_once_with(
+            workspace_id=1, page=1, page_size=20,
+            migration_id=None, status=None, include_table_results=False,
+        )
 
     def test_empty(self, mb, client):
         s = MagicMock()
@@ -241,7 +285,7 @@ class TestWorkspace:
         s.list_runs.return_value = {"runs": [], "total": 0, "page": 1, "page_size": 20}
         mb.return_value = s
         client.get("/api/validations/")
-        s.list_runs.assert_called_once_with(workspace_id=1, page=1, page_size=20, migration_id=None, status=None)
+        s.list_runs.assert_called_once_with(workspace_id=1, page=1, page_size=20, migration_id=None, status=None, include_table_results=False)
 
     def test_get_ws(self, mb, client):
         s = MagicMock(); s.get_run.return_value = _run(); mb.return_value = s
@@ -252,3 +296,28 @@ class TestWorkspace:
         s = MagicMock(); s.delete_run.return_value = True; mb.return_value = s
         client.delete("/api/validations/1")
         s.delete_run.assert_called_once_with(run_id=1, workspace_id=1)
+
+
+@patch("routers.validation_router._build_service")
+class TestRateLimitResponse:
+    """Test that rate limit errors return HTTP 429."""
+
+    def test_429_on_rate_limit(self, mb, client):
+        """RuntimeError from rate limiting returns 429 Too Many Requests."""
+        s = MagicMock()
+        s.create_validation_run.side_effect = RuntimeError(
+            "Workspace 1 has reached the maximum of 10 concurrent validation runs."
+        )
+        mb.return_value = s
+        r = client.post("/api/validations/", json=PL)
+        assert r.status_code == 429
+        assert "maximum of 10" in r.json()["detail"]
+
+    def test_429_detail_includes_message(self, mb, client):
+        """429 response detail contains the full error message."""
+        s = MagicMock()
+        s.create_validation_run.side_effect = RuntimeError("rate limit exceeded")
+        mb.return_value = s
+        r = client.post("/api/validations/", json=PL)
+        assert r.status_code == 429
+        assert "rate limit exceeded" in r.json()["detail"]

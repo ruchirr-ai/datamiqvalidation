@@ -80,6 +80,7 @@ class TestValidationRunModel:
         run = ValidationRun(**VALID_VALIDATION_RUN_MINIMAL)
 
         assert run.bedrock_model is None
+        assert run.run_name is None
         assert run.type_mapping_overrides is None
         assert run.started_at is None
         assert run.completed_at is None
@@ -108,7 +109,7 @@ class TestValidationRunModel:
             "id", "workspace_id", "migration_id",
             "source_connection_id", "target_connection_id",
             "bedrock_model", "batch_size", "type_mapping_overrides",
-            "status", "progress_percentage",
+            "run_name", "status", "progress_percentage",
             "tables_total", "tables_passed", "tables_failed", "tables_error",
             "started_at", "completed_at", "duration_seconds",
             "created_by", "created_at", "updated_at",

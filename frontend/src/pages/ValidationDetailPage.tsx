@@ -37,33 +37,12 @@ function formatDuration(seconds: number | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// Status Icon
+// Status Badge (text-based replacement for SVG StatusIcon)
 // ---------------------------------------------------------------------------
 
-function StatusIcon({ status }: { status: string | null }) {
-  if (status === 'passed') {
-    return (
-      <svg className="status-icon passed" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" aria-label="Passed">
-        <path d="M6 10l3 3 5-5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
-  }
-  if (status === 'failed') {
-    return (
-      <svg className="status-icon failed" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" aria-label="Failed">
-        <path d="M6 6l8 8M14 6l-8 8" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
-  }
-  if (status === 'error') {
-    return (
-      <svg className="status-icon error" width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" aria-label="Error">
-        <path d="M10 7v4M10 13h.01" strokeLinecap="round" />
-        <path d="M8.57 3.81L2.2 15a1 1 0 00.87 1.5h12.72a1 1 0 00.87-1.5L10.3 3.81a1 1 0 00-1.73 0z" />
-      </svg>
-    );
-  }
-  return <span className="status-icon pending" aria-label="Pending">—</span>;
+function StatusBadge({ status }: { status: string | null }) {
+  const label = status === 'passed' ? 'Passed' : status === 'failed' ? 'Failed' : status === 'error' ? 'Error' : 'Pending';
+  return <span className={`vd-status-badge ${status || 'pending'}`}>{label}</span>;
 }
 
 // ---------------------------------------------------------------------------
@@ -246,7 +225,7 @@ export const ValidationDetailPage: React.FC = () => {
           </svg>
         </button>
 
-        <h1 className="validation-detail-title">Validation Run #{runId}</h1>
+        <h1 className="validation-detail-title">{report.run_name || `Validation Run #${runId}`}</h1>
 
         <span className={`validation-status-badge ${statusClass(report.overall_status)}`}>
           {report.overall_status}
@@ -283,7 +262,7 @@ export const ValidationDetailPage: React.FC = () => {
       <div className="validation-detail-summary">
         <div className="validation-detail-stat-card">
           <span className="validation-detail-stat-value">{report.total_tables}</span>
-          <span className="validation-detail-stat-label">Total Tables</span>
+          <span className="validation-detail-stat-label">Tables</span>
         </div>
         <div className="validation-detail-stat-card">
           <span className="validation-detail-stat-value passed">{report.tables_passed}</span>
@@ -346,10 +325,10 @@ export const ValidationDetailPage: React.FC = () => {
                     }}
                   >
                     <td>{t.table_name}</td>
-                    <td><StatusIcon status={t.ddl_status} /></td>
-                    <td><StatusIcon status={t.row_count_status} /></td>
-                    <td><StatusIcon status={t.data_match_status} /></td>
-                    <td><StatusIcon status={overall} /></td>
+                    <td><StatusBadge status={t.ddl_status} /></td>
+                    <td><StatusBadge status={t.row_count_status} /></td>
+                    <td><StatusBadge status={t.data_match_status} /></td>
+                    <td><StatusBadge status={overall} /></td>
                   </tr>
 
                   {isExpanded && (

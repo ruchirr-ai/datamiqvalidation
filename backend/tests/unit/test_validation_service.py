@@ -223,6 +223,7 @@ class TestCreateValidationRunSuccess:
             tables_failed=0,
             tables_error=0,
             created_by="testuser",
+            run_name=None,
         )
 
     def test_creates_table_results_per_table(self, mock_db, mock_cache):
@@ -4038,3 +4039,431 @@ class TestRateLimiting:
 
         with pytest.raises(RuntimeError, match="Workspace 1"):
             svc.create_validation_run(**VALID_PAYLOAD)
+
+
+# ── Tests: run_name persistence ──────────────────────────────────────
+
+
+class TestCreateValidationRunRunName:
+    """Tests for run_name persistence in create_validation_run.
+
+    Validates Requirements 1.3, 1.4: run_name is persisted when provided
+    and stored as None when omitted.
+    """
+
+    # -- Sample payloads --------------------------------------------------
+
+    PAYLOAD_WITH_RUN_NAME = {
+        **VALID_PAYLOAD,
+        "run_name": "Pre-release check",
+    }
+
+    PAYLOAD_WITHOUT_RUN_NAME = {
+        **VALID_PAYLOAD,
+        # run_name intentionally omitted → defaults to None
+    }
+
+    PAYLOAD_WITH_EMPTY_RUN_NAME = {
+        **VALID_PAYLOAD,
+        "run_name": "",
+    }
+
+    PAYLOAD_WITH_LONG_RUN_NAME = {
+        **VALID_PAYLOAD,
+        "run_name": "A" * 255,
+    }
+
+    # -- Tests ------------------------------------------------------------
+
+    def test_create_run_with_run_name_persists_correctly(self, mock_db, mock_cache):
+        """Creating a run with run_name passes it to repo.create_run."""
+        # Arrange
+        run_model = _make_run_model(run_id=1)
+        run_model.to_dict.return_value = {
+            **_make_run_dict(run_id=1),
+            "run_name": "Pre-release check",
+        }
+        svc = _build_service(
+            mock_db, mock_cache,
+            migration=_make_migration(status="completed"),
+            source_conn=_make_connection(conn_id=10),
+            target_conn=_make_connection(conn_id=20),
+            run_model=run_model,
+        )
+
+        # Act
+        result = svc.create_validation_run(**self.PAYLOAD_WITH_RUN_NAME)
+
+        # Assert
+        svc.repo.create_run.assert_called_once()
+        assert svc.repo.create_run.call_args.kwargs["run_name"] == "Pre-release check"
+        assert result["run_name"] == "Pre-release check"
+
+    def test_create_run_without_run_name_stores_none(self, mock_db, mock_cache):
+        """Creating a run without run_name passes None to repo.create_run."""
+        # Arrange
+        svc = _build_service(
+            mock_db, mock_cache,
+            migration=_make_migration(status="completed"),
+            source_conn=_make_connection(conn_id=10),
+            target_conn=_make_connection(conn_id=20),
+        )
+
+        # Act
+        svc.create_validation_run(**self.PAYLOAD_WITHOUT_RUN_NAME)
+
+        # Assert
+        svc.repo.create_run.assert_called_once()
+        assert svc.repo.create_run.call_args.kwargs["run_name"] is None
+
+    def test_create_run_with_empty_run_name_persists_empty_string(self, mock_db, mock_cache):
+        """Creating a run with empty string run_name passes it through."""
+        # Arrange
+        run_model = _make_run_model(run_id=1)
+        run_model.to_dict.return_value = {
+            **_make_run_dict(run_id=1),
+            "run_name": "",
+        }
+        svc = _build_service(
+            mock_db, mock_cache,
+            migration=_make_migration(status="completed"),
+            source_conn=_make_connection(conn_id=10),
+            target_conn=_make_connection(conn_id=20),
+            run_model=run_model,
+        )
+
+        # Act
+        result = svc.create_validation_run(**self.PAYLOAD_WITH_EMPTY_RUN_NAME)
+
+        # Assert
+        assert svc.repo.create_run.call_args.kwargs["run_name"] == ""
+        assert result["run_name"] == ""
+
+    def test_create_run_with_max_length_run_name(self, mock_db, mock_cache):
+        """Creating a run with a 255-char run_name persists correctly."""
+        # Arrange
+        long_name = "A" * 255
+        run_model = _make_run_model(run_id=1)
+        run_model.to_dict.return_value = {
+            **_make_run_dict(run_id=1),
+            "run_name": long_name,
+        }
+        svc = _build_service(
+            mock_db, mock_cache,
+            migration=_make_migration(status="completed"),
+            source_conn=_make_connection(conn_id=10),
+            target_conn=_make_connection(conn_id=20),
+            run_model=run_model,
+        )
+
+        # Act
+        result = svc.create_validation_run(**self.PAYLOAD_WITH_LONG_RUN_NAME)
+
+        # Assert
+        assert svc.repo.create_run.call_args.kwargs["run_name"] == long_name
+        assert result["run_name"] == long_name
+
+    def test_run_name_included_in_cached_dict(self, mock_db, mock_cache):
+        """The cached run dict includes the run_name field."""
+        # Arrange
+        run_model = _make_run_model(run_id=7)
+        run_model.to_dict.return_value = {
+            **_make_run_dict(run_id=7),
+            "run_name": "Nightly validation",
+        }
+        svc = _build_service(
+            mock_db, mock_cache,
+            migration=_make_migration(status="completed"),
+            source_conn=_make_connection(conn_id=10),
+            target_conn=_make_connection(conn_id=20),
+            run_model=run_model,
+        )
+
+        # Act
+        svc.create_validation_run(**{**VALID_PAYLOAD, "run_name": "Nightly validation"})
+
+        # Assert
+        cached_dict = mock_cache.set_run.call_args[0][2]
+        assert cached_dict["run_name"] == "Nightly validation"
+
+
+# ── Tests: list_runs with include_table_results ──────────────────────
+
+
+class TestListRunsWithTableResults:
+    """Tests for list_runs with include_table_results parameter.
+
+    Validates Requirements 6.1, 6.2, 6.3: include_table_results controls
+    whether table_results array is included in the response.
+    """
+
+    def _make_table_result_obj(
+        self, tr_id=1, run_id=1, table_name="users",
+        dataset_name="ds", ddl_status="passed",
+        row_count_status="passed", data_match_status="passed",
+        status="completed",
+    ):
+        """Build a mock table result object with expected attributes."""
+        tr = MagicMock()
+        tr.id = tr_id
+        tr.run_id = run_id
+        tr.table_name = table_name
+        tr.dataset_name = dataset_name
+        tr.ddl_status = ddl_status
+        tr.row_count_status = row_count_status
+        tr.data_match_status = data_match_status
+        tr.status = status
+        return tr
+
+    def test_include_table_results_true_returns_table_results_array(self, mock_db, mock_cache):
+        """When include_table_results=True, each run includes a table_results array."""
+        # Arrange
+        run = _make_run_model(run_id=1)
+        tr1 = self._make_table_result_obj(tr_id=10, run_id=1, table_name="users")
+        tr2 = self._make_table_result_obj(tr_id=11, run_id=1, table_name="orders")
+        run._table_results = [tr1, tr2]
+
+        svc = _build_service(mock_db, mock_cache)
+        svc.repo.list_runs_with_table_results.return_value = ([run], 1)
+
+        # Act
+        result = svc.list_runs(WORKSPACE_ID, include_table_results=True)
+
+        # Assert
+        assert len(result["runs"]) == 1
+        assert "table_results" in result["runs"][0]
+        assert len(result["runs"][0]["table_results"]) == 2
+        table_names = {tr["table_name"] for tr in result["runs"][0]["table_results"]}
+        assert table_names == {"users", "orders"}
+
+    def test_include_table_results_true_table_result_fields(self, mock_db, mock_cache):
+        """Table result dicts contain the expected summary-level fields."""
+        # Arrange
+        run = _make_run_model(run_id=1)
+        tr = self._make_table_result_obj(
+            tr_id=10, run_id=1, table_name="users",
+            ddl_status="passed", row_count_status="failed",
+            data_match_status="error", status="failed",
+        )
+        run._table_results = [tr]
+
+        svc = _build_service(mock_db, mock_cache)
+        svc.repo.list_runs_with_table_results.return_value = ([run], 1)
+
+        # Act
+        result = svc.list_runs(WORKSPACE_ID, include_table_results=True)
+
+        # Assert
+        table_result = result["runs"][0]["table_results"][0]
+        assert table_result["id"] == 10
+        assert table_result["run_id"] == 1
+        assert table_result["table_name"] == "users"
+        assert table_result["ddl_status"] == "passed"
+        assert table_result["row_count_status"] == "failed"
+        assert table_result["data_match_status"] == "error"
+        assert table_result["status"] == "failed"
+
+    def test_include_table_results_false_returns_no_table_results(self, mock_db, mock_cache):
+        """When include_table_results=False, runs do not include table_results."""
+        # Arrange
+        run = _make_run_model(run_id=1)
+        svc = _build_service(mock_db, mock_cache)
+        svc.repo.list_runs.return_value = ([run], 1)
+
+        # Act
+        result = svc.list_runs(WORKSPACE_ID, include_table_results=False)
+
+        # Assert
+        assert len(result["runs"]) == 1
+        assert "table_results" not in result["runs"][0]
+
+    def test_include_table_results_default_false(self, mock_db, mock_cache):
+        """Default behavior (omitted param) does not include table_results."""
+        # Arrange
+        run = _make_run_model(run_id=1)
+        svc = _build_service(mock_db, mock_cache)
+        svc.repo.list_runs.return_value = ([run], 1)
+
+        # Act
+        result = svc.list_runs(WORKSPACE_ID)
+
+        # Assert
+        assert "table_results" not in result["runs"][0]
+        svc.repo.list_runs.assert_called_once()
+        svc.repo.list_runs_with_table_results.assert_not_called()
+
+    def test_include_table_results_true_calls_correct_repo_method(self, mock_db, mock_cache):
+        """When include_table_results=True, calls list_runs_with_table_results."""
+        # Arrange
+        svc = _build_service(mock_db, mock_cache)
+        svc.repo.list_runs_with_table_results.return_value = ([], 0)
+
+        # Act
+        svc.list_runs(WORKSPACE_ID, migration_id=5, status="completed",
+                       page=2, page_size=10, include_table_results=True)
+
+        # Assert
+        svc.repo.list_runs_with_table_results.assert_called_once_with(
+            workspace_id=WORKSPACE_ID,
+            migration_id=5,
+            status="completed",
+            page=2,
+            page_size=10,
+        )
+        svc.repo.list_runs.assert_not_called()
+
+    def test_include_table_results_true_empty_table_results(self, mock_db, mock_cache):
+        """Run with no _table_results attribute returns empty table_results array."""
+        # Arrange
+        run = _make_run_model(run_id=1)
+        # No _table_results attribute set → getattr returns None
+
+        svc = _build_service(mock_db, mock_cache)
+        svc.repo.list_runs_with_table_results.return_value = ([run], 1)
+
+        # Act
+        result = svc.list_runs(WORKSPACE_ID, include_table_results=True)
+
+        # Assert
+        assert result["runs"][0]["table_results"] == []
+
+    def test_include_table_results_true_multiple_runs(self, mock_db, mock_cache):
+        """Multiple runs each get their own table_results array."""
+        # Arrange
+        run1 = _make_run_model(run_id=1)
+        tr1 = self._make_table_result_obj(tr_id=10, run_id=1, table_name="users")
+        run1._table_results = [tr1]
+
+        run2 = _make_run_model(run_id=2)
+        tr2 = self._make_table_result_obj(tr_id=20, run_id=2, table_name="orders")
+        tr3 = self._make_table_result_obj(tr_id=21, run_id=2, table_name="products")
+        run2._table_results = [tr2, tr3]
+
+        svc = _build_service(mock_db, mock_cache)
+        svc.repo.list_runs_with_table_results.return_value = ([run1, run2], 2)
+
+        # Act
+        result = svc.list_runs(WORKSPACE_ID, include_table_results=True)
+
+        # Assert
+        assert len(result["runs"]) == 2
+        assert len(result["runs"][0]["table_results"]) == 1
+        assert len(result["runs"][1]["table_results"]) == 2
+        assert result["runs"][0]["table_results"][0]["table_name"] == "users"
+        assert result["runs"][1]["table_results"][0]["table_name"] == "orders"
+        assert result["runs"][1]["table_results"][1]["table_name"] == "products"
+
+
+# ── Tests: status derivation in run_validation_background ────────────
+
+
+class TestStatusDerivation:
+    """Tests for status derivation logic in run_validation_background.
+
+    Validates Requirements 2.1, 2.2, 2.3: status is derived from
+    table result step statuses.
+    """
+
+    def test_all_passed_produces_completed_status(self, mock_db, mock_cache):
+        """When all table step statuses are 'passed', run status is 'completed'."""
+        # Arrange
+        svc = _build_orchestration_service(
+            mock_db, mock_cache,
+            ddl_result={"status": "passed", "result": {"discrepancies": [], "source_column_count": 3, "target_column_count": 3, "columns_compared": 3}},
+            row_count_result={"status": "passed", "result": {"source_count": 100, "target_count": 100, "difference": 0, "percentage_difference": 0.0}},
+            records_result={"status": "passed", "result": {"total_compared": 100, "matched_count": 100, "missing_count": 0, "extra_count": 0, "mismatch_count": 0, "sample_discrepancies": []}},
+        )
+
+        # Act
+        svc.run_validation_background(run_id=1, workspace_id=1)
+
+        # Assert
+        final_update = svc.repo.update_run.call_args_list[-1]
+        assert final_update[1]["status"] == "completed"
+        assert final_update[1]["tables_passed"] == 2
+        assert final_update[1]["tables_failed"] == 0
+        assert final_update[1]["tables_error"] == 0
+
+    def test_any_failed_step_produces_failed_table(self, mock_db, mock_cache):
+        """When any step has 'failed' status, the table is marked 'failed'."""
+        # Arrange — DDL fails, others pass
+        svc = _build_orchestration_service(
+            mock_db, mock_cache,
+            ddl_result={"status": "failed", "result": {"discrepancies": [{"type": "missing_column"}], "source_column_count": 3, "target_column_count": 2, "columns_compared": 3}},
+            row_count_result={"status": "passed", "result": {"source_count": 100, "target_count": 100, "difference": 0, "percentage_difference": 0.0}},
+            records_result={"status": "passed", "result": {"total_compared": 100, "matched_count": 100, "missing_count": 0, "extra_count": 0, "mismatch_count": 0, "sample_discrepancies": []}},
+        )
+
+        # Act
+        svc.run_validation_background(run_id=1, workspace_id=1)
+
+        # Assert
+        final_update = svc.repo.update_run.call_args_list[-1]
+        assert final_update[1]["tables_failed"] == 2
+        assert final_update[1]["tables_passed"] == 0
+
+    def test_error_with_no_failed_produces_failed_status(self, mock_db, mock_cache):
+        """When a step has 'error' and no step has 'failed', table is 'failed' and run is 'completed'."""
+        # Arrange — row_count errors, others pass
+        svc = _build_orchestration_service(
+            mock_db, mock_cache,
+            ddl_result={"status": "passed", "result": {"discrepancies": [], "source_column_count": 3, "target_column_count": 3, "columns_compared": 3}},
+            row_count_result={"status": "error", "result": {}, "error_message": "Connection timeout"},
+            records_result={"status": "passed", "result": {"total_compared": 100, "matched_count": 100, "missing_count": 0, "extra_count": 0, "mismatch_count": 0, "sample_discrepancies": []}},
+        )
+
+        # Act
+        svc.run_validation_background(run_id=1, workspace_id=1)
+
+        # Assert — tables with error+no-failed are marked "failed"
+        table_updates = [
+            c for c in svc.repo.update_table_result.call_args_list
+            if "ddl_status" in c[1]
+        ]
+        for update_call in table_updates:
+            assert update_call[1]["status"] == "failed"
+
+        final_update = svc.repo.update_run.call_args_list[-1]
+        assert final_update[1]["tables_failed"] == 2
+        assert final_update[1]["tables_passed"] == 0
+
+    def test_all_errors_produces_failed_run_status(self, mock_db, mock_cache):
+        """When all tables error out, run status is 'failed'."""
+        # Arrange
+        svc = _build_orchestration_service(mock_db, mock_cache)
+        svc._validate_ddl.side_effect = Exception("Connection lost")
+
+        # Act
+        svc.run_validation_background(run_id=1, workspace_id=1)
+
+        # Assert
+        final_update = svc.repo.update_run.call_args_list[-1]
+        assert final_update[1]["status"] == "failed"
+        assert final_update[1]["tables_error"] == 2
+        assert final_update[1]["tables_passed"] == 0
+        assert final_update[1]["tables_failed"] == 0
+
+    def test_mixed_passed_and_error_produces_completed_run(self, mock_db, mock_cache):
+        """When some tables pass and some error, run status is 'completed' (not all errors)."""
+        # Arrange
+        table_results = [
+            _make_table_result_model(result_id=1, table_name="users"),
+            _make_table_result_model(result_id=2, table_name="orders"),
+        ]
+        svc = _build_orchestration_service(
+            mock_db, mock_cache, table_results=table_results,
+        )
+        # First table raises error, second succeeds
+        svc._validate_ddl.side_effect = [
+            Exception("Connection lost"),
+            {"status": "passed", "result": {"discrepancies": [], "source_column_count": 3, "target_column_count": 3, "columns_compared": 3}},
+        ]
+
+        # Act
+        svc.run_validation_background(run_id=1, workspace_id=1)
+
+        # Assert
+        final_update = svc.repo.update_run.call_args_list[-1]
+        assert final_update[1]["status"] == "completed"
+        assert final_update[1]["tables_error"] == 1
+        assert final_update[1]["tables_passed"] == 1

@@ -95,6 +95,7 @@ async def create_validation_run(
             sample_limit=request.sample_limit,
             type_mapping_overrides=request.type_mapping_overrides,
             created_by=str(current_user.user_id),
+            run_name=request.run_name,
         )
         background_tasks.add_task(
             service.run_validation_background,
@@ -136,6 +137,7 @@ async def list_validation_runs(
     page_size: int = 20,
     migration_id: Optional[int] = None,
     status_filter: Optional[str] = None,
+    include_table_results: bool = False,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
     workspace_id: int = Depends(get_workspace_id),
@@ -149,6 +151,7 @@ async def list_validation_runs(
             page_size=page_size,
             migration_id=migration_id,
             status=status_filter,
+            include_table_results=include_table_results,
         )
         return PaginatedValidationRunsResponse(
             runs=[ValidationRunResponse(**r) for r in result["runs"]],

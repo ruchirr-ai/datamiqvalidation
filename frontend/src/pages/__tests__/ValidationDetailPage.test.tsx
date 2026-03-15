@@ -86,6 +86,7 @@ const makeReport = (overrides: Partial<ValidationReport> = {}): ValidationReport
   started_at: '2026-03-11T10:00:00Z',
   completed_at: '2026-03-11T10:01:00Z',
   duration_seconds: 60,
+  run_name: null,
   tables: [
     makeTableDetail({ table_name: 'users', ddl_status: 'passed', row_count_status: 'passed', data_match_status: 'passed' }),
     makeTableDetail({
@@ -189,17 +190,19 @@ describe('ValidationDetailPage', () => {
     // Status badge
     expect(screen.getByText('completed')).toBeInTheDocument();
 
-    // Summary stat cards
-    expect(screen.getByText('Total Tables')).toBeInTheDocument();
-    expect(screen.getByText('Passed')).toBeInTheDocument();
-    expect(screen.getByText('Failed')).toBeInTheDocument();
-    expect(screen.getByText('Errors')).toBeInTheDocument();
-    expect(screen.getByText('Duration')).toBeInTheDocument();
+    // Summary stat cards (use label class to avoid collision with StatusBadge text)
+    const statLabels = document.querySelectorAll('.validation-detail-stat-label');
+    const labelTexts = Array.from(statLabels).map((el) => el.textContent);
+    expect(labelTexts).toContain('Tables');
+    expect(labelTexts).toContain('Passed');
+    expect(labelTexts).toContain('Failed');
+    expect(labelTexts).toContain('Errors');
+    expect(labelTexts).toContain('Duration');
     expect(screen.getByText('1m')).toBeInTheDocument(); // 60s = 1m
   });
 
-  // 4. Table results list renders with status icons
-  it('renders table results list with status icons', async () => {
+  // 4. Table results list renders with status badges
+  it('renders table results list with status badges', async () => {
     renderPage();
 
     await waitFor(() => {
@@ -215,12 +218,12 @@ describe('ValidationDetailPage', () => {
     expect(screen.getByText('Data Match')).toBeInTheDocument();
     expect(screen.getByText('Status')).toBeInTheDocument();
 
-    // Status icons should be present (passed and failed)
-    const passedIcons = screen.getAllByLabelText('Passed');
-    expect(passedIcons.length).toBeGreaterThan(0);
+    // StatusBadge text labels should be present
+    const passedBadges = screen.getAllByText('Passed');
+    expect(passedBadges.length).toBeGreaterThan(0);
 
-    const failedIcons = screen.getAllByLabelText('Failed');
-    expect(failedIcons.length).toBeGreaterThan(0);
+    const failedBadges = screen.getAllByText('Failed');
+    expect(failedBadges.length).toBeGreaterThan(0);
   });
 
   // 5. Expanding a table row shows DDL, row count, and record match panels
@@ -431,5 +434,88 @@ describe('ValidationDetailPage', () => {
     });
 
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  // --- Task 9 tests: run_name header, StatusBadge, Tables card ---
+
+  // 15. Displays run_name in header when available (Req 8.3)
+  it('displays run_name in header when available', async () => {
+    mockGetValidationReport.mockResolvedValue(makeReport({ run_name: 'Nightly Validation' }));
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('Nightly Validation')).toBeInTheDocument();
+    });
+
+    // Should NOT show the fallback
+    expect(screen.queryByText(/Validation Run #5/)).not.toBeInTheDocument();
+  });
+
+  // 16. Displays "Validation Run #id" fallback when run_name is null (Req 8.3)
+  it('displays "Validation Run #id" fallback when run_name is null', async () => {
+    mockGetValidationReport.mockResolvedValue(makeReport({ run_name: null }));
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Validation Run #5/)).toBeInTheDocument();
+    });
+  });
+
+  // 17. StatusBadge renders text labels with correct CSS classes (Req 8.1, 8.2)
+  it('StatusBadge renders text labels with correct CSS classes', async () => {
+    mockGetValidationReport.mockResolvedValue(makeReport({
+      tables: [
+        makeTableDetail({ table_name: 'tbl_passed', ddl_status: 'passed', row_count_status: 'passed', data_match_status: 'passed' }),
+        makeTableDetail({ id: 2, table_name: 'tbl_failed', ddl_status: 'failed', row_count_status: 'failed', data_match_status: 'failed' }),
+        makeTableDetail({ id: 3, table_name: 'tbl_error', ddl_status: 'error', row_count_status: 'error', data_match_status: 'error', status: 'error' }),
+        makeTableDetail({ id: 4, table_name: 'tbl_pending', ddl_status: null, row_count_status: null, data_match_status: null, status: 'pending' }),
+      ],
+    }));
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('tbl_passed')).toBeInTheDocument();
+    });
+
+    // Check StatusBadge elements by class
+    const allBadges = document.querySelectorAll('.vd-status-badge');
+    expect(allBadges.length).toBeGreaterThan(0);
+
+    const passedBadges = document.querySelectorAll('.vd-status-badge.passed');
+    expect(passedBadges.length).toBeGreaterThan(0);
+    passedBadges.forEach((badge) => {
+      expect(badge.textContent).toBe('Passed');
+    });
+
+    const failedBadges = document.querySelectorAll('.vd-status-badge.failed');
+    expect(failedBadges.length).toBeGreaterThan(0);
+    failedBadges.forEach((badge) => {
+      expect(badge.textContent).toBe('Failed');
+    });
+
+    const errorBadges = document.querySelectorAll('.vd-status-badge.error');
+    expect(errorBadges.length).toBeGreaterThan(0);
+    errorBadges.forEach((badge) => {
+      expect(badge.textContent).toBe('Error');
+    });
+
+    const pendingBadges = document.querySelectorAll('.vd-status-badge.pending');
+    expect(pendingBadges.length).toBeGreaterThan(0);
+    pendingBadges.forEach((badge) => {
+      expect(badge.textContent).toBe('Pending');
+    });
+  });
+
+  // 18. Summary cards include "Tables" card with correct count (Req 8.4)
+  it('summary cards include "Tables" card with correct count', async () => {
+    mockGetValidationReport.mockResolvedValue(makeReport({ total_tables: 7 }));
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByText('Tables')).toBeInTheDocument();
+    });
+
+    // The Tables card should show the total_tables count
+    expect(screen.getByText('7')).toBeInTheDocument();
   });
 });
