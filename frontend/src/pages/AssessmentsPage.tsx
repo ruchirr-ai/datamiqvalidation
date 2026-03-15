@@ -14,17 +14,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSearch, Database } from 'lucide-react';
+import { FileSearch, Database, Play, FileText, Download, Pencil, Trash2, MoreVertical, ClipboardList } from 'lucide-react';
 import { Button, Badge, Select } from '../components/ui';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/DropdownMenu';
 import { CreateAssessmentModal, EditAssessmentModal, ViewLogsModal } from '../components/assessments';
 import { listAssessments, deleteAssessment, runAssessment, Assessment } from '../services/assessmentsApi';
 import { WorkspaceSelector } from '../components/WorkspaceSelector';
 import { useWorkspace } from '../contexts/WorkspaceContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import './AssessmentsPage.css';
 
 export const AssessmentsPage: React.FC = () => {
   const navigate = useNavigate();
   const { selectedWorkspaceName } = useWorkspace();
+  const { t } = useLanguage();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(15);
@@ -50,6 +53,27 @@ export const AssessmentsPage: React.FC = () => {
   useEffect(() => {
     fetchAssessments();
   }, []);
+
+  // Smart polling: only poll when there are running/pending assessments
+  // Polls the API (not a page reload) every 10s, stops when all done
+  useEffect(() => {
+    const hasRunning = assessments.some(a =>
+      a.status?.trim().toLowerCase() === 'running' || a.status?.trim().toLowerCase() === 'pending'
+    );
+    if (!hasRunning) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const data = await listAssessments();
+        setAssessments(data.assessments || []);
+        // If none are running anymore, the next effect cycle will clear the interval
+      } catch {
+        // Silently ignore poll errors
+      }
+    }, 10000);
+
+    return () => clearInterval(pollInterval);
+  }, [assessments]);
 
   const fetchAssessments = async () => {
     try {
@@ -91,17 +115,6 @@ export const AssessmentsPage: React.FC = () => {
       setToast({ message: 'Assessment started', type: 'success' });
       // Immediately refresh to show 'running' status
       await fetchAssessments();
-      
-      // Poll for status updates every 3 seconds
-      const pollInterval = setInterval(async () => {
-        await fetchAssessments();
-      }, 3000);
-      
-      // Stop polling after 5 minutes (adjust as needed)
-      setTimeout(() => {
-        clearInterval(pollInterval);
-      }, 300000);
-      
     } catch (error: any) {
       setToast({ message: `Failed to run assessment: ${error.detail || error.message}`, type: 'error' });
     }
@@ -128,7 +141,7 @@ export const AssessmentsPage: React.FC = () => {
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status.toLowerCase()) {
+    switch (status.trim().toLowerCase()) {
       case 'completed':
         return <Badge variant="success">Completed</Badge>;
       case 'running':
@@ -205,7 +218,7 @@ export const AssessmentsPage: React.FC = () => {
             <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280', marginLeft: 8 }}>— {selectedWorkspaceName}</span>
           </h1>
           <div className="assessments-subheader">
-            <span className="assessments-count">{totalAssessments} Assessments</span>
+            <span className="assessments-count">{totalAssessments} {t('assessments.title')}</span>
             
             <div className="assessments-actions">
               <WorkspaceSelector />
@@ -216,14 +229,14 @@ export const AssessmentsPage: React.FC = () => {
                 </svg>
                 <input
                   type="text"
-                  placeholder="Search assessments"
+                  placeholder={t('assessments.search')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
 
               <Button variant="primary" onClick={() => setShowCreateModal(true)}>
-                + New
+                {t('assessments.new')}
               </Button>
             </div>
           </div>
@@ -235,35 +248,35 @@ export const AssessmentsPage: React.FC = () => {
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
             <div className="spinner" style={{ margin: '0 auto' }}></div>
-            <p style={{ marginTop: '16px', color: '#66748C' }}>Loading assessments...</p>
+            <p style={{ marginTop: '16px', color: '#66748C' }}>{t('assessments.loading')}</p>
           </div>
         ) : error ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
             <p style={{ color: '#DC2626', marginBottom: '16px' }}>{error}</p>
             <Button variant="primary" onClick={fetchAssessments}>
-              Retry
+              {t('common.retry')}
             </Button>
           </div>
         ) : assessments.length === 0 ? (
           <div style={{ padding: '40px', textAlign: 'center' }}>
             <FileSearch size={48} style={{ color: '#9AA6B2', margin: '0 auto 16px' }} />
-            <p style={{ color: '#66748C', marginBottom: '8px', fontSize: '16px', fontWeight: 500 }}>No assessments yet</p>
-            <p style={{ color: '#9AA6B2', marginBottom: '16px', fontSize: '14px' }}>Create your first BigQuery assessment to analyze your data</p>
+            <p style={{ color: '#66748C', marginBottom: '8px', fontSize: '16px', fontWeight: 500 }}>{t('assessments.noAssessments')}</p>
+            <p style={{ color: '#9AA6B2', marginBottom: '16px', fontSize: '14px' }}>{t('assessments.noAssessmentsDesc')}</p>
             <Button variant="primary" onClick={() => setShowCreateModal(true)}>
-              Create Your First Assessment
+              {t('assessments.createFirst')}
             </Button>
           </div>
         ) : (
           <table className="assessments-table">
             <thead>
               <tr>
-                <th>NAME</th>
-                <th>STATUS</th>
-                <th>DATASETS</th>
-                <th>TABLES</th>
-                <th>TOTAL SIZE</th>
-                <th>STARTED AT</th>
-                <th>COMPLETED AT</th>
+                <th>{t('assessments.name')}</th>
+                <th>{t('assessments.status')}</th>
+                <th>{t('assessments.datasets')}</th>
+                <th>{t('assessments.tables')}</th>
+                <th>{t('assessments.totalSize')}</th>
+                <th>{t('assessments.startedAt')}</th>
+                <th>{t('assessments.completedAt')}</th>
                 <th></th>
               </tr>
             </thead>
@@ -273,7 +286,7 @@ export const AssessmentsPage: React.FC = () => {
                   <td>
                     <div className="assessment-name-cell">
                       <FileSearch size={16} style={{ color: '#66748C', flexShrink: 0 }} />
-                      {assessment.status === 'completed' ? (
+                      {assessment.status?.trim() === 'completed' ? (
                         <span 
                           className="assessment-name assessment-name-link"
                           onClick={() => handleViewReport(assessment.id)}
@@ -294,124 +307,46 @@ export const AssessmentsPage: React.FC = () => {
                   <td className="timestamp-cell">{formatDateTime(assessment.completed_at)}</td>
                   <td>
                     <div className="assessment-menu-container">
-                      <button 
-                        className="row-menu-btn" 
-                        aria-label="More options"
-                        onClick={(e) => {
-                          const button = e.currentTarget;
-                          const rect = button.getBoundingClientRect();
-                          const windowHeight = window.innerHeight;
-                          const menuHeight = 120;
-                          
-                          const spaceBelow = windowHeight - rect.bottom;
-                          const shouldOpenUpward = spaceBelow < menuHeight;
-                          
-                          const position = {
-                            right: window.innerWidth - rect.right,
-                            ...(shouldOpenUpward 
-                              ? { bottom: windowHeight - rect.top + 4 }
-                              : { top: rect.bottom + 4 }
-                            )
-                          };
-                          
-                          setMenuPosition(position);
-                          setOpenMenuId(openMenuId === assessment.id ? null : assessment.id);
-                        }}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                          <circle cx="8" cy="3" r="1.5" />
-                          <circle cx="8" cy="8" r="1.5" />
-                          <circle cx="8" cy="13" r="1.5" />
-                        </svg>
-                      </button>
-                      
-                      {openMenuId === assessment.id && (
-                        <div 
-                          className={`assessment-dropdown-menu ${menuPosition.bottom ? 'open-upward' : ''}`}
-                          style={{
-                            top: menuPosition.top ? `${menuPosition.top}px` : 'auto',
-                            bottom: menuPosition.bottom ? `${menuPosition.bottom}px` : 'auto',
-                            right: `${menuPosition.right}px`
-                          }}
-                        >
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              handleRunAssessment(assessment.id);
-                              setOpenMenuId(null);
-                            }}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="row-menu-btn" aria-label="More options">
+                            <MoreVertical size={16} />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
                             disabled={assessment.status === 'running'}
+                            onSelect={() => handleRunAssessment(assessment.id)}
                           >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M5 3l8 5-8 5V3z" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Run Assessment
-                          </button>
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              handleViewLogs(assessment.id);
-                              setOpenMenuId(null);
-                            }}
+                            <Play size={15} /> {t('assessments.run')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handleViewLogs(assessment.id)}>
+                            <ClipboardList size={15} /> {t('assessments.viewLogs')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={assessment.status?.trim() !== 'completed'}
+                            onSelect={() => handleViewReport(assessment.id)}
                           >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M2 4h12M2 8h12M2 12h8" strokeLinecap="round" />
-                            </svg>
-                            View Logs
-                          </button>
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              handleViewReport(assessment.id);
-                              setOpenMenuId(null);
-                            }}
-                            disabled={assessment.status !== 'completed'}
+                            <FileText size={15} /> {t('assessments.viewReport')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={assessment.status?.trim() !== 'completed'}
+                            onSelect={() => handleDownloadReport(assessment)}
                           >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V7M9 2l4 4M9 2v4h4" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            View Report
-                          </button>
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              handleDownloadReport(assessment);
-                              setOpenMenuId(null);
-                            }}
-                            disabled={assessment.status !== 'completed'}
+                            <Download size={15} /> {t('assessments.downloadReport')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => handleEditAssessment(assessment.id)}>
+                            <Pencil size={15} /> {t('assessments.edit')}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="ddm-item-danger"
+                            onSelect={() => setDeleteConfirmId(assessment.id)}
                           >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M8 2v8M5 7l3 3 3-3M3 12h10" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Download Report
-                          </button>
-                          <button
-                            className="dropdown-menu-item"
-                            onClick={() => {
-                              handleEditAssessment(assessment.id);
-                              setOpenMenuId(null);
-                            }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M11 2l3 3-9 9H2v-3l9-9z" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Edit Assessment
-                          </button>
-                          <div className="dropdown-divider" />
-                          <button
-                            className="dropdown-menu-item dropdown-menu-item-danger"
-                            onClick={() => {
-                              setDeleteConfirmId(assessment.id);
-                              setOpenMenuId(null);
-                            }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                              <path d="M3 4h10M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1M6 7v4M10 7v4M4 4h8v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4z" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                            Delete Assessment
-                          </button>
-                        </div>
-                      )}
+                            <Trash2 size={15} /> {t('assessments.delete')}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </td>
                 </tr>
@@ -424,12 +359,12 @@ export const AssessmentsPage: React.FC = () => {
       {/* Pagination - Design pattern from Connections Page */}
       <div className="assessments-pagination">
         <div className="pagination-info">
-          Showing {((currentPage - 1) * rowsPerPage) + 1} to {Math.min(currentPage * rowsPerPage, totalAssessments)} of {totalAssessments} assessments
+          {t('assessments.showing')} {((currentPage - 1) * rowsPerPage) + 1} to {Math.min(currentPage * rowsPerPage, totalAssessments)} {t('common.of')} {totalAssessments}
         </div>
 
         <div className="pagination-controls">
           <div className="rows-per-page">
-            <span>Rows per page:</span>
+            <span>{t('assessments.rowsPerPage')}</span>
             <Select
               value={rowsPerPage}
               onChange={(value) => {
@@ -514,18 +449,18 @@ export const AssessmentsPage: React.FC = () => {
       {deleteConfirmId && (
         <div className="confirm-dialog-overlay" onClick={() => setDeleteConfirmId(null)}>
           <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-            <h3>Delete Assessment</h3>
-            <p>Are you sure you want to delete this assessment? This action cannot be undone.</p>
+            <h3>{t('assessments.deleteConfirm')}</h3>
+            <p>{t('assessments.deleteConfirmMsg')}</p>
             <div className="confirm-actions">
               <Button variant="outline" onClick={() => setDeleteConfirmId(null)}>
-                Cancel
+                {t('assessments.cancel')}
               </Button>
               <Button 
                 variant="primary" 
                 onClick={() => handleDeleteAssessment(deleteConfirmId)}
                 style={{ background: 'var(--color-error)', borderColor: 'var(--color-error)' }}
               >
-                Delete Assessment
+                {t('assessments.delete')}
               </Button>
             </div>
           </div>

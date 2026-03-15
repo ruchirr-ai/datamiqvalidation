@@ -118,7 +118,14 @@ class AssessmentRepository:
                 assessment.total_size_mb = total_size_mb
             
             self.db.commit()
-    
+
+    def update_assessment_data(self, assessment_id: int, data: dict):
+        """Update the assessment_data JSONB field."""
+        assessment = self.get_by_id(assessment_id)
+        if assessment:
+            assessment.assessment_data = data
+            self.db.commit()
+
     def delete_assessment(self, assessment_id: int):
         """Delete assessment (cascade will delete all related metadata)"""
         assessment = self.get_by_id(assessment_id)
@@ -252,20 +259,24 @@ class AssessmentRepository:
     
     # Column operations
     def bulk_create_columns(self, assessment_id: int, columns_data: List[dict]):
-        """Bulk create column records with deduplication"""
+        """Bulk create column records with deduplication. Batched for large datasets."""
         # Delete existing columns for this assessment to avoid duplicates
         self.db.query(AssessmentColumn).filter(
             AssessmentColumn.assessment_id == assessment_id
         ).delete()
         self.db.commit()
         
-        # Create new records
-        columns = [
-            AssessmentColumn(assessment_id=assessment_id, **data)
-            for data in columns_data
-        ]
-        self.db.bulk_save_objects(columns)
-        self.db.commit()
+        # Insert in batches of 5000
+        BATCH_SIZE = 5000
+        total = len(columns_data)
+        for i in range(0, total, BATCH_SIZE):
+            batch = columns_data[i:i + BATCH_SIZE]
+            columns = [
+                AssessmentColumn(assessment_id=assessment_id, **data)
+                for data in batch
+            ]
+            self.db.bulk_save_objects(columns)
+            self.db.commit()
     
     # View operations
     def bulk_create_views(self, assessment_id: int, views_data: List[dict]):
@@ -304,20 +315,26 @@ class AssessmentRepository:
     
     # Query stats operations
     def bulk_create_query_stats(self, assessment_id: int, stats_data: List[dict]):
-        """Bulk create query stats records with deduplication"""
+        """Bulk create query stats records with deduplication. Batched for large datasets."""
         # Delete existing query stats for this assessment to avoid duplicates
         self.db.query(AssessmentQueryStat).filter(
             AssessmentQueryStat.assessment_id == assessment_id
         ).delete()
         self.db.commit()
         
-        # Create new records
-        stats = [
-            AssessmentQueryStat(assessment_id=assessment_id, **data)
-            for data in stats_data
-        ]
-        self.db.bulk_save_objects(stats)
-        self.db.commit()
+        # Insert in batches of 5000 to avoid memory issues with large datasets
+        BATCH_SIZE = 5000
+        total = len(stats_data)
+        for i in range(0, total, BATCH_SIZE):
+            batch = stats_data[i:i + BATCH_SIZE]
+            stats = [
+                AssessmentQueryStat(assessment_id=assessment_id, **data)
+                for data in batch
+            ]
+            self.db.bulk_save_objects(stats)
+            self.db.commit()
+            if total > BATCH_SIZE:
+                print(f"    ... inserted {min(i + BATCH_SIZE, total)}/{total} query stats")
     
     # ML Model operations
     def bulk_create_ml_models(self, assessment_id: int, models_data: List[dict]):

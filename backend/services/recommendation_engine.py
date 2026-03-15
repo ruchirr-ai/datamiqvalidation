@@ -30,30 +30,36 @@ class RecommendationEngine:
     and usage patterns.
     """
 
-    # Redshift node types with specs
+    # Redshift node types with specs (official AWS docs, updated 2025)
+    # slices_per_node: determines query parallelism within a node
     NODE_TYPES = {
         'dc2.large': {
             'vcpu': 2, 'memory_gb': 15, 'storage_gb': 160,
+            'slices_per_node': 2,
             'storage_type': 'SSD', 'max_nodes': 32,
             'use_case': 'Small datasets (<160 GB) with fast SSD storage',
         },
         'dc2.8xlarge': {
             'vcpu': 32, 'memory_gb': 244, 'storage_gb': 2560,
+            'slices_per_node': 16,
             'storage_type': 'SSD', 'max_nodes': 128,
             'use_case': 'Large datasets needing fast local SSD',
         },
         'ra3.xlplus': {
             'vcpu': 4, 'memory_gb': 32, 'storage_gb': 32000,
+            'slices_per_node': 2,
             'storage_type': 'Managed Storage', 'max_nodes': 32,
             'use_case': 'Most workloads — separates compute and storage',
         },
         'ra3.4xlarge': {
             'vcpu': 12, 'memory_gb': 96, 'storage_gb': 128000,
+            'slices_per_node': 4,
             'storage_type': 'Managed Storage', 'max_nodes': 32,
             'use_case': 'Large workloads needing more compute',
         },
         'ra3.16xlarge': {
             'vcpu': 48, 'memory_gb': 384, 'storage_gb': 128000,
+            'slices_per_node': 16,
             'storage_type': 'Managed Storage', 'max_nodes': 128,
             'use_case': 'Very large enterprise workloads',
         },
@@ -74,6 +80,18 @@ class RecommendationEngine:
 
         # Compute workload metrics from BQ query stats
         workload = self._analyze_workload(query_stats)
+
+        # Override peak/avg slots with JOBS_TIMELINE data if available
+        assessment_data = assessment.get('assessment_data') or {}
+        slot_timeline = assessment_data.get('slot_timeline') or {}
+        if slot_timeline.get('peak_concurrent_slots', 0) > 0:
+            workload['estimated_peak_slots'] = slot_timeline['peak_concurrent_slots']
+            workload['avg_concurrent_slots'] = slot_timeline.get('avg_concurrent_slots', workload.get('avg_concurrent_slots', 0))
+            workload['p50_concurrent_slots'] = slot_timeline.get('p50_concurrent_slots', 0)
+            workload['p90_concurrent_slots'] = slot_timeline.get('p90_concurrent_slots', 0)
+            workload['p95_concurrent_slots'] = slot_timeline.get('p95_concurrent_slots', 0)
+            workload['p99_concurrent_slots'] = slot_timeline.get('p99_concurrent_slots', 0)
+            workload['slot_timeline_source'] = 'JOBS_TIMELINE_BY_PROJECT'
 
         # 1. Query classification
         query_classification = self._classify_queries(query_stats)
@@ -171,19 +189,77 @@ class RecommendationEngine:
             [q.get('slot_milliseconds', 0) for q in query_stats], reverse=True
         )
 
-        # Estimate average concurrent slots per query.
-        # For BQ on-demand, typical concurrency is 50-500 slots per query.
-        # We use a heuristic: avg_slot_ms / assumed_avg_duration_ms
-        # Conservative: assume avg query takes ~30 seconds wall-clock
         avg_slot_ms = total_slot_ms / query_count if query_count else 0
-        # Estimate concurrent slots: slot_ms / 30000ms (30s assumed avg duration)
-        # Clamp between 1 and 2000 (BQ on-demand max)
-        estimated_avg_concurrent_slots = max(1, min(avg_slot_ms / 30000, 2000))
 
-        # Peak concurrency: top 5% of queries
-        top_5pct_count = max(1, int(len(slot_values) * 0.05))
-        peak_slot_ms = sum(slot_values[:top_5pct_count]) / top_5pct_count if slot_values else 0
-        estimated_peak_slots = max(1, peak_slot_ms / 30000)
+        # --- Compute per-query concurrent slot utilisation early ---
+        # so we can use actual data for peak estimation instead of heuristics.
+        per_query_slots = []
+        for q in query_stats:
+            q_slot_ms = q.get('slot_milliseconds', 0)
+            if q_slot_ms <= 0:
+                continue
+            # Try to get actual runtime from query_metadata first
+            q_runtime_ms = q.get('total_elapsed_time_ms') or q.get('runtime_ms', 0)
+            if not q_runtime_ms:
+                meta = q.get('query_metadata') or {}
+                if isinstance(meta, dict):
+                    q_runtime_ms = meta.get('total_elapsed_time_ms', 0)
+            if q_runtime_ms and q_runtime_ms > 0:
+                slots_used = q_slot_ms / q_runtime_ms
+            else:
+                slots_used = q_slot_ms / 30000  # assume 30s
+            per_query_slots.append(max(1, slots_used))
+
+        # Estimate average concurrent slots per query
+        if per_query_slots:
+            estimated_avg_concurrent_slots = sum(per_query_slots) / len(per_query_slots)
+        else:
+            estimated_avg_concurrent_slots = max(1, min(avg_slot_ms / 30000, 2000))
+
+        # Peak slot utilization using sweep-line algorithm for true overlap.
+        # For each query, compute [start, end) interval and its concurrent slots.
+        # The maximum running total = true peak slots at any point in time.
+        from datetime import timedelta as _td
+        events = []
+        for q in query_stats:
+            q_slot_ms = q.get('slot_milliseconds', 0)
+            if q_slot_ms <= 0:
+                continue
+            et = q.get('execution_time')
+            if et:
+                if isinstance(et, str):
+                    try:
+                        et = datetime.fromisoformat(et.replace('Z', '+00:00'))
+                    except Exception:
+                        et = None
+                if et:
+                    q_runtime_ms = q.get('total_elapsed_time_ms') or q.get('runtime_ms', 0)
+                    if not q_runtime_ms:
+                        meta = q.get('query_metadata') or {}
+                        if isinstance(meta, dict):
+                            q_runtime_ms = meta.get('total_elapsed_time_ms', 0)
+                    if q_runtime_ms and q_runtime_ms > 0:
+                        q_slots = max(1, q_slot_ms / q_runtime_ms)
+                        q_duration_ms = q_runtime_ms
+                    else:
+                        q_slots = max(1, q_slot_ms / 30000)
+                        q_duration_ms = 30000
+                    end_t = et + _td(milliseconds=q_duration_ms)
+                    events.append((et, q_slots))
+                    events.append((end_t, -q_slots))
+
+        if events:
+            events.sort(key=lambda e: (e[0], e[1]))
+            running_slots = 0.0
+            estimated_peak_slots = 0.0
+            for _, delta in events:
+                running_slots += delta
+                if running_slots > estimated_peak_slots:
+                    estimated_peak_slots = running_slots
+        elif per_query_slots:
+            estimated_peak_slots = max(per_query_slots)
+        else:
+            estimated_peak_slots = max(1, slot_values[0] / 30000) if slot_values else 1
 
         # --- Redshift Serverless RPU-hour estimation ---
         # Step 1: Estimate wall-clock seconds per query
@@ -219,18 +295,19 @@ class RecommendationEngine:
 
         # Step 3: Convert BQ slots to RPUs for sizing
         # 1 RPU = 16 GB RAM + ~2 vCPUs. BQ slot ≈ 1 vCPU.
-        # But Redshift allocates RPUs at base_rpu minimum (e.g., 32).
-        # The RPU count during a query depends on complexity.
-        # For estimation: RPUs needed ≈ max(base_rpu, peak_slots / 2)
-        # We use a moderate estimate: the base RPU that would be configured.
-        if monthly_slot_hours < 100:
-            estimated_base_rpu = 8
-        elif monthly_slot_hours < 500:
-            estimated_base_rpu = 16
-        elif monthly_slot_hours < 2000:
-            estimated_base_rpu = 32
+        # Base RPU should handle the average concurrent slot usage.
+        # Peak slots are handled by auto-scaling (up to max_rpu).
+        # Use avg concurrent slots converted to RPUs (slots / 2).
+        rpus_from_avg = max(8, math.ceil(estimated_avg_concurrent_slots / 2))
+        # Round up to valid RPU values: 8, 16, 32, 48, 64, ...
+        valid_rpus = [8, 16, 32, 48, 64, 96, 128, 192, 256, 512]
+        estimated_base_rpu = 8
+        for rpu in valid_rpus:
+            if rpu >= rpus_from_avg:
+                estimated_base_rpu = rpu
+                break
         else:
-            estimated_base_rpu = 64
+            estimated_base_rpu = valid_rpus[-1]
 
         # Step 4: Calculate monthly RPU-hours
         # RPU-hours = (billed_seconds_per_hour / 3600) × RPUs × active_hours_per_day × 30
@@ -258,6 +335,19 @@ class RecommendationEngine:
         slot_based_rpu_hours = (monthly_slot_hours / 2) * 1.5  # 1.5x overhead
         estimated_rpu_hours_monthly = max(estimated_rpu_hours_monthly, slot_based_rpu_hours)
 
+        # --- Per-query concurrent slot stats (already computed above) ---
+        if per_query_slots:
+            max_concurrent_slots = round(max(per_query_slots), 1)
+            min_concurrent_slots = round(min(per_query_slots), 1)
+            avg_concurrent_slots = round(sum(per_query_slots) / len(per_query_slots), 1)
+            sorted_slots = sorted(per_query_slots)
+            median_concurrent_slots = round(sorted_slots[len(sorted_slots) // 2], 1)
+        else:
+            max_concurrent_slots = round(estimated_peak_slots, 1)
+            min_concurrent_slots = 1.0
+            avg_concurrent_slots = round(estimated_avg_concurrent_slots, 1)
+            median_concurrent_slots = avg_concurrent_slots
+
         return {
             'total_slot_ms': total_slot_ms,
             'total_slot_hours': round(total_slot_hours, 2),
@@ -274,6 +364,10 @@ class RecommendationEngine:
             'avg_wall_clock_seconds': round(avg_wall_clock_s, 1),
             'estimated_base_rpu': estimated_base_rpu,
             'active_hours_per_day': round(active_hours_per_day, 1),
+            'max_concurrent_slots': max_concurrent_slots,
+            'min_concurrent_slots': min_concurrent_slots,
+            'avg_concurrent_slots': avg_concurrent_slots,
+            'median_concurrent_slots': median_concurrent_slots,
         }
 
     # ------------------------------------------------------------------ #
@@ -281,7 +375,7 @@ class RecommendationEngine:
     # ------------------------------------------------------------------ #
     def _classify_queries(self, query_stats: List[Dict]) -> Dict:
         """
-        Classify queries as Ad-hoc vs BI/Scheduled.
+        Classify queries as Ad-hoc vs BI/Scheduled, and compute read/write split + cache hit ratio.
         """
         total = len(query_stats)
         if total == 0:
@@ -289,7 +383,15 @@ class RecommendationEngine:
                 'total_queries': 0,
                 'adhoc_count': 0, 'adhoc_pct': 0,
                 'bi_count': 0, 'bi_pct': 0,
+                'read_count': 0, 'write_count': 0,
+                'read_pct': 0, 'write_pct': 0,
+                'cache_hit_ratio': 0, 'cache_hits': 0, 'select_queries': 0,
             }
+
+        WRITE_TYPES = {'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'CREATE_TABLE_AS_SELECT',
+                       'CREATE_TABLE', 'DROP_TABLE', 'ALTER_TABLE', 'TRUNCATE_TABLE',
+                       'CREATE_VIEW', 'DROP_VIEW', 'CREATE_FUNCTION', 'DROP_FUNCTION',
+                       'CREATE_PROCEDURE', 'DROP_PROCEDURE', 'CREATE_MODEL', 'EXPORT_DATA'}
 
         bi_keywords = [
             'dashboard', 'report', 'scheduled', 'looker', 'tableau',
@@ -299,10 +401,16 @@ class RecommendationEngine:
         # Track query fingerprints for repetition detection
         query_fingerprints: Dict[str, int] = {}
         bi_flags = [False] * total
+        read_count = 0
+        write_count = 0
+        select_queries = 0
+        cache_hits = 0
 
         for idx, q in enumerate(query_stats):
             text = (q.get('query_text') or '').lower()
             user = (q.get('user_email') or '').lower()
+            meta = q.get('query_metadata') or {}
+            stmt_type = (meta.get('statement_type') or '').upper() if isinstance(meta, dict) else ''
 
             fp = ''.join(text.split())[:100]
             query_fingerprints[fp] = query_fingerprints.get(fp, 0) + 1
@@ -311,6 +419,30 @@ class RecommendationEngine:
                 bi_flags[idx] = True
             if any(sa in user for sa in ['service', 'bot', 'scheduler', 'airflow', 'looker']):
                 bi_flags[idx] = True
+
+            # Read/write classification using statement_type
+            if stmt_type and stmt_type != 'UNKNOWN':
+                if stmt_type in WRITE_TYPES:
+                    write_count += 1
+                else:
+                    read_count += 1
+                if stmt_type == 'SELECT':
+                    select_queries += 1
+                    if q.get('cache_hit') is True:
+                        cache_hits += 1
+            else:
+                # Fallback to regex
+                if text.strip():
+                    import re
+                    if re.match(r'^\s*(insert|update|delete|merge|create|drop|alter|truncate)', text):
+                        write_count += 1
+                    else:
+                        read_count += 1
+                        select_queries += 1
+                        if q.get('cache_hit') is True:
+                            cache_hits += 1
+                else:
+                    read_count += 1
 
         # Repeated queries (>3 times) are likely BI
         repeated_fps = {fp for fp, cnt in query_fingerprints.items() if cnt >= 3}
@@ -322,6 +454,7 @@ class RecommendationEngine:
 
         bi_count = sum(bi_flags)
         adhoc_count = total - bi_count
+        cache_hit_ratio = round(cache_hits / select_queries * 100, 1) if select_queries > 0 else 0
 
         return {
             'total_queries': total,
@@ -329,6 +462,13 @@ class RecommendationEngine:
             'adhoc_pct': round(adhoc_count / total * 100, 1) if total else 0,
             'bi_count': bi_count,
             'bi_pct': round(bi_count / total * 100, 1) if total else 0,
+            'read_count': read_count,
+            'write_count': write_count,
+            'read_pct': round(read_count / total * 100, 1) if total else 0,
+            'write_pct': round(write_count / total * 100, 1) if total else 0,
+            'cache_hit_ratio': cache_hit_ratio,
+            'cache_hits': cache_hits,
+            'select_queries': select_queries,
         }
 
     # ------------------------------------------------------------------ #
@@ -354,9 +494,11 @@ class RecommendationEngine:
         rpu_hours_monthly = workload.get('estimated_rpu_hours_monthly', 0)
         peak_slots = workload.get('estimated_peak_slots', 1)
 
+        avg_slots = workload.get('avg_concurrent_slots', peak_slots)
+
         # --- Provisioned Cluster Recommendation ---
         provisioned = self._recommend_provisioned(
-            total_size_gb, total_queries, monthly_slot_hours, peak_slots
+            total_size_gb, total_queries, monthly_slot_hours, peak_slots, avg_slots
         )
 
         # --- Serverless Recommendation ---
@@ -452,82 +594,158 @@ class RecommendationEngine:
 
     def _recommend_provisioned(
         self, size_gb: float, query_count: int,
-        monthly_slot_hours: float, peak_slots: float
+        monthly_slot_hours: float, peak_slots: float,
+        avg_slots: float = 0
     ) -> Dict:
         """
         Recommend provisioned cluster configuration.
 
-        Node selection logic:
-        - dc2.large: data < 160 GB, low compute needs
-        - ra3.xlplus: data < 1 TB or moderate compute
-        - ra3.4xlarge: data 1-10 TB or high compute
-        - ra3.16xlarge: data > 10 TB or very high compute
+        Sizing approach:
+        - Evaluate both horizontal (more small nodes) and vertical (fewer large nodes) scaling
+        - Consider peak workload for sizing, not just average
+        - Use concurrency scaling when peak >> base capacity
+        - Optimize for cost across different node type combinations
+        - Mapping: 1 BQ slot ≈ 1 GiB memory equivalent.
+
+        Node specs (official AWS docs):
+          ra3.xlplus:   4 vCPU, 32 GiB RAM, 2 slices/node, 2-32 nodes
+          ra3.4xlarge:  12 vCPU, 96 GiB RAM, 4 slices/node, 2-32 nodes
+          ra3.16xlarge: 48 vCPU, 384 GiB RAM, 16 slices/node, 2-128 nodes
         """
-        # Determine compute needs from BQ slot hours
-        # Monthly slot hours → equivalent vCPU-hours needed
-        # 1 BQ slot ≈ 0.5 Redshift vCPU
-        monthly_vcpu_hours = monthly_slot_hours * 0.5
-        # Hours in a month = 730
-        avg_vcpus_needed = monthly_vcpu_hours / 730 if monthly_vcpu_hours > 0 else 0
-
-        # Select node type based on BOTH data size and compute needs
-        # For very light workloads, a single node is sufficient
-        if size_gb < 50 and avg_vcpus_needed < 2:
-            node_type = 'dc2.large'
-            min_nodes = 1
-        elif size_gb < 160 and avg_vcpus_needed < 4:
-            node_type = 'dc2.large'
-            min_nodes = 2
-        elif size_gb < 1000 and avg_vcpus_needed < 8:
-            node_type = 'ra3.xlplus'
-            min_nodes = 2
-        elif size_gb < 10000 and avg_vcpus_needed < 24:
-            node_type = 'ra3.4xlarge'
-            min_nodes = 2
+        # Determine sizing strategy based on peak-to-avg ratio
+        base_slots = avg_slots if avg_slots > 0 else peak_slots
+        peak_to_avg_ratio = peak_slots / max(avg_slots, 1) if avg_slots > 0 else 1
+        
+        # If peak is much higher than avg (>3x), size for a middle ground with concurrency scaling
+        # Otherwise, size closer to peak for consistent performance
+        if peak_to_avg_ratio > 3:
+            # High variance workload - size for sustained + use concurrency scaling for peaks
+            target_memory_gib = max(32, math.ceil(avg_slots * 1.5))
+            use_concurrency_scaling = True
         else:
+            # Steady workload - size for peak with some headroom
+            target_memory_gib = max(32, math.ceil(peak_slots * 0.7))
+            use_concurrency_scaling = peak_slots > (target_memory_gib * 1.3)
+        
+        # Ensure minimum for data volume
+        # For RA3 nodes, storage is managed (decoupled from compute), so storage
+        # rarely drives node count. Use actual storage capacity per node type.
+        # For DC2 nodes, storage is local SSD, so it can drive node count.
+        
+        # Evaluate all viable node type combinations
+        # Format: (node_type, memory_per_node, hourly_cost_per_node, max_recommended_nodes)
+        ra3_options = [
+            ('ra3.xlplus', 32, 1.086, 32),
+            ('ra3.4xlarge', 96, 3.26, 32),
+            ('ra3.16xlarge', 384, 13.04, 128),
+        ]
+        
+        best_option = None
+        best_cost = float('inf')
+        
+        for node_type, mem_per_node, hourly_cost, max_nodes in ra3_options:
+            # Calculate nodes needed for compute
+            nodes_for_compute = max(2, math.ceil(target_memory_gib / mem_per_node))
+            
+            # Calculate nodes needed for storage using actual node storage capacity
+            node_storage_gb = self.NODE_TYPES[node_type]['storage_gb']
+            nodes_for_storage = max(2, math.ceil(size_gb / node_storage_gb)) if node_storage_gb > 0 else 2
+            
+            nodes_needed = max(nodes_for_compute, nodes_for_storage)
+            
+            # Skip if exceeds max nodes for this type
+            if nodes_needed > max_nodes:
+                continue
+            
+            # Calculate monthly cost
+            monthly_cost = nodes_needed * hourly_cost * 730
+            total_memory = nodes_needed * mem_per_node
+            specs = self.NODE_TYPES[node_type]
+            total_slices = nodes_needed * specs['slices_per_node']
+            
+            # Prefer this option if:
+            # 1. It's cheaper, OR
+            # 2. Same cost but better performance (more slices for parallelism)
+            if monthly_cost < best_cost or (monthly_cost == best_cost and best_option and total_slices > best_option['total_slices']):
+                best_cost = monthly_cost
+                best_option = {
+                    'node_type': node_type,
+                    'num_nodes': nodes_needed,
+                    'nodes_for_compute': nodes_for_compute,
+                    'nodes_for_storage': nodes_for_storage,
+                    'total_memory': total_memory,
+                    'total_slices': total_slices,
+                    'monthly_cost': monthly_cost,
+                    'specs': specs,
+                }
+        
+        # Use best option found
+        if not best_option:
+            # Fallback to 16xlarge if nothing fits
             node_type = 'ra3.16xlarge'
-            min_nodes = 2
-
-        specs = self.NODE_TYPES[node_type]
-
-        # Calculate nodes needed for compute
-        vcpus_per_node = specs['vcpu']
-        nodes_for_compute = max(min_nodes, math.ceil(avg_vcpus_needed / vcpus_per_node))
-
-        # Calculate nodes needed for storage (dc2 has local storage limits)
-        if 'dc2' in node_type:
-            storage_per_node = specs['storage_gb']
-            # Redshift compresses data ~3-4x
-            compressed_size = size_gb / 3
-            nodes_for_storage = max(min_nodes, math.ceil(compressed_size / storage_per_node))
+            num_nodes = max(2, math.ceil(target_memory_gib / 384))
+            specs = self.NODE_TYPES[node_type]
         else:
-            # ra3 uses managed storage, no node-level storage limit
-            nodes_for_storage = min_nodes
-
-        # Peak concurrency adjustment
-        # If peak slots > node vCPUs, need more nodes
-        peak_vcpus = peak_slots * 0.5
-        nodes_for_peak = max(min_nodes, math.ceil(peak_vcpus / vcpus_per_node))
-
-        num_nodes = min(
-            max(nodes_for_compute, nodes_for_storage, nodes_for_peak),
-            specs['max_nodes']
-        )
-
+            node_type = best_option['node_type']
+            num_nodes = best_option['num_nodes']
+            specs = best_option['specs']
+        
+        num_nodes = min(num_nodes, specs['max_nodes'])
+        total_memory_gib = specs['memory_gb'] * num_nodes
+        peak_to_base_ratio = round(peak_slots / max(total_memory_gib, 1), 1)
+        
+        # Build rationale
+        rationale_parts = [
+            f"Avg BQ slots: {avg_slots:.0f}, Peak BQ slots: {peak_slots:.0f}",
+        ]
+        
+        if peak_to_avg_ratio > 3:
+            rationale_parts.append(
+                f"High variance workload (peak is {peak_to_avg_ratio:.1f}× avg) — "
+                f"base cluster sized for sustained load with concurrency scaling for bursts"
+            )
+        else:
+            rationale_parts.append(
+                f"Steady workload — cluster sized to handle {int(total_memory_gib * 0.7)}-{total_memory_gib} concurrent slots"
+            )
+        
+        rationale_parts.extend([
+            f"Selected {node_type} ({specs['memory_gb']} GiB/node) × {num_nodes} nodes "
+            f"= {total_memory_gib} GiB total RAM",
+            f"Total slices: {specs['slices_per_node'] * num_nodes} "
+            f"({specs['slices_per_node']} slices/node × {num_nodes} nodes)",
+        ])
+        
+        if use_concurrency_scaling:
+            rationale_parts.append(
+                f"Concurrency scaling enabled: peak ({peak_slots:.0f} slots) is "
+                f"{peak_to_base_ratio}× base capacity — burst traffic handled automatically"
+            )
+        
         return {
             'node_type': node_type,
             'num_nodes': num_nodes,
             'storage_type': specs['storage_type'],
             'vcpu_total': specs['vcpu'] * num_nodes,
-            'memory_gb_total': specs['memory_gb'] * num_nodes,
+            'memory_gb_total': total_memory_gib,
             'use_case': specs['use_case'],
+            'concurrency_scaling': use_concurrency_scaling,
             'sizing_basis': {
-                'avg_vcpus_needed': round(avg_vcpus_needed, 2),
-                'nodes_for_compute': nodes_for_compute,
-                'nodes_for_storage': nodes_for_storage,
-                'nodes_for_peak': nodes_for_peak,
+                'avg_slots': round(avg_slots, 1),
+                'peak_slots': round(peak_slots, 1),
+                'base_memory_gib': target_memory_gib,
+                'monthly_slot_hours': round(monthly_slot_hours, 1),
+                'slices_per_node': specs['slices_per_node'],
+                'nodes_for_compute': best_option['nodes_for_compute'] if best_option else num_nodes,
+                'nodes_for_storage': best_option['nodes_for_storage'] if best_option else 2,
+                'peak_to_base_ratio': peak_to_base_ratio,
+                'peak_to_avg_ratio': round(peak_to_avg_ratio, 1),
+                'sizing_driver': 'cost_optimized_for_peak' if peak_to_avg_ratio <= 3 else 'sustained_with_bursts',
             },
+            'sizing_rationale': rationale_parts,
         }
+
+
 
     def _recommend_serverless(
         self, size_gb: float, query_count: int,
@@ -537,42 +755,25 @@ class RecommendationEngine:
         """
         Recommend serverless configuration using actual BQ workload data.
 
-        RPU sizing:
-        - Base RPU: minimum RPUs always available (affects cold-start latency)
-          AWS minimum is 4 RPU (since June 2025).
-        - Max RPU: upper limit for auto-scaling (up to 1024)
+        Mapping: 1 BQ slot = 1 GiB memory, 1 RPU = 16 GiB memory.
+        So RPU needed = ceil(peak_slots / 16), rounded up to nearest 8.
 
-        BQ slots → RPU conversion:
-        - 1 RPU = 16 GB memory + ~2 vCPUs
-        - 1 BQ slot ≈ 1 vCPU
-        - So 1 RPU ≈ 2 BQ slots in vCPU terms
-        - But Redshift bills wall-clock × RPUs, not CPU-time
+        Base RPU: minimum RPUs always available.
+        Max RPU: upper limit for auto-scaling (up to 1024).
         """
-        # Peak BQ slots → peak RPU needed
-        peak_rpu = max(4, math.ceil(peak_slots / 2 / 4) * 4)
+        # Peak BQ slots → memory → RPU
+        # 1 BQ slot = 1 GiB, 1 RPU = 16 GiB
+        memory_needed_gib = max(16, math.ceil(peak_slots))
+        raw_rpu = math.ceil(memory_needed_gib / 16)
+        # Round up to nearest 8 (valid RPU increments)
+        base_rpu = max(8, math.ceil(raw_rpu / 8) * 8)
 
-        # Base RPU sizing based on workload intensity
-        if monthly_slot_hours < 100:
-            base_rpu = 8
-        elif monthly_slot_hours < 500:
-            base_rpu = max(8, min(peak_rpu, 16))
-        elif monthly_slot_hours < 2000:
-            base_rpu = max(16, min(peak_rpu, 32))
-        else:
-            base_rpu = max(32, min(peak_rpu, 64))
+        # Max RPU: allow headroom for burst (2x base, min 32)
+        max_rpu = max(base_rpu * 2, 32)
+        max_rpu = min(max_rpu, 1024)
+        max_rpu = math.ceil(max_rpu / 8) * 8
 
-        # Max RPU: allow headroom for burst
-        if monthly_slot_hours < 10:
-            max_rpu = 16
-        elif monthly_slot_hours < 100:
-            max_rpu = 32
-        else:
-            max_rpu = max(base_rpu * 4, peak_rpu * 2, 64)
-            max_rpu = min(max_rpu, 1024)
-        max_rpu = math.ceil(max_rpu / 4) * 4
-
-        # Actual RPU-hours from workload analysis (already accounts for
-        # 60s minimum billing, concurrency, and overhead)
+        # Actual RPU-hours from workload analysis
         actual_rpu_hours = rpu_hours_monthly
 
         max_possible_rpu_hours = base_rpu * 730

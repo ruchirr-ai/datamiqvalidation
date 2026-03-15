@@ -52,7 +52,9 @@ class DataSyncManager:
         
         # Initialize AWS clients
         self.ec2_client = boto3.client('ec2', region_name=self.region)
-        self.datasync_client = boto3.client('datasync', region_name=self.region)
+        # DataSync client assumes IAM role if DATASYNC_ROLE_ARN is set
+        from shared.datasync_client import create_datasync_client
+        self.datasync_client = create_datasync_client(region=self.region)
         self.ssm_client = boto3.client('ssm', region_name=self.region)
         
         logger.info(f"DataSync Manager initialized for region: {self.region}")

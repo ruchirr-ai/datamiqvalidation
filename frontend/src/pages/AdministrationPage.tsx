@@ -1,12 +1,14 @@
 import React from 'react';
 import { Card } from '../components/ui/Card';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export const AdministrationPage: React.FC = () => {
+  const { t } = useLanguage();
   return (
     <div>
-      <h1>Administration</h1>
+      <h1>{t('nav.admin')}</h1>
       <Card padding="lg">
-        <p>Administration settings (Admin only)</p>
+        <p>{t('admin.settingsDesc')}</p>
       </Card>
     </div>
   );

@@ -1,0 +1,187 @@
+/* DropdownMenu — Radix-based, styled with project CSS variables */
+
+/* Content panel */
+.ddm-content {
+  z-index: 50;
+  min-width: 160px;
+  overflow: hidden;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--color-divider);
+  background: var(--color-bg-surface);
+  padding: 4px;
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.08));
+  animation: ddm-fade-in 0.15s ease;
+}
+
+.ddm-sub-content {
+  z-index: 50;
+  min-width: 160px;
+  overflow: hidden;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--color-divider);
+  background: var(--color-bg-surface);
+  padding: 4px;
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.08));
+  animation: ddm-fade-in 0.15s ease;
+}
+
+@keyframes ddm-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Menu item */
+.ddm-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-sm, 6px);
+  padding: 7px 10px;
+  font-size: var(--font-size-sm, 13px);
+  font-weight: var(--font-weight-450, 450);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  outline: none;
+  transition: background var(--transition-fast, 0.15s ease);
+  user-select: none;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ddm-item:hover,
+.ddm-item[data-highlighted] {
+  background: var(--color-hover-bg, #f3f4f6);
+}
+
+.ddm-item[data-disabled] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.ddm-item svg {
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.ddm-inset {
+  padding-left: 32px;
+}
+
+/* Sub-trigger */
+.ddm-sub-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-sm, 6px);
+  padding: 7px 10px;
+  font-size: var(--font-size-sm, 13px);
+  font-weight: var(--font-weight-450, 450);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ddm-sub-trigger:hover,
+.ddm-sub-trigger[data-highlighted],
+.ddm-sub-trigger[data-state='open'] {
+  background: var(--color-hover-bg, #f3f4f6);
+}
+
+.ddm-sub-chevron {
+  margin-left: auto;
+  color: var(--color-text-secondary, #6b7280);
+}
+
+/* Checkbox & Radio items */
+.ddm-checkbox-item,
+.ddm-radio-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm, 6px);
+  padding: 7px 10px 7px 32px;
+  font-size: var(--font-size-sm, 13px);
+  font-weight: var(--font-weight-450, 450);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  outline: none;
+  transition: background var(--transition-fast, 0.15s ease);
+  user-select: none;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.ddm-checkbox-item:hover,
+.ddm-checkbox-item[data-highlighted],
+.ddm-radio-item:hover,
+.ddm-radio-item[data-highlighted] {
+  background: var(--color-hover-bg, #f3f4f6);
+}
+
+.ddm-checkbox-item[data-disabled],
+.ddm-radio-item[data-disabled] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.ddm-indicator {
+  position: absolute;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
+/* Label */
+.ddm-label {
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary, #6b7280);
+  user-select: none;
+}
+
+/* Separator */
+.ddm-separator {
+  margin: 4px -4px;
+  height: 1px;
+  background: var(--color-divider, #e5e7eb);
+}
+
+/* Danger variant */
+.ddm-item-danger {
+  color: var(--color-error, #ef4444);
+}
+
+.ddm-item-danger:hover,
+.ddm-item-danger[data-highlighted] {
+  background: #fef2f2;
+  color: var(--color-error, #ef4444);
+}
+
+/* Dark mode overrides */
+[data-theme="dark"] .ddm-item-danger:hover,
+[data-theme="dark"] .ddm-item-danger[data-highlighted] {
+  background: var(--color-error-bg);
+}

@@ -294,3 +294,175 @@ VALID_ASSET_TYPES_WITH_QUERY = [
     "MATERIALIZED_VIEW",
     "SCHEDULED_QUERY",
 ]
+
+# ---------------------------------------------------------------------------
+# Data Validation Module payloads
+# ---------------------------------------------------------------------------
+
+# ValidationRun model payloads (for SQLAlchemy model tests)
+VALID_VALIDATION_RUN_DATA = {
+    "workspace_id": 1,
+    "migration_id": 10,
+    "source_connection_id": 100,
+    "target_connection_id": 200,
+    "bedrock_model": "anthropic.claude-3-sonnet-20240229-v1:0",
+    "batch_size": 10000,
+    "type_mapping_overrides": {"STRING": "TEXT"},
+    "status": "pending",
+    "progress_percentage": 0,
+    "tables_total": 5,
+    "tables_passed": 0,
+    "tables_failed": 0,
+    "tables_error": 0,
+    "created_by": "testuser",
+}
+
+VALID_VALIDATION_RUN_COMPLETED = {
+    "workspace_id": 1,
+    "migration_id": 10,
+    "source_connection_id": 100,
+    "target_connection_id": 200,
+    "batch_size": 10000,
+    "status": "completed",
+    "progress_percentage": 100,
+    "tables_total": 3,
+    "tables_passed": 2,
+    "tables_failed": 1,
+    "tables_error": 0,
+    "created_by": "testuser",
+}
+
+VALID_VALIDATION_RUN_MINIMAL = {
+    "workspace_id": 1,
+    "migration_id": 10,
+    "source_connection_id": 100,
+    "target_connection_id": 200,
+    "created_by": "testuser",
+}
+
+# ValidationTableResult model payloads
+VALID_VALIDATION_TABLE_RESULT_DATA = {
+    "run_id": 1,
+    "workspace_id": 1,
+    "table_name": "users",
+    "dataset_name": "my_dataset",
+    "ddl_status": "passed",
+    "ddl_comparison_result": {
+        "discrepancies": [],
+        "source_column_count": 5,
+        "target_column_count": 5,
+        "columns_compared": 5,
+    },
+    "row_count_status": "passed",
+    "row_count_result": {
+        "source_count": 1000,
+        "target_count": 1000,
+        "difference": 0,
+        "percentage_difference": 0.0,
+    },
+    "data_match_status": "passed",
+    "data_match_result": {
+        "total_compared": 1000,
+        "matched_count": 1000,
+        "missing_count": 0,
+        "extra_count": 0,
+        "mismatch_count": 0,
+        "sample_discrepancies": [],
+    },
+    "status": "completed",
+}
+
+VALID_VALIDATION_TABLE_RESULT_FAILED = {
+    "run_id": 1,
+    "workspace_id": 1,
+    "table_name": "orders",
+    "dataset_name": "my_dataset",
+    "ddl_status": "failed",
+    "ddl_comparison_result": {
+        "discrepancies": [
+            {
+                "type": "missing_column",
+                "column_name": "discount",
+                "source_type": "FLOAT64",
+                "target_type": None,
+                "expected_type": "DOUBLE PRECISION",
+            }
+        ],
+        "source_column_count": 8,
+        "target_column_count": 7,
+        "columns_compared": 8,
+    },
+    "row_count_status": "failed",
+    "row_count_result": {
+        "source_count": 5000,
+        "target_count": 4998,
+        "difference": 2,
+        "percentage_difference": 0.04,
+    },
+    "data_match_status": "failed",
+    "data_match_result": {
+        "total_compared": 5000,
+        "matched_count": 4995,
+        "missing_count": 2,
+        "extra_count": 0,
+        "mismatch_count": 3,
+        "sample_discrepancies": [
+            {"type": "missing_in_target", "primary_key": {"id": 42}, "details": None},
+        ],
+    },
+    "ai_analysis": {
+        "root_cause": "Two rows lost during AVRO export",
+        "impact_assessment": "Minor data loss in orders table",
+        "recommended_workarounds": ["Re-export affected rows"],
+    },
+    "status": "failed",
+    "error_message": None,
+}
+
+VALID_VALIDATION_TABLE_RESULT_MINIMAL = {
+    "run_id": 1,
+    "workspace_id": 1,
+    "table_name": "products",
+    "status": "pending",
+}
+
+VALID_VALIDATION_TABLE_RESULT_ERROR = {
+    "run_id": 1,
+    "workspace_id": 1,
+    "table_name": "events",
+    "status": "error",
+    "error_message": "Connection timeout after 300 seconds",
+}
+
+# CreateValidationRunRequest Pydantic payloads
+VALID_CREATE_VALIDATION_RUN_REQUEST = {
+    "migration_id": 10,
+    "source_connection_id": 100,
+    "target_connection_id": 200,
+    "tables": ["users", "orders"],
+    "bedrock_model": "anthropic.claude-3-sonnet-20240229-v1:0",
+    "batch_size": 10000,
+    "type_mapping_overrides": {"STRING": "TEXT"},
+}
+
+VALID_CREATE_VALIDATION_RUN_MINIMAL = {
+    "migration_id": 10,
+    "source_connection_id": 100,
+    "target_connection_id": 200,
+}
+
+INVALID_CREATE_VALIDATION_RUN_MISSING_MIGRATION = {
+    "source_connection_id": 100,
+    "target_connection_id": 200,
+}
+
+INVALID_CREATE_VALIDATION_RUN_MISSING_CONNECTION = {
+    "migration_id": 10,
+    "target_connection_id": 200,
+}
+
+INVALID_CREATE_VALIDATION_RUN_WRONG_TYPES = {
+    "migration_id": "not_an_int",
+    "source_connection_id": 100,
+    "target_connection_id": 200,
+}

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { taskHistoryApi, TaskRecord } from '../services/taskHistoryApi';
+import { useLanguage } from '../contexts/LanguageContext';
 import './TaskHistoryPage.css';
 
 export const TaskHistoryPage: React.FC = () => {
+  const { t } = useLanguage();
   const [records, setRecords] = useState<TaskRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -62,17 +64,17 @@ export const TaskHistoryPage: React.FC = () => {
   };
 
   const getStatusBadge = (status: string) => {
-    const styles: Record<string, { bg: string; color: string; label: string }> = {
-      completed: { bg: '#ECFDF5', color: '#059669', label: 'Completed' },
-      running: { bg: '#EFF6FF', color: '#2563EB', label: 'Running' },
-      failed: { bg: '#FEF2F2', color: '#DC2626', label: 'Failed' },
-      agent_offline: { bg: '#FFF7ED', color: '#EA580C', label: 'Agent Offline' },
+    const styles: Record<string, { bg: string; color: string; key: string }> = {
+      completed: { bg: '#ECFDF5', color: '#059669', key: 'taskHistory.completed' },
+      running: { bg: '#EFF6FF', color: '#2563EB', key: 'taskHistory.running' },
+      failed: { bg: '#FEF2F2', color: '#DC2626', key: 'taskHistory.failed' },
+      agent_offline: { bg: '#FFF7ED', color: '#EA580C', key: 'taskHistory.agentOffline' },
     };
     const s = styles[status] || styles.failed;
     return (
       <span className="task-status-badge" style={{ background: s.bg, color: s.color }}>
         {status === 'running' && <span className="task-status-dot" style={{ background: s.color }} />}
-        {s.label}
+        {t(s.key)}
       </span>
     );
   };
@@ -95,21 +97,21 @@ export const TaskHistoryPage: React.FC = () => {
             Task History
           </h1>
           <div className="task-history-subheader">
-            <span className="task-history-count">{total} task{total !== 1 ? 's' : ''}</span>
+            <span className="task-history-count">{total} {t('taskHistory.title')}</span>
             <div className="task-history-actions">
               <div className="search-box">
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="7" cy="7" r="5" />
                   <path d="M11 11l3 3" strokeLinecap="round" />
                 </svg>
-                <input type="text" placeholder="Search by migration, table, or ARN..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={handleKeyDown} onBlur={handleSearch} />
+                <input type="text" placeholder={t('taskHistory.searchPlaceholder')} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={handleKeyDown} onBlur={handleSearch} />
               </div>
               <select className="task-filter-select" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}>
-                <option value="all">All Status</option>
-                <option value="completed">Completed</option>
-                <option value="running">Running</option>
-                <option value="failed">Failed</option>
-                <option value="agent_offline">Agent Offline</option>
+                <option value="all">{t('taskHistory.allStatus')}</option>
+                <option value="completed">{t('taskHistory.completed')}</option>
+                <option value="running">{t('taskHistory.running')}</option>
+                <option value="failed">{t('taskHistory.failed')}</option>
+                <option value="agent_offline">{t('taskHistory.agentOffline')}</option>
               </select>
             </div>
           </div>
@@ -118,27 +120,27 @@ export const TaskHistoryPage: React.FC = () => {
 
       <div className="task-table-container">
         {loading ? (
-          <div className="task-loading"><div className="task-spinner" /><p>Loading task history...</p></div>
+          <div className="task-loading"><div className="task-spinner" /><p>{t('taskHistory.loading')}</p></div>
         ) : records.length === 0 ? (
           <div className="task-empty">
             <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#9CA3AF" strokeWidth="2">
               <path d="M12 24h6l4-10 6 20 4-10h4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <h4>No DataSync Tasks Found</h4>
-            <p>DataSync tasks will appear here when migrations are executed via Path B.</p>
+            <h4>{t('taskHistory.noRecords')}</h4>
+            <p>{t('taskHistory.noRecordsDesc')}</p>
           </div>
         ) : (
           <table className="task-table">
             <thead>
               <tr>
-                <th>Migration</th>
-                <th>Table</th>
-                <th>Status</th>
-                <th>Files</th>
-                <th>Size</th>
-                <th>Duration</th>
-                <th>Agent IP</th>
-                <th>Started At</th>
+                <th>{t('taskHistory.migration')}</th>
+                <th>{t('taskHistory.table')}</th>
+                <th>{t('taskHistory.status')}</th>
+                <th>{t('taskHistory.files')}</th>
+                <th>{t('taskHistory.size')}</th>
+                <th>{t('taskHistory.duration')}</th>
+                <th>{t('taskHistory.agentIp')}</th>
+                <th>{t('taskHistory.startedAt')}</th>
                 <th></th>
               </tr>
             </thead>
@@ -173,10 +175,10 @@ export const TaskHistoryPage: React.FC = () => {
 
       {total > 0 && (
         <div className="task-pagination">
-          <span className="pagination-info">Showing {Math.min((currentPage - 1) * rowsPerPage + 1, total)}–{Math.min(currentPage * rowsPerPage, total)} of {total}</span>
+          <span className="pagination-info">{t('taskHistory.showing')} {Math.min((currentPage - 1) * rowsPerPage + 1, total)}–{Math.min(currentPage * rowsPerPage, total)} {t('taskHistory.of')} {total}</span>
           <div className="pagination-controls">
             <div className="rows-per-page">
-              <span>Rows per page:</span>
+              <span>{t('taskHistory.rowsPerPage')}</span>
               <select value={rowsPerPage} onChange={(e) => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}>
                 <option value={10}>10</option><option value={15}>15</option><option value={25}>25</option><option value={50}>50</option>
               </select>
@@ -185,7 +187,7 @@ export const TaskHistoryPage: React.FC = () => {
               <button className="pagination-btn" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 4L6 8l4 4" strokeLinecap="round" strokeLinejoin="round" /></svg>
               </button>
-              <span style={{ fontSize: '13px', color: '#6B7280' }}>Page {currentPage} of {totalPages}</span>
+              <span style={{ fontSize: '13px', color: '#6B7280' }}>{t('taskHistory.page')} {currentPage} {t('taskHistory.of')} {totalPages}</span>
               <button className="pagination-btn" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" /></svg>
               </button>
@@ -198,45 +200,45 @@ export const TaskHistoryPage: React.FC = () => {
         <div className="task-modal-overlay" onClick={() => setSelectedRecord(null)}>
           <div className="task-modal" onClick={(e) => e.stopPropagation()}>
             <div className="task-modal-header">
-              <h3>DataSync Task Details</h3>
+              <h3>{t('taskHistory.details')}</h3>
               <button className="modal-close" onClick={() => setSelectedRecord(null)}>
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 6l8 8M14 6l-8 8" strokeLinecap="round" /></svg>
               </button>
             </div>
             <div className="task-modal-body">
               <div className="task-detail-grid">
-                <div className="task-detail-item"><label>Migration</label><span>{selectedRecord.migration_name} (ID: {selectedRecord.migration_id})</span></div>
-                <div className="task-detail-item"><label>Table</label><span>{selectedRecord.table_name || 'All tables'}</span></div>
-                <div className="task-detail-item"><label>Status</label><span>{getStatusBadge(selectedRecord.status)}</span></div>
-                <div className="task-detail-item"><label>Task Type</label><span>{selectedRecord.task_type?.toUpperCase() || 'DATASYNC'}</span></div>
-                <div className="task-detail-item"><label>Started</label><span>{formatTimestamp(selectedRecord.started_at)}</span></div>
-                <div className="task-detail-item"><label>Completed</label><span>{formatTimestamp(selectedRecord.completed_at)}</span></div>
-                <div className="task-detail-item"><label>Duration</label><span>{formatDuration(selectedRecord.duration_seconds)}</span></div>
-                <div className="task-detail-item"><label>Files Transferred</label><span>{(selectedRecord.files_transferred || 0).toLocaleString()}</span></div>
-                <div className="task-detail-item"><label>Bytes Transferred</label><span>{formatBytes(selectedRecord.bytes_transferred)}</span></div>
-                <div className="task-detail-item"><label>Agent IP</label><span>{selectedRecord.agent_ip || '—'}</span></div>
+                <div className="task-detail-item"><label>{t('taskHistory.migration')}</label><span>{selectedRecord.migration_name} (ID: {selectedRecord.migration_id})</span></div>
+                <div className="task-detail-item"><label>{t('taskHistory.table')}</label><span>{selectedRecord.table_name || 'All tables'}</span></div>
+                <div className="task-detail-item"><label>{t('taskHistory.status')}</label><span>{getStatusBadge(selectedRecord.status)}</span></div>
+                <div className="task-detail-item"><label>{t('taskHistory.taskType')}</label><span>{selectedRecord.task_type?.toUpperCase() || 'DATASYNC'}</span></div>
+                <div className="task-detail-item"><label>{t('taskHistory.started')}</label><span>{formatTimestamp(selectedRecord.started_at)}</span></div>
+                <div className="task-detail-item"><label>{t('taskHistory.completed2')}</label><span>{formatTimestamp(selectedRecord.completed_at)}</span></div>
+                <div className="task-detail-item"><label>{t('taskHistory.duration')}</label><span>{formatDuration(selectedRecord.duration_seconds)}</span></div>
+                <div className="task-detail-item"><label>{t('taskHistory.filesTransferred')}</label><span>{(selectedRecord.files_transferred || 0).toLocaleString()}</span></div>
+                <div className="task-detail-item"><label>{t('taskHistory.bytesTransferred')}</label><span>{formatBytes(selectedRecord.bytes_transferred)}</span></div>
+                <div className="task-detail-item"><label>{t('taskHistory.agentIp')}</label><span>{selectedRecord.agent_ip || '—'}</span></div>
               </div>
 
               {selectedRecord.source_uri && (
-                <div className="task-detail-section"><label>Source</label><pre className="task-code-block">{selectedRecord.source_uri}</pre></div>
+                <div className="task-detail-section"><label>{t('taskHistory.source')}</label><pre className="task-code-block">{selectedRecord.source_uri}</pre></div>
               )}
               {selectedRecord.dest_uri && (
-                <div className="task-detail-section"><label>Destination</label><pre className="task-code-block">{selectedRecord.dest_uri}</pre></div>
+                <div className="task-detail-section"><label>{t('taskHistory.destination')}</label><pre className="task-code-block">{selectedRecord.dest_uri}</pre></div>
               )}
               {selectedRecord.task_arn && (
-                <div className="task-detail-section"><label>Task ARN</label><pre className="task-code-block">{selectedRecord.task_arn}</pre></div>
+                <div className="task-detail-section"><label>{t('taskHistory.taskArn')}</label><pre className="task-code-block">{selectedRecord.task_arn}</pre></div>
               )}
               {selectedRecord.execution_arn && (
-                <div className="task-detail-section"><label>Execution ARN</label><pre className="task-code-block">{selectedRecord.execution_arn}</pre></div>
+                <div className="task-detail-section"><label>{t('taskHistory.executionArn')}</label><pre className="task-code-block">{selectedRecord.execution_arn}</pre></div>
               )}
               {selectedRecord.agent_arn && (
-                <div className="task-detail-section"><label>Agent ARN</label><pre className="task-code-block">{selectedRecord.agent_arn}</pre></div>
+                <div className="task-detail-section"><label>{t('taskHistory.agentArn')}</label><pre className="task-code-block">{selectedRecord.agent_arn}</pre></div>
               )}
               {selectedRecord.error_message && (
-                <div className="task-detail-section task-error-section"><label>Error</label><pre className="task-code-block task-error-block">{selectedRecord.error_message}</pre></div>
+                <div className="task-detail-section task-error-section"><label>{t('taskHistory.error')}</label><pre className="task-code-block task-error-block">{selectedRecord.error_message}</pre></div>
               )}
               {selectedRecord.error_details && (
-                <div className="task-detail-section task-error-section"><label>Error Details</label><pre className="task-code-block task-error-block">{JSON.stringify(selectedRecord.error_details, null, 2)}</pre></div>
+                <div className="task-detail-section task-error-section"><label>{t('taskHistory.errorDetails')}</label><pre className="task-code-block task-error-block">{JSON.stringify(selectedRecord.error_details, null, 2)}</pre></div>
               )}
             </div>
           </div>

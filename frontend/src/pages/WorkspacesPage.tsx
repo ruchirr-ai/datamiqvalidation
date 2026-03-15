@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
+import { useLanguage } from '../contexts/LanguageContext';
 import './WorkspacesPage.css';
 
 /* ===== SVG Icon Components ===== */

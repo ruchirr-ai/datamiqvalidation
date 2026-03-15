@@ -194,8 +194,7 @@
   display: block;
   position: absolute;
   bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  right: 0;
   width: 280px;
   padding: 10px 12px;
   font-size: var(--font-size-xs);

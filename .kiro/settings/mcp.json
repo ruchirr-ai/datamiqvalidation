@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "aws-pricing": {
+      "command": "uvx",
+      "args": ["awslabs.aws-pricing-mcp-server@latest"],
+      "env": {},
+      "disabled": false,
+      "autoApprove": ["get_products"]
+    }
+  }
+}

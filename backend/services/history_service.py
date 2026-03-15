@@ -39,11 +39,10 @@ class HistoryService:
         self.redis_client = redis_client
         self.logger = logger
         
-        # Initialize AWS DataSync client
+        # Initialize AWS DataSync client (assumes IAM role if DATASYNC_ROLE_ARN is set)
         try:
-            import os
-            aws_region = os.getenv('AWS_DATASYNC_REGION', 'us-east-1')
-            self.datasync_client = boto3.client('datasync', region_name=aws_region)
+            from shared.datasync_client import create_datasync_client
+            self.datasync_client = create_datasync_client()
         except Exception as e:
             self.logger.warning(f"Failed to initialize DataSync client: {str(e)}")
             self.datasync_client = None

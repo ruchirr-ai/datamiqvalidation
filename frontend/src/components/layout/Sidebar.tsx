@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Cable } from 'lucide-react';
+import { Cable, Sun, Moon, Globe } from 'lucide-react';
 import { Logo } from '../ui/Logo';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useLanguage, LANGUAGES } from '../../contexts/LanguageContext';
 import './Sidebar.css';
 
 interface NavItem {
@@ -34,8 +36,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['monitoring']));
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [menuPositions, setMenuPositions] = useState<Record<string, number>>({});
+  const { theme, toggleTheme } = useTheme();
+  const { language, setLanguage, t } = useLanguage();
 
   // Detect mobile screen size
   React.useEffect(() => {
@@ -89,10 +94,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   };
 
+  const currentLang = LANGUAGES.find(l => l.code === language);
+
   const navigationItems: NavItem[] = [
     {
       id: 'dashboard',
-      label: 'Dashboard',
+      label: t('nav.dashboard'),
       icon: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
           <rect x="3" y="3" width="6" height="6" rx="1" />
@@ -105,7 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'workspaces',
-      label: 'Workspaces',
+      label: t('nav.workspaces'),
       icon: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M3 7h14M3 7l2-4h10l2 4M3 7v9a2 2 0 002 2h10a2 2 0 002-2V7" />
@@ -115,13 +122,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'connections',
-      label: 'Connections',
+      label: t('nav.connections'),
       icon: <Cable size={20} strokeWidth={1.5} />,
       path: '/connections'
     },
     {
       id: 'assessments',
-      label: 'Assessments',
+      label: t('nav.assessments'),
       icon: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M9 2L3 6v4c0 4.5 3 7.5 6 8 3-.5 6-3.5 6-8V6l-6-4z" strokeLinecap="round" strokeLinejoin="round" />
@@ -130,15 +137,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ),
       path: '/assessments',
       children: [
-        { id: 'assess-1', label: 'Schema Analysis', icon: null, path: '/assessments/schema-analysis' },
-        { id: 'assess-2', label: 'Compatibility Check', icon: null, path: '/assessments/compatibility' },
-        { id: 'assess-3', label: 'Assessment Reports', icon: null, path: '/assessments/reports' },
-        { id: 'assess-4', label: 'Data Profiling', icon: null, path: '/assessments/data-profiling' }
+        { id: 'assess-1', label: t('nav.schemaAnalysis'), icon: null, path: '/assessments/schema-analysis' },
+        { id: 'assess-2', label: t('nav.compatibilityCheck'), icon: null, path: '/assessments/compatibility' },
+        { id: 'assess-3', label: t('nav.assessmentReports'), icon: null, path: '/assessments/reports' },
+        { id: 'assess-4', label: t('nav.dataProfiling'), icon: null, path: '/assessments/data-profiling' }
       ]
     },
     {
       id: 'migrations',
-      label: 'Migrations',
+      label: t('nav.migrations'),
       icon: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M3 10h14M14 6l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
@@ -148,7 +155,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'jobs',
-      label: 'Jobs',
+      label: t('nav.jobs'),
       icon: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="10" cy="10" r="7" />
@@ -157,14 +164,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ),
       path: '/jobs',
       children: [
-        { id: 'job-1', label: 'Running', icon: null, path: '/jobs/running' },
-        { id: 'job-2', label: 'Queued', icon: null, path: '/jobs/queued' },
-        { id: 'job-3', label: 'History', icon: null, path: '/jobs/history' }
+        { id: 'job-1', label: t('nav.running'), icon: null, path: '/jobs/running' },
+        { id: 'job-2', label: t('nav.queued'), icon: null, path: '/jobs/queued' },
+        { id: 'job-3', label: t('nav.history'), icon: null, path: '/jobs/history' }
       ]
     },
     {
       id: 'converter',
-      label: 'Code Converter',
+      label: t('nav.converter'),
       icon: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M7 5L3 10l4 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -174,13 +181,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ),
       path: '/converter',
       children: [
-        { id: 'conv-1', label: 'Quick Convert', icon: null, path: '/converter' },
-        { id: 'conv-2', label: 'Batch', icon: null, path: '/converter/batch' }
+        { id: 'conv-1', label: t('nav.quickConvert'), icon: null, path: '/converter' },
+        { id: 'conv-2', label: t('nav.batch'), icon: null, path: '/converter/batch' }
       ]
     },
     {
+      id: 'validations',
+      label: t('nav.validations'),
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="3" y="2" width="14" height="16" rx="2" />
+          <path d="M7 7l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M7 13h6" strokeLinecap="round" />
+        </svg>
+      ),
+      path: '/validations'
+    },
+    {
       id: 'monitoring',
-      label: 'Monitoring',
+      label: t('nav.monitoring'),
       icon: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M3 12l3-3 4 4 7-7" strokeLinecap="round" strokeLinejoin="round" />
@@ -189,16 +208,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ),
       path: '/monitoring',
       children: [
-        { id: 'mon-1', label: 'Query History', icon: null, path: '/monitoring/query-history' },
-        { id: 'mon-2', label: 'Copy History', icon: null, path: '/monitoring/copy-history' },
-        { id: 'mon-3', label: 'Task History', icon: null, path: '/monitoring/task-history' },
-        { id: 'mon-4', label: 'Dynamic Tables', icon: null, path: '/monitoring/dynamic-tables' },
-        { id: 'mon-5', label: 'Governance', icon: null, path: '/monitoring/governance' }
+        { id: 'mon-1', label: t('nav.queryHistory'), icon: null, path: '/monitoring/query-history' },
+        { id: 'mon-2', label: t('nav.copyHistory'), icon: null, path: '/monitoring/copy-history' },
+        { id: 'mon-3', label: t('nav.taskHistory'), icon: null, path: '/monitoring/task-history' },
+        { id: 'mon-4', label: t('nav.dynamicTables'), icon: null, path: '/monitoring/dynamic-tables' },
+        { id: 'mon-5', label: t('nav.governance'), icon: null, path: '/monitoring/governance' }
       ]
     },
     {
       id: 'admin',
-      label: 'Admin',
+      label: t('nav.admin'),
       icon: (
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
           <path d="M10 2L3 6v4c0 4.5 3 7.5 7 8 4-.5 7-3.5 7-8V6l-7-4z" strokeLinecap="round" strokeLinejoin="round" />
@@ -297,7 +316,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         onNavigate('/support');
         break;
       case 'documentation':
-        window.open('https://docs.datamiq.com', '_blank');
+        window.open('/docs', '_blank');
         break;
       case 'privacy':
         window.open('https://datamiq.com/privacy', '_blank');
@@ -308,18 +327,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  // Close menu when clicking outside
+  // Close menus when clicking outside
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (isUserMenuOpen && !target.closest('.account-block') && !target.closest('.user-menu')) {
         setIsUserMenuOpen(false);
       }
+      if (isLangMenuOpen && !target.closest('.sidebar-language-selector')) {
+        setIsLangMenuOpen(false);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isUserMenuOpen]);
+  }, [isUserMenuOpen, isLangMenuOpen]);
 
   return (
     <aside className={`sidebar ${isCollapsed ? 'collapsed' : ''}`} role="navigation" aria-label="Main navigation">
@@ -342,6 +364,70 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <nav className="sidebar-nav" aria-label="Primary navigation">
         {navigationItems.map(item => renderNavItem(item))}
       </nav>
+
+      {/* Sidebar Bottom Section */}
+      <div className="sidebar-bottom">
+        {/* Theme Toggle */}
+        <div className="sidebar-theme-toggle">
+          <button
+            className="theme-toggle-btn"
+            onClick={toggleTheme}
+            aria-label={theme === 'light' ? t('sidebar.darkMode') : t('sidebar.lightMode')}
+            title={theme === 'light' ? t('sidebar.darkMode') : t('sidebar.lightMode')}
+          >
+            {theme === 'light' ? (
+              <Moon size={18} strokeWidth={1.5} />
+            ) : (
+              <Sun size={18} strokeWidth={1.5} />
+            )}
+            {!isCollapsed && (
+              <span className="theme-toggle-label">
+                {theme === 'light' ? t('sidebar.darkMode') : t('sidebar.lightMode')}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Language Selector */}
+        <div className="sidebar-language-selector">
+          <button
+            className="language-toggle-btn"
+            onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
+            aria-label={t('sidebar.language')}
+            title={t('sidebar.language')}
+          >
+            <Globe size={18} strokeWidth={1.5} />
+            {!isCollapsed && (
+              <span className="language-toggle-label">
+                {currentLang?.flag} {currentLang?.label}
+              </span>
+            )}
+          </button>
+          {isLangMenuOpen && (
+            <div className="language-menu" role="menu">
+              {LANGUAGES.map((lang) => (
+                <button
+                  key={lang.code}
+                  className={`language-menu-item ${language === lang.code ? 'active' : ''}`}
+                  onClick={() => {
+                    setLanguage(lang.code);
+                    setIsLangMenuOpen(false);
+                  }}
+                  role="menuitem"
+                >
+                  <span className="language-flag">{lang.flag}</span>
+                  <span className="language-name">{lang.label}</span>
+                  {language === lang.code && (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M3 7l3 3 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Account Block */}
       <div className="sidebar-footer">
@@ -394,7 +480,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <circle cx="8" cy="5" r="2.5" />
                 <path d="M3 14c0-2.5 2-4 5-4s5 1.5 5 4" strokeLinecap="round" />
               </svg>
-              <span>My profile</span>
+              <span>{t('sidebar.myProfile')}</span>
             </button>
 
             <button
@@ -406,7 +492,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <circle cx="8" cy="8" r="6" />
                 <path d="M8 12v.5M8 6a2 2 0 011.5 3.5L8 11" strokeLinecap="round" />
               </svg>
-              <span>Support</span>
+              <span>{t('sidebar.support')}</span>
             </button>
 
             <button
@@ -418,7 +504,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <path d="M4 2h8a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V3a1 1 0 011-1z" />
                 <path d="M6 6h4M6 9h4" strokeLinecap="round" />
               </svg>
-              <span>Documentation</span>
+              <span>{t('sidebar.documentation')}</span>
               <svg className="external-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M9 3L3 9M9 3v4M9 3H5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -434,7 +520,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M8 2L3 5v3c0 3 2 5 5 5.5 3-.5 5-2.5 5-5.5V5l-5-3z" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span>Privacy notice</span>
+              <span>{t('sidebar.privacyNotice')}</span>
               <svg className="external-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M9 3L3 9M9 3v4M9 3H5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -450,7 +536,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M10 2h3a1 1 0 011 1v10a1 1 0 01-1 1h-3M6 11l4-3-4-3M10 8H2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span>Sign Out</span>
+              <span>{t('sidebar.signOut')}</span>
             </button>
           </div>
         )}

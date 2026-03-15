@@ -799,3 +799,249 @@
 @supports (padding: max(0px)) {
   .chat-agent-modal { padding-bottom: max(0px, env(safe-area-inset-bottom)); }
 }
+
+/* ========================================
+   DARK MODE OVERRIDES
+   ======================================== */
+
+[data-theme="dark"] .chat-agent-modal {
+  background: var(--color-bg-surface);
+}
+
+[data-theme="dark"] .chat-agent-header {
+  border-bottom-color: var(--color-divider);
+  background: var(--color-bg-secondary);
+}
+
+[data-theme="dark"] .chat-agent-title {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .chat-agent-model-badge {
+  background: var(--color-divider);
+  border-color: #3A3D4E;
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .model-selector-btn {
+  background: var(--color-divider);
+  border-color: #3A3D4E;
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .model-selector-btn:hover {
+  background: #3A3D4E;
+  border-color: #4A4D5E;
+}
+
+[data-theme="dark"] .model-dropdown {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+
+[data-theme="dark"] .model-option {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .model-option:hover {
+  background: var(--color-hover-bg);
+}
+
+[data-theme="dark"] .model-option.active {
+  background: var(--color-hover-bg);
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .model-option svg:last-child {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .more-menu-dropdown {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+
+[data-theme="dark"] .more-menu-dropdown button {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .more-menu-dropdown button:hover {
+  background: var(--color-hover-bg);
+}
+
+[data-theme="dark"] .chat-agent-new-chat-btn {
+  border-color: var(--color-divider);
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .chat-agent-new-chat-btn:hover {
+  background: var(--color-hover-bg);
+  border-color: #4A4D5E;
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .chat-agent-action-btn,
+[data-theme="dark"] .chat-agent-close {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .chat-agent-action-btn:hover,
+[data-theme="dark"] .chat-agent-close:hover {
+  background: var(--color-hover-bg);
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .chat-agent-body {
+  background: var(--color-bg-primary);
+}
+
+[data-theme="dark"] .quick-action-btn {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .quick-action-btn:hover {
+  background: var(--color-hover-bg);
+  border-color: #3A3D4E;
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .chat-message.ai .chat-message-bubble {
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  border-color: var(--color-divider);
+}
+
+[data-theme="dark"] .chat-message.ai.error .chat-message-bubble {
+  background: var(--color-error-bg);
+  border-color: rgba(251, 113, 133, 0.3);
+}
+
+[data-theme="dark"] .chat-agent-body::-webkit-scrollbar-thumb {
+  background: #3A3D4E;
+}
+
+[data-theme="dark"] .chat-agent-body::-webkit-scrollbar-thumb:hover {
+  background: #4A4D5E;
+}
+
+[data-theme="dark"] .chat-agent-input-area {
+  border-top-color: var(--color-divider);
+  background: var(--color-bg-surface);
+}
+
+[data-theme="dark"] .chat-agent-input-wrapper {
+  border-color: #3A3D4E;
+  background: var(--color-bg-primary);
+}
+
+[data-theme="dark"] .chat-agent-input-wrapper:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.15);
+  background: var(--color-bg-secondary);
+}
+
+[data-theme="dark"] .chat-agent-input {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .chat-agent-input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+[data-theme="dark"] .chat-agent-send {
+  background: var(--color-primary);
+}
+
+[data-theme="dark"] .chat-agent-send:disabled {
+  background: var(--color-divider);
+  color: var(--color-text-disabled);
+}
+
+[data-theme="dark"] .token-badge {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-divider);
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .model-selector-dropdown {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+
+[data-theme="dark"] .markdown-code-inline {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .markdown-code-block {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  border-color: var(--color-divider);
+}
+
+[data-theme="dark"] .markdown-strong {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .markdown-h1,
+[data-theme="dark"] .markdown-h2,
+[data-theme="dark"] .markdown-h3 {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .suggestion-chip {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .suggestion-chip:hover {
+  background: var(--color-hover-bg);
+  border-color: #3A3D4E;
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .chat-agent-suggestions h4 {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .message-time {
+  color: var(--color-text-disabled);
+}
+
+[data-theme="dark"] .message-tokens {
+  color: var(--color-text-disabled);
+}
+
+[data-theme="dark"] .message-actions button {
+  color: var(--color-text-disabled);
+}
+
+[data-theme="dark"] .message-actions button:hover {
+  background: var(--color-hover-bg);
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .chat-agent-footer-text {
+  color: var(--color-text-disabled);
+}
+
+[data-theme="dark"] .chat-agent-footer-text a {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .chat-agent-tooltip {
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .chat-message-bubble.typing {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+
+[data-theme="dark"] .chat-message-bubble.typing span {
+  background: var(--color-text-disabled);
+}

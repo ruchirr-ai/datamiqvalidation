@@ -9,6 +9,7 @@ Key improvements over naive calculation:
 - Serverless RPU-hours derived from actual BQ slot usage (not flat %)
 - Provisioned costs include RI pricing options
 - Migration costs include DataSync transfer
+- Real-time AWS pricing via AWS Pricing API (with fallback to cached prices)
 """
 
 import logging
@@ -23,8 +24,9 @@ def _fmt(n: float) -> str:
     return f'${n:,.2f}'
 
 
-# AWS Redshift pricing by region (USD/hour per node for Provisioned,
+# Fallback AWS Redshift pricing by region (USD/hour per node for Provisioned,
 # USD/RPU-hour for Serverless). Prices as of early 2026.
+# Used when AWS Pricing API is unavailable.
 REDSHIFT_PRICING = {
     'us-east-1': {
         'label': 'US East (N. Virginia)',
@@ -223,7 +225,77 @@ class TCOEngine:
     """
     Calculates and compares Total Cost of Ownership between
     BigQuery (current) and Redshift (target) configurations.
+    Uses AWS Pricing API for real-time pricing with fallback to cached prices.
     """
+    
+    def __init__(self, use_live_pricing: bool = True):
+        """
+        Initialize TCO Engine.
+        
+        Args:
+            use_live_pricing: If True, fetch real-time pricing from AWS API.
+                            If False or API fails, use fallback cached prices.
+        """
+        self.use_live_pricing = use_live_pricing
+        self.pricing_service = None
+        
+        if use_live_pricing:
+            try:
+                from .aws_pricing_service import AWSPricingService
+                self.pricing_service = AWSPricingService()
+                logger.info("AWS Pricing Service initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize AWS Pricing Service: {e}. Using fallback prices.")
+                self.pricing_service = None
+    
+    def _get_region_pricing(self, aws_region: str, provisioned_config: Dict) -> Dict:
+        """
+        Get pricing for a region, using live AWS API if available, otherwise fallback.
+        
+        Args:
+            aws_region: AWS region code
+            provisioned_config: Provisioned cluster config with node_type
+        
+        Returns:
+            Pricing dictionary with provisioned, serverless, and storage rates
+        """
+        # Start with fallback pricing
+        fallback_pricing = REDSHIFT_PRICING.get(aws_region, REDSHIFT_PRICING['us-east-1'])
+        
+        if not self.pricing_service:
+            return fallback_pricing
+        
+        try:
+            # Fetch all Redshift pricing for this region in one call
+            all_pricing = self.pricing_service.get_all_redshift_pricing(aws_region)
+            
+            # Build pricing dict with live prices where available, fallback for missing
+            live_pricing = {
+                'label': fallback_pricing['label'],
+                'provisioned': fallback_pricing['provisioned'].copy(),
+                'serverless_per_rpu_hour': fallback_pricing['serverless_per_rpu_hour'],
+                'managed_storage_per_gb_month': fallback_pricing['managed_storage_per_gb_month'],
+            }
+            
+            # Update provisioned node prices from live data
+            for nt, price in all_pricing.get('provisioned', {}).items():
+                live_pricing['provisioned'][nt] = price
+                logger.info(f"Live AWS pricing for {nt} in {aws_region}: ${price}/hr")
+            
+            # Update serverless and storage prices if available
+            if all_pricing.get('serverless_per_rpu_hour'):
+                live_pricing['serverless_per_rpu_hour'] = all_pricing['serverless_per_rpu_hour']
+                logger.info(f"Live serverless pricing in {aws_region}: ${all_pricing['serverless_per_rpu_hour']}/RPU-hr")
+            
+            if all_pricing.get('managed_storage_per_gb_month'):
+                live_pricing['managed_storage_per_gb_month'] = all_pricing['managed_storage_per_gb_month']
+                logger.info(f"Live storage pricing in {aws_region}: ${all_pricing['managed_storage_per_gb_month']}/GB-mo")
+            
+            return live_pricing
+            
+        except Exception as e:
+            logger.warning(f"Error fetching live AWS pricing: {e}. Using fallback prices.")
+            return fallback_pricing
 
     def calculate_tco(
         self,
@@ -240,22 +312,32 @@ class TCOEngine:
         total_queries = len(query_stats)
         total_bytes_scanned = sum(q.get('bytes_scanned', 0) for q in query_stats)
 
+        # Use bytes_billed when available (actual BQ billing basis, rounded up per query)
+        # Falls back to bytes_scanned if bytes_billed not collected
+        total_bytes_billed = 0
+        for q in query_stats:
+            meta = q.get('query_metadata') or {}
+            bb = meta.get('bytes_billed', 0) if isinstance(meta, dict) else 0
+            total_bytes_billed += (bb or 0)
+        # If bytes_billed data exists, use it; otherwise fall back to bytes_scanned
+        total_bytes_for_billing = total_bytes_billed if total_bytes_billed > 0 else total_bytes_scanned
+
         # Use workload metrics for accurate extrapolation
         query_time_span_days = workload_metrics.get('query_time_span_days', 30)
         monthly_slot_hours = workload_metrics.get('estimated_monthly_slot_hours', 0)
         rpu_hours_monthly = workload_metrics.get('estimated_rpu_hours_monthly', 0)
 
-        # Extrapolate bytes scanned to monthly
+        # Extrapolate bytes to monthly using billing basis
         if query_time_span_days > 0:
-            daily_bytes = total_bytes_scanned / query_time_span_days
+            daily_bytes = total_bytes_for_billing / query_time_span_days
             monthly_bytes = daily_bytes * 30
         else:
-            monthly_bytes = total_bytes_scanned
+            monthly_bytes = total_bytes_for_billing
 
         monthly_tb_scanned = monthly_bytes / (1024 ** 4) if monthly_bytes else 0
 
-        # Get region pricing
-        region_pricing = REDSHIFT_PRICING.get(aws_region, REDSHIFT_PRICING['us-east-1'])
+        # Get region pricing (with live AWS API or fallback)
+        region_pricing = self._get_region_pricing(aws_region, provisioned_config)
 
         # 1. Current BigQuery costs (extrapolated to monthly)
         bq_costs = self._calculate_bq_costs(
@@ -327,6 +409,16 @@ class TCOEngine:
                 'avg_wall_clock_seconds': workload_metrics.get('avg_wall_clock_seconds', 0),
                 'active_hours_per_day': workload_metrics.get('active_hours_per_day', 0),
                 'estimated_base_rpu': workload_metrics.get('estimated_base_rpu', 8),
+                'max_concurrent_slots': workload_metrics.get('max_concurrent_slots', 0),
+                'min_concurrent_slots': workload_metrics.get('min_concurrent_slots', 0),
+                'avg_concurrent_slots': workload_metrics.get('avg_concurrent_slots', 0),
+                'median_concurrent_slots': workload_metrics.get('median_concurrent_slots', 0),
+                'estimated_peak_slots': workload_metrics.get('estimated_peak_slots', 0),
+                'p50_concurrent_slots': workload_metrics.get('p50_concurrent_slots', 0),
+                'p90_concurrent_slots': workload_metrics.get('p90_concurrent_slots', 0),
+                'p95_concurrent_slots': workload_metrics.get('p95_concurrent_slots', 0),
+                'p99_concurrent_slots': workload_metrics.get('p99_concurrent_slots', 0),
+                'slot_timeline_source': workload_metrics.get('slot_timeline_source', 'sweep-line'),
             },
             'recommendation': self._generate_recommendation(
                 bq_costs, provisioned_costs, serverless_costs,
@@ -434,7 +526,7 @@ class TCOEngine:
         ri_3yr_monthly = compute_monthly * 0.25 + storage_monthly
         ri_3yr_annual = ri_3yr_monthly * 12
 
-        return {
+        result = {
             'node_type': node_type,
             'num_nodes': num_nodes,
             'hourly_per_node': round(hourly_per_node, 3),
@@ -448,6 +540,18 @@ class TCOEngine:
             'ri_3yr_monthly': round(ri_3yr_monthly, 2),
             'ri_3yr_annual': round(ri_3yr_annual, 2),
         }
+
+        # Pass through sizing justification from recommendation engine
+        if 'sizing_basis' in config:
+            result['sizing_basis'] = config['sizing_basis']
+        if 'sizing_rationale' in config:
+            result['sizing_rationale'] = config['sizing_rationale']
+        if 'vcpu_total' in config:
+            result['vcpu_total'] = config['vcpu_total']
+        if 'memory_gb_total' in config:
+            result['memory_gb_total'] = config['memory_gb_total']
+
+        return result
 
     def _calculate_serverless_costs(
         self, config: Dict, size_gb: float, pricing: Dict,

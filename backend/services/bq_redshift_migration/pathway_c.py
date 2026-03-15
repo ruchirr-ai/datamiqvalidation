@@ -376,7 +376,6 @@ class PathwayC:
                     ciphertext=aws_secret_encrypted,
                     credential_type='aws_secret_key',
                     resource_type='migration',
-                    resource_id=migration_id,
                     allow_plaintext_fallback=True
                 )
                 self._log(migration_id, 'INFO', 'transfer', "✓ AWS secret key decrypted successfully")
@@ -612,7 +611,6 @@ class PathwayC:
                     ciphertext=aws_secret_encrypted,
                     credential_type='aws_secret_key',
                     resource_type='migration',
-                    resource_id=migration_id,
                     allow_plaintext_fallback=True
                 )
                 logger.info("✓ AWS secret key decrypted successfully")
@@ -934,7 +932,6 @@ class PathwayC:
                     ciphertext=migration.aws_secret_access_key_encrypted,
                     credential_type='aws_secret_key',
                     resource_type='migration',
-                    resource_id=migration_id,
                     allow_plaintext_fallback=True
                 )
                 logger.info("✓ AWS secret key decrypted")

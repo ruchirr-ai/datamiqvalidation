@@ -218,12 +218,19 @@ export const AssessmentReportPage: React.FC = () => {
       // Fetch recommendations and TCO data if selected
       let recommendations = null;
       let tcoData = null;
+      let queryInsightsData = null;
 
       if (selectedSections.includes('recommendations')) {
         try { recommendations = await getAssessmentRecommendations(parseInt(assessmentId!)); } catch (e) { console.warn('Could not fetch recommendations:', e); }
       }
       if (selectedSections.includes('tco')) {
         try { tcoData = await getAssessmentTCO(parseInt(assessmentId!)); } catch (e) { console.warn('Could not fetch TCO:', e); }
+      }
+      if (selectedSections.includes('query-insights')) {
+        try {
+          const resp = await fetch(`/api/assessments/${parseInt(assessmentId!)}/query-insights?timeframe=all&page_size=10&sort_by=slot_milliseconds`);
+          if (resp.ok) queryInsightsData = await resp.json();
+        } catch (e) { console.warn('Could not fetch query insights:', e); }
       }
 
       await generatePDF({
@@ -232,6 +239,7 @@ export const AssessmentReportPage: React.FC = () => {
         assessmentId: parseInt(assessmentId!),
         recommendations,
         tcoData,
+        queryInsightsData,
       });
     } catch (err) {
       console.error('PDF generation failed:', err);
@@ -296,7 +304,7 @@ export const AssessmentReportPage: React.FC = () => {
             <FileSearch size={24} />
             {report.assessment.name}
           </h1>
-          <Badge variant={report.assessment.status === 'completed' ? 'success' : 'warning'}>
+          <Badge variant={report.assessment.status?.trim() === 'completed' ? 'success' : 'warning'}>
             {report.assessment.status}
           </Badge>
         </div>
@@ -421,7 +429,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
     
     {/* Summary Cards */}
     <div className="summary-grid">
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('datasets')}>
         <div className="summary-icon" style={{ background: '#EFF6FF', color: '#2563EB' }}>
           <Database size={24} />
         </div>
@@ -431,7 +439,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('tables')}>
         <div className="summary-icon" style={{ background: '#F0FDF4', color: '#16A34A' }}>
           <TableIcon size={24} />
         </div>
@@ -441,7 +449,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('views')}>
         <div className="summary-icon" style={{ background: '#FEF3C7', color: '#CA8A04' }}>
           <Eye size={24} />
         </div>
@@ -451,7 +459,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('stored-procedures')}>
         <div className="summary-icon" style={{ background: '#FCE7F3', color: '#DB2777' }}>
           <Code size={24} />
         </div>
@@ -461,7 +469,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('ml-spark-models')}>
         <div className="summary-icon" style={{ background: '#EDE9FE', color: '#7C3AED' }}>
           <Brain size={24} />
         </div>
@@ -471,7 +479,7 @@ const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatN
         </div>
       </div>
 
-      <div className="summary-card">
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('ml-spark-models')}>
         <div className="summary-icon" style={{ background: '#FFF7ED', color: '#EA580C' }}>
           <Activity size={24} />
         </div>
@@ -1340,23 +1348,16 @@ const UserInsightsSection: React.FC<any> = ({ queryStats, isSQLServer = false })
         {/* Time Filter */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>Time Frame:</span>
-          <select
+          <Select
             value={timeFilter}
-            onChange={(e) => setTimeFilter(e.target.value)}
-            style={{
-              padding: '6px 12px',
-              borderRadius: '6px',
-              border: '1px solid var(--color-divider)',
-              fontSize: '14px',
-              backgroundColor: 'var(--color-bg-surface)',
-              cursor: 'pointer',
-            }}
-          >
-            <option value="all">All Time</option>
-            <option value="24h">Last 24 Hours</option>
-            <option value="7d">Last 7 Days</option>
-            <option value="30d">Last 30 Days</option>
-          </select>
+            onChange={(val) => setTimeFilter(val as string)}
+            options={[
+              { value: 'all', label: 'All Time' },
+              { value: '24h', label: 'Last 24 Hours' },
+              { value: '7d', label: 'Last 7 Days' },
+              { value: '30d', label: 'Last 30 Days' },
+            ]}
+          />
         </div>
       </div>
       
@@ -1712,6 +1713,8 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
   const [error, setError] = useState<string | null>(null);
   const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
   const [selectedTable, setSelectedTable] = useState<string | number>('all');
+  const [dskPage, setDskPage] = useState(1);
+  const [dskPageSize, setDskPageSize] = useState<string | number>(20);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -1764,20 +1767,35 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
         <div className="section-filters" style={{ marginBottom: 'var(--spacing-4)' }}>
           <SearchableSelect
             value={selectedDataset}
-            onChange={(v) => { setSelectedDataset(v); setSelectedTable('all'); }}
+            onChange={(v) => { setSelectedDataset(v); setSelectedTable('all'); setDskPage(1); }}
             options={datasetOptions}
             placeholder="All Datasets"
           />
           <SearchableSelect
             value={selectedTable}
-            onChange={setSelectedTable}
+            onChange={(v) => { setSelectedTable(v); setDskPage(1); }}
             options={tableOptions}
             placeholder="All Tables"
+          />
+          <SearchableSelect
+            value={dskPageSize}
+            onChange={(v) => { setDskPageSize(v); setDskPage(1); }}
+            options={[
+              { value: 20, label: '20 rows' },
+              { value: 50, label: '50 rows' },
+              { value: 100, label: '100 rows' },
+              { value: 200, label: '200 rows' },
+            ]}
+            placeholder="Rows per page"
           />
         </div>
         {filteredDsk.length === 0 ? (
           <div className="empty-state-small"><p>No table-level recommendations available.</p></div>
         ) : (
+          <>
+          <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>
+            Showing {Math.min((dskPage - 1) * Number(dskPageSize) + 1, filteredDsk.length)}–{Math.min(dskPage * Number(dskPageSize), filteredDsk.length)} of {filteredDsk.length} tables
+          </div>
           <div className="table-container">
             <table className="data-table">
               <thead>
@@ -1789,7 +1807,7 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
                 </tr>
               </thead>
               <tbody>
-                {filteredDsk.map((row, i) => (
+                {filteredDsk.slice((dskPage - 1) * Number(dskPageSize), dskPage * Number(dskPageSize)).map((row, i) => (
                   <tr key={i}>
                     <td className="font-mono font-medium">{row.table_name}</td>
                     <td><Badge variant={row.distkey === 'EVEN' ? 'default' : 'info'}>{row.distkey}</Badge></td>
@@ -1804,6 +1822,30 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
               </tbody>
             </table>
           </div>
+          {Math.ceil(filteredDsk.length / Number(dskPageSize)) > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '16px' }}>
+              <button
+                className="filter-btn"
+                disabled={dskPage <= 1}
+                onClick={() => setDskPage(dskPage - 1)}
+                style={{ padding: '6px 16px', cursor: dskPage <= 1 ? 'not-allowed' : 'pointer', opacity: dskPage <= 1 ? 0.5 : 1 }}
+              >
+                ← Previous
+              </button>
+              <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+                Page {dskPage} of {Math.ceil(filteredDsk.length / Number(dskPageSize))}
+              </span>
+              <button
+                className="filter-btn"
+                disabled={dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize))}
+                onClick={() => setDskPage(dskPage + 1)}
+                style={{ padding: '6px 16px', cursor: dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize)) ? 'not-allowed' : 'pointer', opacity: dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize)) ? 0.5 : 1 }}
+              >
+                Next →
+              </button>
+            </div>
+          )}
+          </>
         )}
 
         <div className="rec-info-box" style={{ marginTop: 'var(--spacing-6)' }}>
@@ -1897,9 +1939,12 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
         <h2 className="section-heading" style={{ margin: 0 }}>TCO Analysis</h2>
         <div className="tco-region-select">
           <label>AWS Region:</label>
-          <select value={selectedRegion} onChange={e => setSelectedRegion(e.target.value)} className="filter-select">
-            {regions.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-          </select>
+          <SearchableSelect
+            value={selectedRegion}
+            onChange={(val) => setSelectedRegion(val as string)}
+            options={regions.map(r => ({ value: r.value, label: r.label }))}
+            placeholder="Select region..."
+          />
         </div>
       </div>
 
@@ -1959,6 +2004,9 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
             <div className="rec-config-details">
               <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{prov.node_type}</span></div>
               <div className="rec-config-row"><span>Nodes</span><span>{prov.num_nodes}</span></div>
+              {prov.vcpu_total && <div className="rec-config-row"><span>Total vCPUs</span><span>{prov.vcpu_total}</span></div>}
+              {prov.memory_gb_total && <div className="rec-config-row"><span>Total Memory</span><span>{prov.memory_gb_total} GB</span></div>}
+              {prov.concurrency_scaling && <div className="rec-config-row"><span>Concurrency Scaling</span><span style={{ color: '#22c55e' }}>Enabled</span></div>}
               <div className="rec-config-row"><span>Compute</span><span>{fmt(prov.compute_monthly)}/mo</span></div>
               <div className="rec-config-row"><span>Storage</span><span>{fmt(prov.storage_monthly)}/mo</span></div>
               <div className="rec-config-row rec-config-row-total"><span>On-Demand</span><span>{fmt(prov.monthly)}/mo</span></div>
@@ -1970,13 +2018,23 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
                 <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(prov.ri_3yr_monthly)}/mo</span></div>
               )}
             </div>
+            {prov.sizing_rationale && prov.sizing_rationale.length > 0 && (
+              <div className="rec-sizing-rationale">
+                <div className="rec-sizing-rationale-title">Sizing Rationale</div>
+                <ul className="rec-sizing-rationale-list">
+                  {prov.sizing_rationale.map((r: string, i: number) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           {/* Serverless */}
           <div className={`rec-config-card ${cmp.best_option === 'serverless' ? 'rec-config-recommended' : ''}`}>
             {cmp.best_option === 'serverless' && <div className="rec-badge">Best Value</div>}
             <div className="rec-config-header"><Zap size={20} /><span>Serverless</span></div>
             <div className="rec-config-details">
-              <div className="rec-config-row"><span>Base RPU</span><span>{svls.base_rpu} <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>(AWS min)</span></span></div>
+              <div className="rec-config-row"><span>Base RPU</span><span>{svls.base_rpu}</span></div>
               <div className="rec-config-row"><span>Max RPU</span><span>{svls.max_rpu}</span></div>
               <div className="rec-config-row"><span>Est. RPU-hours/mo</span><span>{svls.est_rpu_hours_monthly?.toLocaleString()}</span></div>
               <div className="rec-config-row"><span>RPU Rate</span><span>${svls.rpu_hour_rate}/RPU-hr</span></div>
@@ -2051,6 +2109,30 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
                 <span className="tco-workload-stat-value">{wl.estimated_rpu_hours_monthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
                 <span className="tco-workload-stat-label">Est. RPU-Hrs/Mo</span>
               </div>
+              {wl.max_concurrent_slots != null && wl.max_concurrent_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.max_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Max Slots/Query</span>
+                </div>
+              )}
+              {wl.min_concurrent_slots != null && wl.min_concurrent_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.min_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Min Slots/Query</span>
+                </div>
+              )}
+              {wl.avg_concurrent_slots != null && wl.avg_concurrent_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.avg_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Avg Slots/Query</span>
+                </div>
+              )}
+              {wl.estimated_peak_slots != null && wl.estimated_peak_slots > 0 && (
+                <div className="tco-workload-stat">
+                  <span className="tco-workload-stat-value">{wl.estimated_peak_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
+                  <span className="tco-workload-stat-label">Peak Slots (P95)</span>
+                </div>
+              )}
               {wl.avg_wall_clock_seconds != null && (
                 <div className="tco-workload-stat">
                   <span className="tco-workload-stat-value">{wl.avg_wall_clock_seconds.toFixed(1)}s</span>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../services/api';
+import { useLanguage } from '../contexts/LanguageContext';
 import './JobsPage.css';
 
 interface JobDetail {
@@ -32,11 +33,28 @@ type FilterTab = 'all' | 'running' | 'completed' | 'failed' | 'pending';
 
 export const JobsPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { t } = useLanguage();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [summary, setSummary] = useState<JobsSummary>({ total: 0, running: 0, completed: 0, failed: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
-  const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Derive initial filter from URL path
+  const getFilterFromPath = (): FilterTab => {
+    const path = location.pathname;
+    if (path.endsWith('/running')) return 'running';
+    if (path.endsWith('/queued')) return 'pending';
+    if (path.endsWith('/history')) return 'completed';
+    return 'all';
+  };
+
+  const [activeFilter, setActiveFilter] = useState<FilterTab>(getFilterFromPath());
+
+  // Update filter when URL changes
+  useEffect(() => {
+    setActiveFilter(getFilterFromPath());
+  }, [location.pathname]);
 
   const fetchJobs = async () => {
     try {
@@ -118,7 +136,7 @@ export const JobsPage: React.FC = () => {
               <circle cx="10" cy="10" r="7" />
               <path d="M10 6v4l3 2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            Jobs
+            {t('jobs.title')}
           </h1>
           <button className="jobs-refresh-btn" onClick={fetchJobs} title="Refresh">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -131,11 +149,11 @@ export const JobsPage: React.FC = () => {
         {/* Summary cards */}
         <div className="jobs-summary">
           {[
-            { label: 'Total', value: summary.total, color: '#374151' },
-            { label: 'Running', value: summary.running, color: '#2563EB' },
-            { label: 'Completed', value: summary.completed, color: '#059669' },
-            { label: 'Failed', value: summary.failed, color: '#DC2626' },
-            { label: 'Queued', value: summary.pending, color: '#6B7280' },
+            { label: t('jobs.all'), value: summary.total, color: '#374151' },
+            { label: t('jobs.running'), value: summary.running, color: '#2563EB' },
+            { label: t('jobs.completed'), value: summary.completed, color: '#059669' },
+            { label: t('jobs.failed'), value: summary.failed, color: '#DC2626' },
+            { label: t('jobs.pending'), value: summary.pending, color: '#6B7280' },
           ].map(s => (
             <div key={s.label} className="jobs-summary-card">
               <span className="jobs-summary-value" style={{ color: s.color }}>{s.value}</span>
@@ -148,11 +166,11 @@ export const JobsPage: React.FC = () => {
         <div className="jobs-controls">
           <div className="jobs-filter-tabs">
             {([
-              { id: 'all' as FilterTab, label: 'All' },
-              { id: 'running' as FilterTab, label: 'Running' },
-              { id: 'completed' as FilterTab, label: 'Completed' },
-              { id: 'failed' as FilterTab, label: 'Failed' },
-              { id: 'pending' as FilterTab, label: 'Queued' },
+              { id: 'all' as FilterTab, label: t('jobs.all') },
+              { id: 'running' as FilterTab, label: t('jobs.running') },
+              { id: 'completed' as FilterTab, label: t('jobs.completed') },
+              { id: 'failed' as FilterTab, label: t('jobs.failed') },
+              { id: 'pending' as FilterTab, label: t('jobs.pending') },
             ]).map(tab => (
               <button key={tab.id}
                 className={`jobs-filter-tab ${activeFilter === tab.id ? 'active' : ''}`}
@@ -165,7 +183,7 @@ export const JobsPage: React.FC = () => {
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#9CA3AF" strokeWidth="2">
               <circle cx="7" cy="7" r="5" /><path d="M11 11l3 3" strokeLinecap="round" />
             </svg>
-            <input type="text" placeholder="Search jobs..." value={searchQuery}
+            <input type="text" placeholder={t('jobs.search')} value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)} />
           </div>
         </div>
@@ -174,26 +192,26 @@ export const JobsPage: React.FC = () => {
       {/* Jobs table */}
       <div className="jobs-table-container">
         {loading ? (
-          <div className="jobs-loading"><span className="jobs-spinner" /> Loading jobs...</div>
+          <div className="jobs-loading"><span className="jobs-spinner" /> {t('jobs.loading')}</div>
         ) : filteredJobs.length === 0 ? (
           <div className="jobs-empty">
             <svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#D1D5DB" strokeWidth="1.5">
               <circle cx="24" cy="24" r="18" />
               <path d="M24 14v10l7 4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <p>No jobs found{activeFilter !== 'all' ? ` with status "${activeFilter}"` : ''}</p>
+            <p>{t('jobs.noJobs')}{activeFilter !== 'all' ? ` (${activeFilter})` : ''}</p>
           </div>
         ) : (
           <table className="jobs-table">
             <thead>
               <tr>
-                <th>Job Name</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Progress</th>
-                <th>Started</th>
-                <th>Duration</th>
-                <th>Details</th>
+                <th>{t('jobs.name')}</th>
+                <th>{t('jobs.type')}</th>
+                <th>{t('jobs.status')}</th>
+                <th>{t('jobs.progress')}</th>
+                <th>{t('jobs.startedAt')}</th>
+                <th>{t('jobs.duration')}</th>
+                <th>{t('connections.details')}</th>
               </tr>
             </thead>
             <tbody>
@@ -211,7 +229,7 @@ export const JobsPage: React.FC = () => {
                           <path d="M2 8h12M11 5l3 3-3 3" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       )}
-                      {job.type === 'assessment' ? 'Assessment' : 'Migration'}
+                      {job.type === 'assessment' ? t('dashboard.assessments') : t('dashboard.migrations')}
                     </span>
                   </td>
                   <td><span className={`jobs-status ${job.status}`}>{job.status}</span></td>
