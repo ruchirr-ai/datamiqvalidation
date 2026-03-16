@@ -103,10 +103,7 @@ export const ValidationDashboardPage: React.FC = () => {
   const [showTablesDropdown, setShowTablesDropdown] = useState(false);
   const tablesDropdownRef = useRef<HTMLDivElement>(null);
 
-  // --- Logs modal ---
-  const [logsRunId, setLogsRunId] = useState<number | null>(null);
-  const [logsData, setLogsData] = useState<any[]>([]);
-  const [logsLoading, setLogsLoading] = useState(false);
+
 
   // --- Auto-refresh ---
   const refreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -218,10 +215,6 @@ export const ValidationDashboardPage: React.FC = () => {
     };
   }, [runs, fetchRuns]);
 
-  // --- Summary stats ---
-  const passedRuns = runs.filter((r) => r.status === 'completed').length;
-  const failedRuns = runs.filter((r) => r.status === 'failed').length;
-  const runningRuns = runs.filter((r) => r.status === 'running' || r.status === 'pending').length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // --- Handlers ---
@@ -238,19 +231,7 @@ export const ValidationDashboardPage: React.FC = () => {
     }
   };
 
-  const handleViewLogs = async (e: React.MouseEvent, runId: number) => {
-    e.stopPropagation();
-    setLogsRunId(runId);
-    setLogsLoading(true);
-    try {
-      const results = await getValidationTableResults(runId);
-      setLogsData(results);
-    } catch {
-      setLogsData([]);
-    } finally {
-      setLogsLoading(false);
-    }
-  };
+
 
   const handleChevronClick = async (e: React.MouseEvent | React.KeyboardEvent, runId: number) => {
     e.stopPropagation();
@@ -412,23 +393,7 @@ export const ValidationDashboardPage: React.FC = () => {
           </h1>
           <p className="validation-subtitle">{t('validation.subtitle')}</p>
         </div>
-        <div className="validation-compact-stats">
-          <div className="compact-stat">
-            <span className="compact-stat-dot completed" />
-            <span className="compact-stat-value">{passedRuns}</span>
-            <span className="compact-stat-label">{t('validation.passed')}</span>
-          </div>
-          <div className="compact-stat">
-            <span className="compact-stat-dot failed" />
-            <span className="compact-stat-value">{failedRuns}</span>
-            <span className="compact-stat-label">{t('validation.failed')}</span>
-          </div>
-          <div className="compact-stat">
-            <span className="compact-stat-dot running" />
-            <span className="compact-stat-value">{runningRuns}</span>
-            <span className="compact-stat-label">{t('validation.active')}</span>
-          </div>
-        </div>
+
       </div>
 
       {/* Toolbar */}
@@ -775,7 +740,11 @@ export const ValidationDashboardPage: React.FC = () => {
                               handleChevronClick(e, run.id);
                             }
                           }}
-                        >▶</button>
+                        >
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" style={{ transition: 'transform 0.2s ease', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                            <path d="M3 5l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
                       </td>
                       <td className="validation-name-cell" data-testid={`run-name-${run.id}`}>
                         {run.run_name || `Run #${run.id}`}
@@ -808,18 +777,7 @@ export const ValidationDashboardPage: React.FC = () => {
                       <td>{formatDate(run.started_at)}</td>
                       <td>{formatDuration(run.duration_seconds)}</td>
                       <td style={{ cursor: 'default' }}>
-                        <div className="validation-actions-cell">
-                          <button
-                            className="validation-logs-btn"
-                            onClick={(e) => handleViewLogs(e, run.id)}
-                            aria-label={`View logs for run ${run.id}`}
-                            title="View Logs"
-                            type="button"
-                          >
-                            <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                              <path d="M3 3h9M3 6h9M3 9h6M3 12h4" strokeLinecap="round" />
-                            </svg>
-                          </button>
+                        <div className="validation-actions-cell" style={{ justifyContent: 'center' }}>
                           <button
                             className="validation-delete-btn"
                             onClick={(e) => handleDelete(e, run.id)}
@@ -911,51 +869,6 @@ export const ValidationDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* Logs Modal */}
-      {logsRunId !== null && (
-        <div className="validation-logs-overlay" onClick={() => setLogsRunId(null)}>
-          <div className="validation-logs-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="validation-logs-modal-header">
-              <h3>Validation Run #{logsRunId} — Table Progress</h3>
-              <button type="button" className="validation-logs-close" onClick={() => setLogsRunId(null)} aria-label="Close logs">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-            <div className="validation-logs-modal-body">
-              {logsLoading ? (
-                <div className="validation-loading"><div className="validation-spinner" /> Loading...</div>
-              ) : logsData.length === 0 ? (
-                <p className="validation-empty-text">No table results yet.</p>
-              ) : (
-                <table className="validation-logs-table">
-                  <thead>
-                    <tr>
-                      <th>Table</th>
-                      <th>DDL</th>
-                      <th>Row Count</th>
-                      <th>Data Match</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logsData.map((r: any) => (
-                      <tr key={r.id}>
-                        <td className="logs-table-name">{r.table_name}</td>
-                        <td><span className={`log-step-badge ${r.ddl_status || 'pending'}`}>{r.ddl_status || '—'}</span></td>
-                        <td><span className={`log-step-badge ${r.row_count_status || 'pending'}`}>{r.row_count_status || '—'}</span></td>
-                        <td><span className={`log-step-badge ${r.data_match_status || 'pending'}`}>{r.data_match_status || '—'}</span></td>
-                        <td><span className={`validation-status-badge ${r.status}`}>{r.status}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
