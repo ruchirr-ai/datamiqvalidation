@@ -553,6 +553,130 @@ class TestUpdateTableResult:
         assert updated.data_match_result["matched_count"] == 997
 
 
+# ── list_runs_with_table_results tests ────────────────────────────────
+
+
+class TestListRunsWithTableResults:
+    """Tests for list_runs_with_table_results eager-load method."""
+
+    def test_returns_runs_with_table_results_attached(self, repo):
+        """Test that _table_results attribute is populated on each run."""
+        run = _create_run(repo, migration_id=1)
+        _create_table_result(repo, run.id, table_name="users")
+        _create_table_result(repo, run.id, table_name="orders")
+
+        runs, total = repo.list_runs_with_table_results(workspace_id=1)
+        assert total == 1
+        assert len(runs) == 1
+        assert hasattr(runs[0], "_table_results")
+        assert len(runs[0]._table_results) == 2
+        table_names = [tr.table_name for tr in runs[0]._table_results]
+        assert "users" in table_names
+        assert "orders" in table_names
+
+    def test_returns_empty_table_results_when_none_exist(self, repo):
+        """Test that _table_results is an empty list when run has no table results."""
+        _create_run(repo, migration_id=1)
+
+        runs, total = repo.list_runs_with_table_results(workspace_id=1)
+        assert total == 1
+        assert runs[0]._table_results == []
+
+    def test_returns_same_tuple_shape_as_list_runs(self, repo):
+        """Test that return type matches (list, total_count) tuple from list_runs."""
+        _create_run(repo, migration_id=1)
+        _create_run(repo, migration_id=2)
+
+        runs, total = repo.list_runs_with_table_results(workspace_id=1)
+        assert isinstance(runs, list)
+        assert isinstance(total, int)
+        assert total == 2
+        assert len(runs) == 2
+
+    def test_pagination_works(self, repo):
+        """Test pagination parameters are respected."""
+        for i in range(5):
+            _create_run(repo, migration_id=100 + i)
+
+        runs, total = repo.list_runs_with_table_results(
+            workspace_id=1, page=1, page_size=2
+        )
+        assert total == 5
+        assert len(runs) == 2
+
+    def test_filter_by_migration_id(self, repo):
+        """Test migration_id filter is applied."""
+        _create_run(repo, migration_id=100)
+        _create_run(repo, migration_id=200)
+
+        runs, total = repo.list_runs_with_table_results(
+            workspace_id=1, migration_id=100
+        )
+        assert total == 1
+        assert runs[0].migration_id == 100
+
+    def test_filter_by_status(self, repo):
+        """Test status filter is applied."""
+        _create_run(repo, migration_id=1, status="pending")
+        _create_run(repo, migration_id=2, status="completed")
+
+        runs, total = repo.list_runs_with_table_results(
+            workspace_id=1, status="completed"
+        )
+        assert total == 1
+        assert runs[0].status == "completed"
+
+    def test_workspace_isolation(self, repo):
+        """Test that table results from other workspaces are not included."""
+        run_ws1 = _create_run(repo, workspace_id=1, migration_id=1)
+        _create_table_result(repo, run_ws1.id, workspace_id=1, table_name="t1")
+
+        run_ws2 = _create_run(repo, workspace_id=2, migration_id=2)
+        _create_table_result(repo, run_ws2.id, workspace_id=2, table_name="t2")
+
+        runs, total = repo.list_runs_with_table_results(workspace_id=1)
+        assert total == 1
+        assert len(runs[0]._table_results) == 1
+        assert runs[0]._table_results[0].table_name == "t1"
+
+    def test_multiple_runs_each_get_own_table_results(self, repo):
+        """Test that table results are correctly grouped per run."""
+        run1 = _create_run(repo, migration_id=1)
+        run2 = _create_run(repo, migration_id=2)
+        _create_table_result(repo, run1.id, table_name="alpha")
+        _create_table_result(repo, run2.id, table_name="beta")
+        _create_table_result(repo, run2.id, table_name="gamma")
+
+        runs, total = repo.list_runs_with_table_results(workspace_id=1)
+        assert total == 2
+
+        # Runs are ordered by created_at desc, so run2 comes first
+        run_map = {r.id: r for r in runs}
+        assert len(run_map[run1.id]._table_results) == 1
+        assert run_map[run1.id]._table_results[0].table_name == "alpha"
+        assert len(run_map[run2.id]._table_results) == 2
+        names = [tr.table_name for tr in run_map[run2.id]._table_results]
+        assert "beta" in names
+        assert "gamma" in names
+
+    def test_empty_result_when_no_runs(self, repo):
+        """Test returns empty list and zero count when no runs exist."""
+        runs, total = repo.list_runs_with_table_results(workspace_id=1)
+        assert total == 0
+        assert runs == []
+
+    def test_table_results_ordered_by_id_ascending(self, repo):
+        """Test that _table_results are ordered by id ascending."""
+        run = _create_run(repo, migration_id=1)
+        tr1 = _create_table_result(repo, run.id, table_name="aaa")
+        tr2 = _create_table_result(repo, run.id, table_name="bbb")
+        tr3 = _create_table_result(repo, run.id, table_name="ccc")
+
+        runs, _ = repo.list_runs_with_table_results(workspace_id=1)
+        result_ids = [tr.id for tr in runs[0]._table_results]
+        assert result_ids == [tr1.id, tr2.id, tr3.id]
+
+
 # ── Cross-workspace isolation tests ──────────────────────────────────
 
 

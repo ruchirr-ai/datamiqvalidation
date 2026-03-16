@@ -249,6 +249,7 @@ class ValidationService:
         sample_limit: Optional[int] = None,
         type_mapping_overrides: Optional[Dict[str, str]] = None,
         created_by: str = "",
+        run_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a validation run for a completed migration.
 
@@ -362,6 +363,7 @@ class ValidationService:
             tables_failed=0,
             tables_error=0,
             created_by=created_by,
+            run_name=run_name,
         )
 
         # 6. Create one ValidationTableResult per table
@@ -942,6 +944,7 @@ class ValidationService:
         status: Optional[str] = None,
         page: int = 1,
         page_size: int = 20,
+        include_table_results: bool = False,
     ) -> Dict[str, Any]:
         """List validation runs with pagination and optional filters.
 
@@ -951,20 +954,53 @@ class ValidationService:
             status: Optional filter by run status.
             page: 1-based page number.
             page_size: Results per page (default 20, max 100).
+            include_table_results: When True, include summary-level
+                table result fields in each run response.
 
         Returns:
             Dict with 'runs' list, 'total', 'page', and 'page_size'.
         """
-        runs, total = self.repo.list_runs(
-            workspace_id=workspace_id,
-            migration_id=migration_id,
-            status=status,
-            page=page,
-            page_size=page_size,
-        )
+        if include_table_results:
+            runs, total = self.repo.list_runs_with_table_results(
+                workspace_id=workspace_id,
+                migration_id=migration_id,
+                status=status,
+                page=page,
+                page_size=page_size,
+            )
+            run_dicts = []
+            for r in runs:
+                d = r.to_dict()
+                table_results = getattr(r, "_table_results", None)
+                if table_results is not None:
+                    d["table_results"] = [
+                        {
+                            "id": tr.id,
+                            "run_id": tr.run_id,
+                            "table_name": tr.table_name,
+                            "dataset_name": tr.dataset_name,
+                            "ddl_status": tr.ddl_status,
+                            "row_count_status": tr.row_count_status,
+                            "data_match_status": tr.data_match_status,
+                            "status": tr.status,
+                        }
+                        for tr in table_results
+                    ]
+                else:
+                    d["table_results"] = []
+                run_dicts.append(d)
+        else:
+            runs, total = self.repo.list_runs(
+                workspace_id=workspace_id,
+                migration_id=migration_id,
+                status=status,
+                page=page,
+                page_size=page_size,
+            )
+            run_dicts = [r.to_dict() for r in runs]
 
         return {
-            "runs": [r.to_dict() for r in runs],
+            "runs": run_dicts,
             "total": total,
             "page": page,
             "page_size": page_size,

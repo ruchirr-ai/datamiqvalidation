@@ -57,6 +57,7 @@ class CreateValidationRunRequest(BaseModel):
     sampling_mode: SamplingMode = Field(default=SamplingMode.ALL, description="Whether to validate all records or a random sample")
     sample_limit: Optional[int] = Field(None, ge=100, le=10000000, description="Number of records to sample when sampling_mode is 'random'")
     type_mapping_overrides: Optional[dict[str, str]] = Field(None, description="Optional overrides for BigQuery-to-Redshift type mappings")
+    run_name: Optional[str] = Field(None, max_length=255, description="Optional display name for the run")
 
 
 # ---------------------------------------------------------------------------
@@ -82,6 +83,8 @@ class ValidationRunResponse(BaseModel):
     created_by: str
     created_at: datetime
     updated_at: datetime
+    run_name: Optional[str] = None
+    table_results: Optional[list["ValidationTableResultResponse"]] = None
 
     model_config = {"from_attributes": True}
 
