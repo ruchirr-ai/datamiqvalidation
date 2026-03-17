@@ -815,6 +815,324 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{assessment_id}/report/summary")
+async def get_assessment_report_summary(assessment_id: int, db: Session = Depends(get_db)):
+    """Get lightweight assessment summary (metadata + datasets only) for fast initial load."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        datasets = assessment_repo.get_datasets(assessment_id)
+
+        source_db_type = 'bigquery'
+        try:
+            from models.connection import Connection
+            source_conn = db.query(Connection).filter(Connection.id == assessment.source_connection_id).first()
+            if source_conn:
+                source_db_type = getattr(source_conn, 'database', 'bigquery').lower()
+        except Exception:
+            pass
+
+        return {
+            "assessment": {
+                "id": assessment.id,
+                "name": assessment.name,
+                "project_id": assessment.project_id,
+                "status": assessment.status,
+                "started_at": assessment.started_at.isoformat() if assessment.started_at else None,
+                "completed_at": assessment.completed_at.isoformat() if assessment.completed_at else None,
+                "total_datasets": assessment.total_datasets,
+                "total_tables": assessment.total_tables,
+                "total_views": assessment.total_views,
+                "total_routines": assessment.total_routines,
+                "total_ml_models": assessment.total_ml_models,
+                "total_size_mb": assessment.total_size_mb,
+                "source_db_type": source_db_type
+            },
+            "datasets": [
+                {
+                    "dataset_name": d.dataset_name,
+                    "location": d.location,
+                    "creation_time": d.creation_time.isoformat() if d.creation_time else None,
+                    "table_count": d.table_count,
+                    "total_size_mb": d.total_size_mb
+                }
+                for d in datasets
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/tables")
+async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_size: int = 50, db: Session = Depends(get_db)):
+    """Get paginated tables with their columns for an assessment."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        all_tables = assessment_repo.get_tables(assessment_id)
+        all_columns = assessment_repo.get_columns(assessment_id)
+        all_indexes = assessment_repo.get_indexes(assessment_id)
+
+        total = len(all_tables)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_tables = all_tables[start:end]
+        table_ids = {t.id for t in paginated_tables}
+
+        return {
+            "tables": [
+                {
+                    "id": t.id, "project_id": t.project_id, "dataset_name": t.dataset_name,
+                    "table_name": t.table_name, "table_type": t.table_type,
+                    "creation_time": t.creation_time.isoformat() if t.creation_time else None,
+                    "row_count": t.row_count, "size_mb": t.size_mb,
+                    "partitioning_columns": t.partitioning_columns or [],
+                    "clustering_columns": t.clustering_columns or [],
+                    "has_column_security": t.has_column_security, "has_row_security": t.has_row_security,
+                    "is_sharded": t.is_sharded, "update_frequency": t.update_frequency,
+                    "table_metadata": t.table_metadata or {}
+                }
+                for t in paginated_tables
+            ],
+            "columns": [
+                {
+                    "table_id": c.table_id, "column_name": c.column_name, "data_type": c.data_type,
+                    "is_nullable": c.is_nullable, "ordinal_position": c.ordinal_position,
+                    "is_partitioning_column": c.is_partitioning_column,
+                    "clustering_ordinal_position": c.clustering_ordinal_position,
+                    "policy_tags": c.policy_tags or [], "max_length": c.max_length
+                }
+                for c in all_columns if c.table_id in table_ids
+            ],
+            "indexes": [
+                {
+                    "id": idx.id, "table_id": idx.table_id, "schema_name": idx.schema_name,
+                    "table_name": idx.table_name,
+                    "object_type": idx.object_type if hasattr(idx, 'object_type') else 'TABLE',
+                    "index_name": idx.index_name, "index_type": idx.index_type,
+                    "is_unique": idx.is_unique, "is_primary_key": idx.is_primary_key,
+                    "is_clustered": idx.is_clustered, "key_columns": idx.key_columns,
+                    "included_columns": idx.included_columns, "filter_definition": idx.filter_definition,
+                    "size_mb": idx.size_mb, "row_count": idx.row_count,
+                    "index_metadata": idx.index_metadata or {}
+                }
+                for idx in all_indexes if idx.table_id in table_ids
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report tables: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/views")
+async def get_assessment_report_views(assessment_id: int, page: int = 1, page_size: int = 50, db: Session = Depends(get_db)):
+    """Get paginated views for an assessment."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        all_views = assessment_repo.get_views(assessment_id)
+        total = len(all_views)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_views = all_views[start:end]
+
+        return {
+            "views": [
+                {
+                    "view_name": v.view_name, "view_type": v.view_type,
+                    "view_definition": v.view_definition,
+                    "creation_time": v.creation_time.isoformat() if v.creation_time else None,
+                    "dependencies": v.dependencies or [],
+                    "dependent_tables": v.dependent_tables or [],
+                    "dependent_views": v.dependent_views or [],
+                    "dependent_functions": v.dependent_functions or [],
+                    "dependency_depth": v.dependency_depth
+                }
+                for v in paginated_views
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report views: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/routines")
+async def get_assessment_report_routines(assessment_id: int, db: Session = Depends(get_db)):
+    """Get all routines (stored procedures, functions, triggers) for an assessment."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        routines = assessment_repo.get_routines(assessment_id)
+        return {
+            "routines": [
+                {
+                    "routine_name": r.routine_name, "routine_type": r.routine_type,
+                    "return_type": r.return_type, "definition": r.definition,
+                    "external_language": r.external_language,
+                    "creation_time": r.creation_time.isoformat() if r.creation_time else None,
+                    "call_frequency": r.call_frequency,
+                    "dependent_tables": r.dependent_tables or [],
+                    "dependent_views": r.dependent_views or [],
+                    "dependent_functions": r.dependent_functions or [],
+                    "calls_procedures": r.calls_procedures or [],
+                    "dependency_depth": r.dependency_depth
+                }
+                for r in routines
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report routines: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/security")
+async def get_assessment_report_security(assessment_id: int, db: Session = Depends(get_db)):
+    """Get security policies and column-level security data for an assessment."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        security_policies = assessment_repo.get_security_policies(assessment_id)
+        columns = assessment_repo.get_columns(assessment_id)
+        tables = assessment_repo.get_tables(assessment_id)
+
+        return {
+            "security_policies": [
+                {
+                    "security_type": s.security_type, "table_name": s.table_name,
+                    "policy_name": s.policy_name, "filter_predicate": s.filter_predicate,
+                    "grantees": s.grantees or [], "security_metadata": s.security_metadata or {}
+                }
+                for s in security_policies
+            ],
+            "columns": [
+                {
+                    "table_id": c.table_id, "column_name": c.column_name, "data_type": c.data_type,
+                    "is_nullable": c.is_nullable, "ordinal_position": c.ordinal_position,
+                    "is_partitioning_column": c.is_partitioning_column,
+                    "clustering_ordinal_position": c.clustering_ordinal_position,
+                    "policy_tags": c.policy_tags or [], "max_length": c.max_length
+                }
+                for c in columns
+            ],
+            "tables": [
+                {
+                    "id": t.id, "dataset_name": t.dataset_name, "table_name": t.table_name
+                }
+                for t in tables
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report security: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/ml-models")
+async def get_assessment_report_ml_models(assessment_id: int, db: Session = Depends(get_db)):
+    """Get ML models and Spark models for an assessment."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        ml_models = assessment_repo.get_ml_models(assessment_id)
+        routines = assessment_repo.get_routines(assessment_id)
+
+        spark_models = [
+            {
+                "routine_name": r.routine_name, "routine_type": r.routine_type,
+                "return_type": r.return_type, "definition": r.definition,
+                "external_language": r.external_language,
+                "creation_time": r.creation_time.isoformat() if r.creation_time else None,
+                "call_frequency": r.call_frequency
+            }
+            for r in routines
+            if r.external_language == 'PYTHON' and r.definition and ('pyspark' in r.definition or 'spark.' in r.definition)
+        ]
+
+        return {
+            "ml_models": [
+                {
+                    "model_name": m.model_name, "model_type": m.model_type,
+                    "dataset_name": m.dataset_name,
+                    "creation_time": m.creation_time.isoformat() if m.creation_time else None,
+                    "last_modified_time": m.last_modified_time.isoformat() if m.last_modified_time else None
+                }
+                for m in ml_models
+            ],
+            "spark_models": spark_models
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report ML models: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/user-insights")
+async def get_assessment_report_user_insights(assessment_id: int, db: Session = Depends(get_db)):
+    """Get query stats for user insights tab."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        query_stats = assessment_repo.get_query_stats(assessment_id)
+        return {
+            "query_stats": [
+                {
+                    "job_id": q.job_id,
+                    "execution_time": q.execution_time.isoformat() if q.execution_time else None,
+                    "bytes_scanned": q.bytes_scanned,
+                    "slot_milliseconds": q.slot_milliseconds,
+                    "cache_hit": q.cache_hit,
+                    "user_email": q.user_email
+                }
+                for q in query_stats
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report user insights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{assessment_id}/recommendations")
 async def get_assessment_recommendations(assessment_id: int, db: Session = Depends(get_db)):
     """

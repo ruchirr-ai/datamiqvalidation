@@ -1,10 +1,11 @@
 /**
  * Assessment Report Page
  * 
- * Displays comprehensive assessment report with all BigQuery metadata
+ * Lazy-loads data per tab for fast initial render.
+ * Summary loads on mount; other tabs fetch on first activation.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   FileSearch, ArrowLeft, Database, Table as TableIcon, Eye, Code, 
@@ -18,7 +19,17 @@ import {
   getAssessmentReport, AssessmentFullReport,
   getAssessmentRecommendations, RecommendationsData,
   getAssessmentTCO, TCOData,
-  getTCORegions, AWSRegion
+  getTCORegions, AWSRegion,
+  getReportSummary, ReportSummary,
+  getReportTables, PaginatedTablesResponse,
+  getReportViews, PaginatedViewsResponse,
+  getReportRoutines, RoutinesResponse,
+  getReportSecurity, SecurityResponse,
+  getReportMLModels, MLModelsResponse,
+  getReportUserInsights, UserInsightsResponse,
+  AssessmentReportTable, AssessmentReportColumn, AssessmentReportView,
+  AssessmentReportRoutine, AssessmentReportMLModel, AssessmentReportQueryStat,
+  AssessmentReportSecurity, AssessmentReportIndex, DatasetSummary
 } from '../services/assessmentsApi';
 import QueryInsightsSection from '../components/assessments/QueryInsightsSection';
 import { SQLServerTablesSection } from '../components/assessments/SQLServerTablesSection';
@@ -34,198 +45,236 @@ const transformSecurityDataForSQLServer = (securityPolicies: any[]) => {
   if (!securityPolicies || securityPolicies.length === 0) {
     return { users: [], permissions: [], roles: [], schemas: [], policies: [], logins: [], encryption: [] };
   }
-
-  const users: any[] = [];
-  const permissions: any[] = [];
-  const roles: any[] = [];
-  const schemas: any[] = [];
-  const policies: any[] = [];
-  const logins: any[] = [];
-  const encryption: any[] = [];
-
+  const users: any[] = [], permissions: any[] = [], roles: any[] = [], schemas: any[] = [];
+  const policies: any[] = [], logins: any[] = [], encryption: any[] = [];
   securityPolicies.forEach((policy: any) => {
     const metadata = policy.security_metadata || {};
     switch (policy.security_type) {
-      case 'USER':
-        users.push({
-          user_name: metadata.user_name || policy.policy_name,
-          user_type: metadata.user_type || 'SQL_USER',
-          authentication_type: metadata.authentication_type || 'SQL Server Authentication',
-          default_schema: metadata.default_schema || 'dbo',
-          roles: metadata.roles || 'None',
-          create_date: metadata.create_date,
-          last_login: metadata.last_login,
-          is_disabled: metadata.is_disabled || false,
-          is_locked: metadata.is_locked || false,
-          password_policy: metadata.password_policy
-        });
-        break;
-      case 'LOGIN':
-        logins.push({
-          login_name: metadata.login_name || policy.policy_name,
-          login_type: metadata.login_type || 'SQL_LOGIN',
-          is_disabled: metadata.is_disabled || false,
-          is_locked: metadata.is_locked || false,
-          password_policy_enforced: metadata.password_policy_enforced || false,
-          password_expiration_enforced: metadata.password_expiration_enforced || false,
-          failed_login_attempts: metadata.failed_login_attempts || 0,
-          last_successful_login: metadata.last_successful_login,
-          server_roles: metadata.server_roles || []
-        });
-        break;
-      case 'ROLE':
-        roles.push({
-          role_name: metadata.role_name || policy.policy_name,
-          role_category: metadata.role_category || 'User Defined',
-          is_fixed_role: metadata.is_fixed_role || false,
-          members_count: metadata.members_count || 0,
-          description: metadata.description
-        });
-        break;
-      case 'PERMISSION':
-        permissions.push({
-          schema_name: metadata.schema_name || 'dbo',
-          object_name: metadata.object_name || '',
-          object_type: metadata.object_type || 'TABLE',
-          user_or_role: metadata.user_or_role || policy.policy_name,
-          permission_name: metadata.permission_name || 'SELECT',
-          permission_state: metadata.permission_state || 'GRANT',
-          grantor: metadata.grantor || 'dbo',
-          is_grantable: metadata.is_grantable || false
-        });
-        break;
-      case 'SCHEMA':
-        schemas.push({
-          schema_name: metadata.schema_name || policy.policy_name,
-          owner_name: metadata.owner_name || 'dbo',
-          owner_type: metadata.owner_type || 'SQL_USER',
-          created_date: metadata.created_date
-        });
-        break;
-      case 'SECURITY_POLICY':
-        policies.push({
-          policy_name: metadata.policy_name || policy.policy_name,
-          policy_type: metadata.policy_type || 'SECURITY',
-          table_schema: metadata.table_schema || 'dbo',
-          table_name: metadata.table_name || '',
-          filter_predicate: metadata.filter_predicate || policy.filter_predicate,
-          is_enabled: metadata.is_enabled !== undefined ? metadata.is_enabled : true,
-          created_date: metadata.created_date
-        });
-        break;
-      case 'ENCRYPTION':
-        encryption.push({
-          encryption_type: metadata.encryption_type || 'DATABASE_ENCRYPTION',
-          key_name: metadata.key_name || policy.policy_name,
-          algorithm: metadata.algorithm || 'AES',
-          key_length: metadata.key_length || 256,
-          encrypted_objects_count: metadata.encrypted_objects_count || 0,
-          created_date: metadata.created_date
-        });
-        break;
+      case 'USER': users.push({ user_name: metadata.user_name || policy.policy_name, user_type: metadata.user_type || 'SQL_USER', authentication_type: metadata.authentication_type || 'SQL Server Authentication', default_schema: metadata.default_schema || 'dbo', roles: metadata.roles || 'None', create_date: metadata.create_date, last_login: metadata.last_login, is_disabled: metadata.is_disabled || false, is_locked: metadata.is_locked || false, password_policy: metadata.password_policy }); break;
+      case 'LOGIN': logins.push({ login_name: metadata.login_name || policy.policy_name, login_type: metadata.login_type || 'SQL_LOGIN', is_disabled: metadata.is_disabled || false, is_locked: metadata.is_locked || false, password_policy_enforced: metadata.password_policy_enforced || false, password_expiration_enforced: metadata.password_expiration_enforced || false, failed_login_attempts: metadata.failed_login_attempts || 0, last_successful_login: metadata.last_successful_login, server_roles: metadata.server_roles || [] }); break;
+      case 'ROLE': roles.push({ role_name: metadata.role_name || policy.policy_name, role_category: metadata.role_category || 'User Defined', is_fixed_role: metadata.is_fixed_role || false, members_count: metadata.members_count || 0, description: metadata.description }); break;
+      case 'PERMISSION': permissions.push({ schema_name: metadata.schema_name || 'dbo', object_name: metadata.object_name || '', object_type: metadata.object_type || 'TABLE', user_or_role: metadata.user_or_role || policy.policy_name, permission_name: metadata.permission_name || 'SELECT', permission_state: metadata.permission_state || 'GRANT', grantor: metadata.grantor || 'dbo', is_grantable: metadata.is_grantable || false }); break;
+      case 'SCHEMA': schemas.push({ schema_name: metadata.schema_name || policy.policy_name, owner_name: metadata.owner_name || 'dbo', owner_type: metadata.owner_type || 'SQL_USER', created_date: metadata.created_date }); break;
+      case 'SECURITY_POLICY': policies.push({ policy_name: metadata.policy_name || policy.policy_name, policy_type: metadata.policy_type || 'SECURITY', table_schema: metadata.table_schema || 'dbo', table_name: metadata.table_name || '', filter_predicate: metadata.filter_predicate || policy.filter_predicate, is_enabled: metadata.is_enabled !== undefined ? metadata.is_enabled : true, created_date: metadata.created_date }); break;
+      case 'ENCRYPTION': encryption.push({ encryption_type: metadata.encryption_type || 'DATABASE_ENCRYPTION', key_name: metadata.key_name || policy.policy_name, algorithm: metadata.algorithm || 'AES', key_length: metadata.key_length || 256, encrypted_objects_count: metadata.encrypted_objects_count || 0, created_date: metadata.created_date }); break;
     }
   });
-
   return { users, permissions, roles, schemas, policies, logins, encryption };
 };
+
+// Tab loading spinner
+const TabSpinner: React.FC<{ message?: string }> = ({ message }) => (
+  <div style={{ padding: '40px', textAlign: 'center' }}>
+    <div className="spinner" style={{ margin: '0 auto' }}></div>
+    <p style={{ marginTop: '16px', color: 'var(--color-text-secondary)' }}>{message || 'Loading...'}</p>
+  </div>
+);
+
+const TabError: React.FC<{ message: string; onRetry?: () => void }> = ({ message, onRetry }) => (
+  <div style={{ padding: '20px', textAlign: 'center' }}>
+    <p style={{ color: 'var(--color-error)', marginBottom: '12px' }}>{message}</p>
+    {onRetry && <Button variant="outline" onClick={onRetry}>Retry</Button>}
+  </div>
+);
+
+// Helper functions
+const formatSize = (sizeMb: number) => {
+  if (sizeMb < 1024) return `${sizeMb.toFixed(2)} MB`;
+  const sizeGb = sizeMb / 1024;
+  if (sizeGb < 1024) return `${sizeGb.toFixed(2)} GB`;
+  return `${(sizeGb / 1024).toFixed(2)} TB`;
+};
+const formatDate = (dateString: string | null) => {
+  if (!dateString) return 'N/A';
+  try { return new Date(dateString).toLocaleString(); } catch { return dateString; }
+};
+const formatNumber = (num: number) => num.toLocaleString();
 
 export const AssessmentReportPage: React.FC = () => {
   const { assessmentId } = useParams<{ assessmentId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [report, setReport] = useState<AssessmentFullReport | null>(null);
+  
+  // Summary (loaded on mount)
+  const [summary, setSummary] = useState<ReportSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('summary');
+  
+  // Per-tab lazy-loaded data
+  const [tablesData, setTablesData] = useState<PaginatedTablesResponse | null>(null);
+  const [tablesLoading, setTablesLoading] = useState(false);
+  const [tablesError, setTablesError] = useState<string | null>(null);
+  const [tablesPage, setTablesPage] = useState(1);
+  const [tablesPageSize, setTablesPageSize] = useState(50);
+  
+  const [viewsData, setViewsData] = useState<PaginatedViewsResponse | null>(null);
+  const [viewsLoading, setViewsLoading] = useState(false);
+  const [viewsError, setViewsError] = useState<string | null>(null);
+  const [viewsPage, setViewsPage] = useState(1);
+  const [viewsPageSize, setViewsPageSize] = useState(50);
+  
+  const [routinesData, setRoutinesData] = useState<RoutinesResponse | null>(null);
+  const [routinesLoading, setRoutinesLoading] = useState(false);
+  const [routinesError, setRoutinesError] = useState<string | null>(null);
+  
+  const [securityData, setSecurityData] = useState<SecurityResponse | null>(null);
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [securityError, setSecurityError] = useState<string | null>(null);
+  
+  const [mlModelsData, setMLModelsData] = useState<MLModelsResponse | null>(null);
+  const [mlModelsLoading, setMLModelsLoading] = useState(false);
+  const [mlModelsError, setMLModelsError] = useState<string | null>(null);
+  
+  const [userInsightsData, setUserInsightsData] = useState<UserInsightsResponse | null>(null);
+  const [userInsightsLoading, setUserInsightsLoading] = useState(false);
+  const [userInsightsError, setUserInsightsError] = useState<string | null>(null);
+  
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const hasFetchedRef = useRef(false);
+  const loadedTabsRef = useRef<Set<string>>(new Set(['summary']));
 
+  const id = parseInt(assessmentId!);
+
+  // Load summary on mount
   useEffect(() => {
     if (assessmentId && !hasFetchedRef.current) {
       hasFetchedRef.current = true;
-      fetchAssessmentReport();
+      (async () => {
+        try {
+          setLoading(true);
+          const data = await getReportSummary(id);
+          setSummary(data);
+        } catch (err: any) {
+          setError(err.detail || err.message || 'Failed to load assessment report');
+        } finally {
+          setLoading(false);
+        }
+      })();
     }
   }, [assessmentId]);
 
   useEffect(() => {
-    if (searchParams.get('download') === 'true' && report && !loading) {
+    if (searchParams.get('download') === 'true' && summary && !loading) {
       setShowDownloadModal(true);
       setSearchParams({}, { replace: true });
     }
-  }, [report, loading, searchParams]);
+  }, [summary, loading, searchParams]);
 
-  const fetchAssessmentReport = async () => {
+  // Fetch tables with pagination
+  const fetchTables = useCallback(async (page: number, pageSize: number) => {
+    setTablesLoading(true);
+    setTablesError(null);
     try {
-      setLoading(true);
-      setError(null);
-      const data = await getAssessmentReport(parseInt(assessmentId!));
-      setReport(data);
+      const data = await getReportTables(id, page, pageSize);
+      setTablesData(data);
+      loadedTabsRef.current.add('tables');
     } catch (err: any) {
-      console.error('Failed to fetch assessment report:', err);
-      setError(err.detail || err.message || 'Failed to load assessment report');
+      setTablesError(err.detail || err.message || 'Failed to load tables');
     } finally {
-      setLoading(false);
+      setTablesLoading(false);
     }
-  };
+  }, [id]);
 
-  const formatSize = (sizeMb: number) => {
-    if (sizeMb < 1024) return `${sizeMb.toFixed(2)} MB`;
-    const sizeGb = sizeMb / 1024;
-    if (sizeGb < 1024) return `${sizeGb.toFixed(2)} GB`;
-    return `${(sizeGb / 1024).toFixed(2)} TB`;
-  };
+  // Fetch views with pagination
+  const fetchViews = useCallback(async (page: number, pageSize: number) => {
+    setViewsLoading(true);
+    setViewsError(null);
+    try {
+      const data = await getReportViews(id, page, pageSize);
+      setViewsData(data);
+      loadedTabsRef.current.add('views');
+    } catch (err: any) {
+      setViewsError(err.detail || err.message || 'Failed to load views');
+    } finally {
+      setViewsLoading(false);
+    }
+  }, [id]);
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'N/A';
-    try { return new Date(dateString).toLocaleString(); } catch { return dateString; }
-  };
+  // Lazy-load tab data on first activation
+  useEffect(() => {
+    if (!summary) return;
+    const tab = activeTab;
+    if (loadedTabsRef.current.has(tab) && tab !== 'tables' && tab !== 'views') return;
 
-  const formatNumber = (num: number) => num.toLocaleString();
+    switch (tab) {
+      case 'tables':
+        fetchTables(tablesPage, tablesPageSize);
+        break;
+      case 'views':
+        fetchViews(viewsPage, viewsPageSize);
+        break;
+      case 'procedures':
+      case 'functions':
+      case 'triggers':
+        if (!loadedTabsRef.current.has('routines')) {
+          setRoutinesLoading(true);
+          getReportRoutines(id).then(d => { setRoutinesData(d); loadedTabsRef.current.add('routines'); }).catch((e: any) => setRoutinesError(e.detail || e.message || 'Failed')).finally(() => setRoutinesLoading(false));
+        }
+        break;
+      case 'security':
+        if (!loadedTabsRef.current.has('security')) {
+          setSecurityLoading(true);
+          getReportSecurity(id).then(d => { setSecurityData(d); loadedTabsRef.current.add('security'); }).catch((e: any) => setSecurityError(e.detail || e.message || 'Failed')).finally(() => setSecurityLoading(false));
+        }
+        break;
+      case 'ml-models':
+        if (!loadedTabsRef.current.has('ml-models')) {
+          setMLModelsLoading(true);
+          getReportMLModels(id).then(d => { setMLModelsData(d); loadedTabsRef.current.add('ml-models'); }).catch((e: any) => setMLModelsError(e.detail || e.message || 'Failed')).finally(() => setMLModelsLoading(false));
+        }
+        break;
+      case 'user-insights':
+        if (!loadedTabsRef.current.has('user-insights')) {
+          setUserInsightsLoading(true);
+          getReportUserInsights(id).then(d => { setUserInsightsData(d); loadedTabsRef.current.add('user-insights'); }).catch((e: any) => setUserInsightsError(e.detail || e.message || 'Failed')).finally(() => setUserInsightsLoading(false));
+        }
+        break;
+      // query-insights, recommendations, tco already fetch their own data
+    }
+  }, [activeTab, summary]);
 
-  const getStoredProcedures = () => report ? report.routines.filter(r => r.routine_type === 'PROCEDURE') : [];
-  const getFunctions = () => report ? report.routines.filter(r => r.routine_type === 'FUNCTION') : [];
-  const getTriggers = () => report ? report.routines.filter(r => r.routine_type === 'TRIGGER') : [];
+  // Re-fetch tables/views when page changes
+  useEffect(() => {
+    if (activeTab === 'tables' && summary) fetchTables(tablesPage, tablesPageSize);
+  }, [tablesPage, tablesPageSize]);
+  useEffect(() => {
+    if (activeTab === 'views' && summary) fetchViews(viewsPage, viewsPageSize);
+  }, [viewsPage, viewsPageSize]);
+
+  const getStoredProcedures = () => routinesData ? routinesData.routines.filter(r => r.routine_type === 'PROCEDURE') : [];
+  const getFunctions = () => routinesData ? routinesData.routines.filter(r => r.routine_type === 'FUNCTION') : [];
+  const getTriggers = () => routinesData ? routinesData.routines.filter(r => r.routine_type === 'TRIGGER') : [];
   const getSparkModels = () => {
-    if (!report) return [];
-    return report.routines.filter(r =>
-      r.external_language === 'PYTHON' &&
-      r.definition &&
-      (r.definition.includes('pyspark') || r.definition.includes('spark.'))
+    if (!routinesData) return [];
+    return routinesData.routines.filter(r =>
+      r.external_language === 'PYTHON' && r.definition && (r.definition.includes('pyspark') || r.definition.includes('spark.'))
     );
   };
 
   const handleDownloadPDF = async (selectedSections: string[]) => {
-    if (!report) return;
+    if (!summary) return;
     setDownloading(true);
-
     try {
-      // Fetch recommendations and TCO data if selected
+      // For PDF, we need the full report
+      const report = await getAssessmentReport(id);
       let recommendations = null;
       let tcoData = null;
       let queryInsightsData = null;
-
       if (selectedSections.includes('recommendations')) {
-        try { recommendations = await getAssessmentRecommendations(parseInt(assessmentId!)); } catch (e) { console.warn('Could not fetch recommendations:', e); }
+        try { recommendations = await getAssessmentRecommendations(id); } catch (e) { console.warn('Could not fetch recommendations:', e); }
       }
       if (selectedSections.includes('tco')) {
-        try { tcoData = await getAssessmentTCO(parseInt(assessmentId!)); } catch (e) { console.warn('Could not fetch TCO:', e); }
+        try { tcoData = await getAssessmentTCO(id); } catch (e) { console.warn('Could not fetch TCO:', e); }
       }
       if (selectedSections.includes('query-insights')) {
         try {
-          const resp = await fetch(`/api/assessments/${parseInt(assessmentId!)}/query-insights?timeframe=all&page_size=10&sort_by=slot_milliseconds`);
+          const resp = await fetch(`/api/assessments/${id}/query-insights?timeframe=all&page_size=10&sort_by=slot_milliseconds`);
           if (resp.ok) queryInsightsData = await resp.json();
         } catch (e) { console.warn('Could not fetch query insights:', e); }
       }
-
-      await generatePDF({
-        report,
-        selectedSections,
-        assessmentId: parseInt(assessmentId!),
-        recommendations,
-        tcoData,
-        queryInsightsData,
-      });
+      await generatePDF({ report, selectedSections, assessmentId: id, recommendations, tcoData, queryInsightsData });
     } catch (err) {
       console.error('PDF generation failed:', err);
       alert('Failed to generate PDF. Please try again.');
@@ -246,7 +295,7 @@ export const AssessmentReportPage: React.FC = () => {
     );
   }
 
-  if (error || !report) {
+  if (error || !summary) {
     return (
       <div className="assessment-report-page">
         <div style={{ padding: '40px', textAlign: 'center' }}>
@@ -257,8 +306,7 @@ export const AssessmentReportPage: React.FC = () => {
     );
   }
 
-  // Determine database type
-  const isSQLServer = report?.assessment?.source_db_type?.toLowerCase() === 'sqlserver';
+  const isSQLServer = summary.assessment.source_db_type?.toLowerCase() === 'sqlserver';
   const isBigQuery = !isSQLServer;
 
   const tabs = [
@@ -277,25 +325,37 @@ export const AssessmentReportPage: React.FC = () => {
     { id: 'tco', label: 'TCO Analysis', icon: DollarSign },
   ];
 
+  // Pagination component
+  const PaginationControls: React.FC<{ page: number; totalPages: number; total: number; pageSize: number; onPageChange: (p: number) => void; onPageSizeChange: (s: number) => void }> = ({ page, totalPages, total, pageSize, onPageChange, onPageSizeChange }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px', flexWrap: 'wrap', gap: '12px' }}>
+      <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+        Showing {Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} of {total}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <Select value={pageSize} onChange={(v) => onPageSizeChange(Number(v))} options={[{ value: 25, label: '25 / page' }, { value: 50, label: '50 / page' }, { value: 100, label: '100 / page' }]} />
+        <button className="filter-btn" disabled={page <= 1} onClick={() => onPageChange(page - 1)} style={{ padding: '6px 16px', cursor: page <= 1 ? 'not-allowed' : 'pointer', opacity: page <= 1 ? 0.5 : 1 }}>← Prev</button>
+        <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Page {page} of {totalPages}</span>
+        <button className="filter-btn" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)} style={{ padding: '6px 16px', cursor: page >= totalPages ? 'not-allowed' : 'pointer', opacity: page >= totalPages ? 0.5 : 1 }}>Next →</button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="assessment-report-page">
       <div className="report-header">
         <Button variant="outline" onClick={() => navigate('/assessments')}>
-          <ArrowLeft size={16} />
-          Back
+          <ArrowLeft size={16} /> Back
         </Button>
         <div className="report-title-section">
           <h1 className="report-title">
-            <FileSearch size={24} />
-            {report.assessment.name}
+            <FileSearch size={24} /> {summary.assessment.name}
           </h1>
-          <Badge variant={report.assessment.status?.trim() === 'completed' ? 'success' : 'warning'}>
-            {report.assessment.status}
+          <Badge variant={summary.assessment.status?.trim() === 'completed' ? 'success' : 'warning'}>
+            {summary.assessment.status}
           </Badge>
         </div>
         <Button variant="outline" onClick={() => setShowDownloadModal(true)}>
-          <Download size={16} />
-          Download Report
+          <Download size={16} /> Download Report
         </Button>
       </div>
 
@@ -303,13 +363,8 @@ export const AssessmentReportPage: React.FC = () => {
         {tabs.map(tab => {
           const Icon = tab.icon;
           return (
-            <button
-              key={tab.id}
-              className={`report-tab ${activeTab === tab.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              <Icon size={16} />
-              <span>{tab.label}</span>
+            <button key={tab.id} className={`report-tab ${activeTab === tab.id ? 'active' : ''}`} onClick={() => setActiveTab(tab.id)}>
+              <Icon size={16} /> <span>{tab.label}</span>
             </button>
           );
         })}
@@ -317,89 +372,95 @@ export const AssessmentReportPage: React.FC = () => {
 
       <div className="report-content">
         {activeTab === 'summary' && (
-          <SummarySection report={report} formatSize={formatSize} formatDate={formatDate} formatNumber={formatNumber} getSparkModels={getSparkModels} setActiveTab={setActiveTab} />
+          <SummarySection assessment={summary.assessment} datasets={summary.datasets} setActiveTab={setActiveTab} />
         )}
         {activeTab === 'datasets' && (
-          <DatasetsSection datasets={report.datasets} formatSize={formatSize} formatDate={formatDate} />
+          <DatasetsSection datasets={summary.datasets} />
         )}
         {activeTab === 'tables' && (
-          isSQLServer ? (
-            <SQLServerTablesSection
-              tables={report.tables || []}
-              columns={report.columns || []}
-              indexes={report.indexes || []}
-              formatSize={formatSize}
-              formatDate={formatDate}
-              formatNumber={formatNumber}
-            />
-          ) : (
-            <TablesSection tables={report.tables} columns={report.columns} formatSize={formatSize} formatDate={formatDate} formatNumber={formatNumber} />
-          )
+          tablesLoading ? <TabSpinner message="Loading tables..." /> :
+          tablesError ? <TabError message={tablesError} onRetry={() => fetchTables(tablesPage, tablesPageSize)} /> :
+          tablesData ? (
+            <div className="section-content">
+              {isSQLServer ? (
+                <SQLServerTablesSection tables={tablesData.tables} columns={tablesData.columns} indexes={tablesData.indexes} formatSize={formatSize} formatDate={formatDate} formatNumber={formatNumber} />
+              ) : (
+                <TablesSection tables={tablesData.tables} columns={tablesData.columns} />
+              )}
+              <PaginationControls page={tablesData.page} totalPages={tablesData.total_pages} total={tablesData.total} pageSize={tablesPageSize} onPageChange={setTablesPage} onPageSizeChange={(s) => { setTablesPageSize(s); setTablesPage(1); }} />
+            </div>
+          ) : <TabSpinner message="Loading tables..." />
         )}
         {activeTab === 'views' && (
-          isSQLServer ? (
-            <SQLServerViewsSection
-              views={report.views || []}
-              indexes={report.indexes || []}
-              formatDate={formatDate}
-              formatSize={formatSize}
-            />
-          ) : (
-            <ViewsSection views={report.views} formatDate={formatDate} />
-          )
+          viewsLoading ? <TabSpinner message="Loading views..." /> :
+          viewsError ? <TabError message={viewsError} onRetry={() => fetchViews(viewsPage, viewsPageSize)} /> :
+          viewsData ? (
+            <div className="section-content">
+              {isSQLServer ? (
+                <SQLServerViewsSection views={viewsData.views} indexes={[]} formatDate={formatDate} formatSize={formatSize} />
+              ) : (
+                <ViewsSection views={viewsData.views} />
+              )}
+              <PaginationControls page={viewsData.page} totalPages={viewsData.total_pages} total={viewsData.total} pageSize={viewsPageSize} onPageChange={setViewsPage} onPageSizeChange={(s) => { setViewsPageSize(s); setViewsPage(1); }} />
+            </div>
+          ) : <TabSpinner message="Loading views..." />
         )}
         {activeTab === 'procedures' && (
-          isSQLServer ? (
-            <SQLServerRoutinesSection routines={getStoredProcedures()} title="Stored Procedures" formatDate={formatDate} />
-          ) : (
-            <RoutinesSection routines={getStoredProcedures()} title="Stored Procedures" formatDate={formatDate} />
-          )
+          routinesLoading ? <TabSpinner message="Loading stored procedures..." /> :
+          routinesError ? <TabError message={routinesError} /> :
+          routinesData ? (
+            isSQLServer ? <SQLServerRoutinesSection routines={getStoredProcedures()} title="Stored Procedures" formatDate={formatDate} /> :
+            <RoutinesSection routines={getStoredProcedures()} title="Stored Procedures" />
+          ) : <TabSpinner message="Loading stored procedures..." />
         )}
         {activeTab === 'functions' && (
-          isSQLServer ? (
-            <SQLServerRoutinesSection routines={getFunctions()} title="Functions" formatDate={formatDate} />
-          ) : (
-            <RoutinesSection routines={getFunctions()} title="Functions" formatDate={formatDate} />
-          )
+          routinesLoading ? <TabSpinner message="Loading functions..." /> :
+          routinesError ? <TabError message={routinesError} /> :
+          routinesData ? (
+            isSQLServer ? <SQLServerRoutinesSection routines={getFunctions()} title="Functions" formatDate={formatDate} /> :
+            <RoutinesSection routines={getFunctions()} title="Functions" />
+          ) : <TabSpinner message="Loading functions..." />
         )}
         {activeTab === 'triggers' && isSQLServer && (
-          <SQLServerRoutinesSection routines={getTriggers()} title="Triggers" formatDate={formatDate} />
+          routinesLoading ? <TabSpinner message="Loading triggers..." /> :
+          routinesData ? <SQLServerRoutinesSection routines={getTriggers()} title="Triggers" formatDate={formatDate} /> :
+          <TabSpinner message="Loading triggers..." />
         )}
         {activeTab === 'ml-models' && isBigQuery && (
-          <MLModelsSection mlModels={report.ml_models} sparkModels={getSparkModels()} formatDate={formatDate} />
+          mlModelsLoading ? <TabSpinner message="Loading ML models..." /> :
+          mlModelsError ? <TabError message={mlModelsError} /> :
+          mlModelsData ? <MLModelsSection mlModels={mlModelsData.ml_models} sparkModels={mlModelsData.spark_models} /> :
+          <TabSpinner message="Loading ML models..." />
         )}
         {activeTab === 'query-insights' && (
-          <QueryInsightsSection assessmentId={parseInt(assessmentId!)} />
+          <QueryInsightsSection assessmentId={id} />
         )}
         {activeTab === 'user-insights' && (
-          <UserInsightsSection queryStats={report.query_stats} />
+          userInsightsLoading ? <TabSpinner message="Loading user insights..." /> :
+          userInsightsError ? <TabError message={userInsightsError} /> :
+          userInsightsData ? <UserInsightsSection queryStats={userInsightsData.query_stats} /> :
+          <TabSpinner message="Loading user insights..." />
         )}
         {activeTab === 'security' && (
-          isSQLServer ? (
-            <SQLServerSecuritySection
-              security={transformSecurityDataForSQLServer(report.security_policies)}
-              formatDate={formatDate}
-            />
-          ) : (
-            <SecuritySection
-              securityPolicies={report.security_policies}
-              columns={report.columns}
-              tables={report.tables}
-            />
-          )
+          securityLoading ? <TabSpinner message="Loading security data..." /> :
+          securityError ? <TabError message={securityError} /> :
+          securityData ? (
+            isSQLServer ? <SQLServerSecuritySection security={transformSecurityDataForSQLServer(securityData.security_policies)} formatDate={formatDate} /> :
+            <SecuritySection securityPolicies={securityData.security_policies} columns={securityData.columns} tables={securityData.tables} />
+          ) : <TabSpinner message="Loading security data..." />
         )}
         {activeTab === 'recommendations' && (
-          <RecommendationsSection assessmentId={parseInt(assessmentId!)} />
+          <RecommendationsSection assessmentId={id} />
         )}
         {activeTab === 'tco' && (
-          <TCOAnalysisSection assessmentId={parseInt(assessmentId!)} />
+          <TCOAnalysisSection assessmentId={id} />
         )}
       </div>
 
       <DownloadReportModal
         isOpen={showDownloadModal}
         onClose={() => setShowDownloadModal(false)}
-        assessmentName={report.assessment.name}
+        assessmentName={summary.assessment.name}
         onDownload={handleDownloadPDF}
         downloading={downloading}
       />
@@ -407,130 +468,60 @@ export const AssessmentReportPage: React.FC = () => {
   );
 }
 
-// Summary Section Component
-const SummarySection: React.FC<any> = ({ report, formatSize, formatDate, formatNumber, getSparkModels, setActiveTab }) => (
+
+// ============ Summary Section ============
+const SummarySection: React.FC<{ assessment: ReportSummary['assessment']; datasets: DatasetSummary[]; setActiveTab: (t: string) => void }> = ({ assessment, datasets, setActiveTab }) => (
   <div className="section-content">
     <h2 className="section-heading">Assessment Summary</h2>
-    
-    {/* Summary Cards */}
     <div className="summary-grid">
       <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('datasets')}>
-        <div className="summary-icon" style={{ background: '#EFF6FF', color: '#2563EB' }}>
-          <Database size={24} />
-        </div>
-        <div className="summary-content">
-          <div className="summary-value">{report.assessment.total_datasets}</div>
-          <div className="summary-label">Datasets</div>
-        </div>
+        <div className="summary-icon" style={{ background: '#EFF6FF', color: '#2563EB' }}><Database size={24} /></div>
+        <div className="summary-content"><div className="summary-value">{assessment.total_datasets}</div><div className="summary-label">Datasets</div></div>
       </div>
-
       <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('tables')}>
-        <div className="summary-icon" style={{ background: '#F0FDF4', color: '#16A34A' }}>
-          <TableIcon size={24} />
-        </div>
-        <div className="summary-content">
-          <div className="summary-value">{report.assessment.total_tables}</div>
-          <div className="summary-label">Tables</div>
-        </div>
+        <div className="summary-icon" style={{ background: '#F0FDF4', color: '#16A34A' }}><TableIcon size={24} /></div>
+        <div className="summary-content"><div className="summary-value">{assessment.total_tables}</div><div className="summary-label">Tables</div></div>
       </div>
-
       <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('views')}>
-        <div className="summary-icon" style={{ background: '#FEF3C7', color: '#CA8A04' }}>
-          <Eye size={24} />
-        </div>
-        <div className="summary-content">
-          <div className="summary-value">{report.assessment.total_views}</div>
-          <div className="summary-label">Views</div>
-        </div>
+        <div className="summary-icon" style={{ background: '#FEF3C7', color: '#CA8A04' }}><Eye size={24} /></div>
+        <div className="summary-content"><div className="summary-value">{assessment.total_views}</div><div className="summary-label">Views</div></div>
       </div>
-
-      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('stored-procedures')}>
-        <div className="summary-icon" style={{ background: '#FCE7F3', color: '#DB2777' }}>
-          <Code size={24} />
-        </div>
-        <div className="summary-content">
-          <div className="summary-value">{report.assessment.total_routines}</div>
-          <div className="summary-label">SPs & Functions</div>
-        </div>
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('procedures')}>
+        <div className="summary-icon" style={{ background: '#FCE7F3', color: '#DB2777' }}><Code size={24} /></div>
+        <div className="summary-content"><div className="summary-value">{assessment.total_routines}</div><div className="summary-label">SPs & Functions</div></div>
       </div>
-
-      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('ml-spark-models')}>
-        <div className="summary-icon" style={{ background: '#EDE9FE', color: '#7C3AED' }}>
-          <Brain size={24} />
-        </div>
-        <div className="summary-content">
-          <div className="summary-value">{report.assessment.total_ml_models}</div>
-          <div className="summary-label">ML Models</div>
-        </div>
+      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('ml-models')}>
+        <div className="summary-icon" style={{ background: '#EDE9FE', color: '#7C3AED' }}><Brain size={24} /></div>
+        <div className="summary-content"><div className="summary-value">{assessment.total_ml_models}</div><div className="summary-label">ML Models</div></div>
       </div>
-
-      <div className="summary-card summary-card-clickable" onClick={() => setActiveTab('ml-spark-models')}>
-        <div className="summary-icon" style={{ background: '#FFF7ED', color: '#EA580C' }}>
-          <Activity size={24} />
-        </div>
-        <div className="summary-content">
-          <div className="summary-value">{getSparkModels().length}</div>
-          <div className="summary-label">Spark Models</div>
-        </div>
-      </div>
-
       <div className="summary-card">
-        <div className="summary-icon" style={{ background: '#F3F4F6', color: '#6B7280' }}>
-          <Database size={24} />
-        </div>
-        <div className="summary-content">
-          <div className="summary-value">{formatSize(report.assessment.total_size_mb)}</div>
-          <div className="summary-label">Total Data Size</div>
-        </div>
+        <div className="summary-icon" style={{ background: '#F3F4F6', color: '#6B7280' }}><Database size={24} /></div>
+        <div className="summary-content"><div className="summary-value">{formatSize(assessment.total_size_mb)}</div><div className="summary-label">Total Data Size</div></div>
       </div>
     </div>
-
-    {/* Assessment Details */}
     <div className="details-section">
       <h3 className="subsection-heading">Assessment Details</h3>
       <div className="details-grid">
-        <div className="detail-item">
-          <span className="detail-label">Project ID:</span>
-          <span className="detail-value">{report.assessment.project_id}</span>
-        </div>
-        <div className="detail-item">
-          <span className="detail-label">Started At:</span>
-          <span className="detail-value">{formatDate(report.assessment.started_at)}</span>
-        </div>
-        <div className="detail-item">
-          <span className="detail-label">Completed At:</span>
-          <span className="detail-value">{formatDate(report.assessment.completed_at)}</span>
-        </div>
+        <div className="detail-item"><span className="detail-label">Project ID:</span><span className="detail-value">{assessment.project_id}</span></div>
+        <div className="detail-item"><span className="detail-label">Started At:</span><span className="detail-value">{formatDate(assessment.started_at)}</span></div>
+        <div className="detail-item"><span className="detail-label">Completed At:</span><span className="detail-value">{formatDate(assessment.completed_at)}</span></div>
       </div>
     </div>
   </div>
 );
 
-// Continue in next part...
-
-// Datasets Section Component
-const DatasetsSection: React.FC<any> = ({ datasets, formatSize, formatDate }) => (
+// ============ Datasets Section ============
+const DatasetsSection: React.FC<{ datasets: DatasetSummary[] }> = ({ datasets }) => (
   <div className="section-content">
     <h2 className="section-heading">Datasets ({datasets.length})</h2>
     {datasets.length === 0 ? (
-      <div className="empty-state">
-        <Database size={48} />
-        <p>No datasets found</p>
-      </div>
+      <div className="empty-state"><Database size={48} /><p>No datasets found</p></div>
     ) : (
       <div className="table-container">
         <table className="data-table">
-          <thead>
-            <tr>
-              <th>Dataset Name</th>
-              <th>Region</th>
-              <th>Created Date</th>
-              <th>Number of Tables</th>
-              <th>Tables Size</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Dataset Name</th><th>Region</th><th>Created Date</th><th>Number of Tables</th><th>Tables Size</th></tr></thead>
           <tbody>
-            {datasets.map((dataset: any, index: number) => (
+            {datasets.map((dataset, index) => (
               <tr key={index}>
                 <td className="font-medium">{dataset.dataset_name}</td>
                 <td>{dataset.location || 'N/A'}</td>
@@ -546,107 +537,47 @@ const DatasetsSection: React.FC<any> = ({ datasets, formatSize, formatDate }) =>
   </div>
 );
 
-// Tables Section Component with Column Modal
-const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate, formatNumber }) => {
-  const [selectedTable, setSelectedTable] = useState<any | null>(null);
+// ============ Tables Section ============
+const TablesSection: React.FC<{ tables: AssessmentReportTable[]; columns: AssessmentReportColumn[] }> = ({ tables, columns }) => {
+  const [selectedTable, setSelectedTable] = useState<AssessmentReportTable | null>(null);
   const [showColumnsModal, setShowColumnsModal] = useState(false);
   const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
 
-  // Filter to show only BASE TABLEs (not views)
-  const baseTables = tables.filter((t: any) => t.table_type === 'BASE TABLE');
-
-  // Get unique datasets for dropdown
+  const baseTables = tables.filter(t => t.table_type === 'BASE TABLE');
   const datasetOptions = [
     { value: 'all', label: `All Datasets (${baseTables.length})` },
-    ...Array.from(new Set(baseTables.map((t: any) => t.dataset_name))).sort().map((ds: any) => ({
-      value: ds,
-      label: `${ds} (${baseTables.filter((t: any) => t.dataset_name === ds).length})`,
+    ...Array.from(new Set(baseTables.map(t => t.dataset_name))).sort().map(ds => ({
+      value: ds, label: `${ds} (${baseTables.filter(t => t.dataset_name === ds).length})`,
     })),
   ];
-
-  const filteredTables = selectedDataset === 'all'
-    ? baseTables
-    : baseTables.filter((t: any) => t.dataset_name === selectedDataset);
-
-  const handleTableClick = (table: any) => {
-    setSelectedTable(table);
-    setShowColumnsModal(true);
-  };
-
-  const getColumnsForTable = (tableId: number) => {
-    return columns.filter((col: any) => col.table_id === tableId);
-  };
+  const filteredTables = selectedDataset === 'all' ? baseTables : baseTables.filter(t => t.dataset_name === selectedDataset);
 
   const formatColumnArray = (arr: any) => {
     if (!arr) return 'None';
     if (!Array.isArray(arr)) {
-      if (typeof arr === 'string') {
-        try {
-          const parsed = JSON.parse(arr);
-          if (Array.isArray(parsed)) {
-            arr = parsed;
-          } else {
-            return 'None';
-          }
-        } catch {
-          return 'None';
-        }
-      } else {
-        return 'None';
-      }
+      if (typeof arr === 'string') { try { const p = JSON.parse(arr); if (Array.isArray(p)) arr = p; else return 'None'; } catch { return 'None'; } } else return 'None';
     }
-    const filtered = arr.filter((item: any) => 
-      item && typeof item === 'string' && item.length > 1 && 
-      item !== '[]' && item !== '""'
-    );
-    if (filtered.length === 0) return 'None';
-    return filtered.join(', ');
+    const filtered = arr.filter((item: any) => item && typeof item === 'string' && item.length > 1 && item !== '[]' && item !== '""');
+    return filtered.length === 0 ? 'None' : filtered.join(', ');
   };
 
   return (
     <div className="section-content">
       <div className="section-header-row">
         <h2 className="section-heading">Tables ({filteredTables.length})</h2>
-        <div className="section-filters">
-          <Select
-            value={selectedDataset}
-            onChange={setSelectedDataset}
-            options={datasetOptions}
-          />
-        </div>
+        <div className="section-filters"><Select value={selectedDataset} onChange={setSelectedDataset} options={datasetOptions} /></div>
       </div>
       {filteredTables.length === 0 ? (
-        <div className="empty-state">
-          <TableIcon size={48} />
-          <p>No tables found</p>
-        </div>
+        <div className="empty-state"><TableIcon size={48} /><p>No tables found</p></div>
       ) : (
         <div className="table-container">
           <table className="data-table">
-            <thead>
-              <tr>
-                <th>Dataset Name</th>
-                <th>Table Name</th>
-                <th>Creation Time</th>
-                <th>Row Count</th>
-                <th>Size</th>
-                <th>Partitioning</th>
-                <th>Clustering</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Dataset Name</th><th>Table Name</th><th>Creation Time</th><th>Row Count</th><th>Size</th><th>Partitioning</th><th>Clustering</th></tr></thead>
             <tbody>
-              {filteredTables.map((table: any) => (
+              {filteredTables.map(table => (
                 <tr key={table.id}>
                   <td className="font-medium">{table.dataset_name}</td>
-                  <td>
-                    <button
-                      className="table-name-link"
-                      onClick={() => handleTableClick(table)}
-                      title="Click to view columns"
-                    >
-                      {table.table_name}
-                    </button>
-                  </td>
+                  <td><button className="table-name-link" onClick={() => { setSelectedTable(table); setShowColumnsModal(true); }} title="Click to view columns">{table.table_name}</button></td>
                   <td className="text-sm">{formatDate(table.creation_time)}</td>
                   <td className="text-right">{formatNumber(table.row_count)}</td>
                   <td className="text-right">{formatSize(table.size_mb)}</td>
@@ -658,68 +589,27 @@ const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate,
           </table>
         </div>
       )}
-
-      {/* Columns Modal */}
       {showColumnsModal && selectedTable && (
         <div className="modal-overlay" onClick={() => setShowColumnsModal(false)}>
-          <div className="modal-content columns-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content columns-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3 className="modal-title">
-                <TableIcon size={20} />
-                {selectedTable.dataset_name}.{selectedTable.table_name}
-              </h3>
-              <button className="modal-close" onClick={() => setShowColumnsModal(false)}>
-                ×
-              </button>
+              <h3 className="modal-title"><TableIcon size={20} />{selectedTable.dataset_name}.{selectedTable.table_name}</h3>
+              <button className="modal-close" onClick={() => setShowColumnsModal(false)}>×</button>
             </div>
             <div className="modal-body">
               <div className="table-container">
                 <table className="data-table compact">
-                  <thead>
-                    <tr>
-                      <th>Column Name</th>
-                      <th>Data Type</th>
-                      <th>Nullable</th>
-                      <th>Position</th>
-                      <th>Partitioning</th>
-                      <th>Clustering</th>
-                      <th>Policy Tags</th>
-                    </tr>
-                  </thead>
+                  <thead><tr><th>Column Name</th><th>Data Type</th><th>Nullable</th><th>Position</th><th>Partitioning</th><th>Clustering</th><th>Policy Tags</th></tr></thead>
                   <tbody>
-                    {getColumnsForTable(selectedTable.id).map((column: any, idx: number) => (
+                    {columns.filter(c => c.table_id === selectedTable.id).map((column, idx) => (
                       <tr key={idx}>
                         <td className="font-medium">{column.column_name}</td>
                         <td className="font-mono text-sm">{column.data_type}</td>
-                        <td className="text-center">
-                          {column.is_nullable ? (
-                            <Badge variant="default">Yes</Badge>
-                          ) : (
-                            <Badge variant="error">No</Badge>
-                          )}
-                        </td>
+                        <td className="text-center">{column.is_nullable ? <Badge variant="default">Yes</Badge> : <Badge variant="error">No</Badge>}</td>
                         <td className="text-center">{column.ordinal_position}</td>
-                        <td className="text-center">
-                          {column.is_partitioning_column ? (
-                            <Badge variant="info">Yes</Badge>
-                          ) : (
-                            <span className="text-muted">-</span>
-                          )}
-                        </td>
-                        <td className="text-center">
-                          {column.clustering_ordinal_position !== null ? (
-                            <Badge variant="info">{column.clustering_ordinal_position}</Badge>
-                          ) : (
-                            <span className="text-muted">-</span>
-                          )}
-                        </td>
-                        <td className="text-sm">
-                          {column.policy_tags && column.policy_tags.length > 0 ? (
-                            formatColumnArray(column.policy_tags)
-                          ) : (
-                            <span className="text-muted">None</span>
-                          )}
-                        </td>
+                        <td className="text-center">{column.is_partitioning_column ? <Badge variant="info">Yes</Badge> : <span className="text-muted">-</span>}</td>
+                        <td className="text-center">{column.clustering_ordinal_position !== null ? <Badge variant="info">{column.clustering_ordinal_position}</Badge> : <span className="text-muted">-</span>}</td>
+                        <td className="text-sm">{column.policy_tags && column.policy_tags.length > 0 ? formatColumnArray(column.policy_tags) : <span className="text-muted">None</span>}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -733,42 +623,23 @@ const TablesSection: React.FC<any> = ({ tables, columns, formatSize, formatDate,
   );
 };
 
-// Views Section Component - Table Format with Clickable Names
-const ViewsSection: React.FC<any> = ({ views, formatDate }) => {
+
+// ============ Views Section ============
+const ViewsSection: React.FC<{ views: AssessmentReportView[] }> = ({ views }) => {
   const [expandedView, setExpandedView] = useState<number | null>(null);
   const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
   const [selectedViewType, setSelectedViewType] = useState<string | number>('all');
 
-  const handleViewClick = (index: number) => {
-    setExpandedView(expandedView === index ? null : index);
-  };
-
-  // Extract dataset from view_name (format: "dataset.viewname")
-  const getDataset = (v: any) => {
-    const name = v.view_name || '';
-    return name.includes('.') ? name.split('.')[0] : 'Unknown';
-  };
-
-  // Get unique datasets
+  const getDataset = (v: any) => { const name = v.view_name || ''; return name.includes('.') ? name.split('.')[0] : 'Unknown'; };
   const datasetOptions = [
     { value: 'all', label: `All Datasets (${views.length})` },
-    ...Array.from(new Set(views.map((v: any) => getDataset(v)))).sort().map((ds: any) => ({
-      value: ds,
-      label: `${ds} (${views.filter((v: any) => getDataset(v) === ds).length})`,
-    })),
+    ...Array.from(new Set(views.map(v => getDataset(v)))).sort().map((ds: any) => ({ value: ds, label: `${ds} (${views.filter(v => getDataset(v) === ds).length})` })),
   ];
-
-  // Get unique view types
   const viewTypeOptions = [
     { value: 'all', label: `All Types (${views.length})` },
-    ...Array.from(new Set(views.map((v: any) => v.view_type || 'VIEW'))).sort().map((vt: any) => ({
-      value: vt,
-      label: `${vt === 'MATERIALIZED_VIEW' ? 'Materialized View' : 'View'} (${views.filter((v: any) => (v.view_type || 'VIEW') === vt).length})`,
-    })),
+    ...Array.from(new Set(views.map(v => v.view_type || 'VIEW'))).sort().map((vt: any) => ({ value: vt, label: `${vt === 'MATERIALIZED_VIEW' ? 'Materialized View' : 'View'} (${views.filter(v => (v.view_type || 'VIEW') === vt).length})` })),
   ];
-
-  // Apply filters
-  const filteredViews = views.filter((v: any) => {
+  const filteredViews = views.filter(v => {
     const dsMatch = selectedDataset === 'all' || getDataset(v) === selectedDataset;
     const vtMatch = selectedViewType === 'all' || (v.view_type || 'VIEW') === selectedViewType;
     return dsMatch && vtMatch;
@@ -779,143 +650,55 @@ const ViewsSection: React.FC<any> = ({ views, formatDate }) => {
       <div className="section-header-row">
         <h2 className="section-heading">Views ({filteredViews.length})</h2>
         <div className="section-filters">
-          <Select
-            value={selectedDataset}
-            onChange={setSelectedDataset}
-            options={datasetOptions}
-          />
-          <Select
-            value={selectedViewType}
-            onChange={setSelectedViewType}
-            options={viewTypeOptions}
-          />
+          <Select value={selectedDataset} onChange={setSelectedDataset} options={datasetOptions} />
+          <Select value={selectedViewType} onChange={setSelectedViewType} options={viewTypeOptions} />
         </div>
       </div>
       {filteredViews.length === 0 ? (
-        <div className="empty-state">
-          <Eye size={48} />
-          <p>No views found</p>
-        </div>
+        <div className="empty-state"><Eye size={48} /><p>No views found</p></div>
       ) : (
         <div className="table-container">
           <table className="data-table">
-            <thead>
-              <tr>
-                <th>Dataset</th>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Created Time</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Dataset</th><th>Name</th><th>Type</th><th>Created Time</th></tr></thead>
             <tbody>
               {filteredViews.map((view: any, index: number) => {
                 const isExpanded = expandedView === index;
-                const totalDeps = (view.dependent_tables?.length || 0) + 
-                                 (view.dependent_views?.length || 0) + 
-                                 (view.dependent_functions?.length || 0);
+                const totalDeps = (view.dependent_tables?.length || 0) + (view.dependent_views?.length || 0) + (view.dependent_functions?.length || 0);
                 const dataset = getDataset(view);
                 const viewName = view.view_name?.includes('.') ? view.view_name.split('.').slice(1).join('.') : view.view_name;
-                
                 return (
                   <React.Fragment key={index}>
                     <tr>
                       <td className="font-medium">{dataset}</td>
-                      <td>
-                        <button
-                          className="table-name-link"
-                          onClick={() => handleViewClick(index)}
-                          title="Click to view dependencies"
-                        >
-                          {viewName}
-                        </button>
-                      </td>
-                      <td>
-                        <Badge variant={view.view_type === 'MATERIALIZED_VIEW' ? 'info' : 'default'}>
-                          {view.view_type === 'MATERIALIZED_VIEW' ? 'Materialized' : 'View'}
-                        </Badge>
-                      </td>
+                      <td><button className="table-name-link" onClick={() => setExpandedView(isExpanded ? null : index)} title="Click to view dependencies">{viewName}</button></td>
+                      <td><Badge variant={view.view_type === 'MATERIALIZED_VIEW' ? 'info' : 'default'}>{view.view_type === 'MATERIALIZED_VIEW' ? 'Materialized' : 'View'}</Badge></td>
                       <td className="text-sm">{formatDate(view.creation_time)}</td>
                     </tr>
-                    
                     {isExpanded && (
                       <tr className="expanded-row">
                         <td colSpan={4}>
                           <div className="dependency-details">
-                            {/* SQL Definition */}
                             {view.view_definition && (
                               <div className="dependency-section">
-                                <h4 className="dependency-section-title">
-                                  <Code size={16} />
-                                  SQL Definition
-                                </h4>
+                                <h4 className="dependency-section-title"><Code size={16} />SQL Definition</h4>
                                 <pre className="sql-code"><code>{view.view_definition}</code></pre>
                               </div>
                             )}
-                            
-                            {/* Dependencies */}
                             {totalDeps > 0 ? (
                               <div className="dependency-section">
-                                <h4 className="dependency-section-title">
-                                  <Database size={16} />
-                                  Dependencies ({totalDeps})
-                                </h4>
-                                
-                                {view.dependent_tables && view.dependent_tables.length > 0 && (
-                                  <div className="dependency-group">
-                                    <h5 className="dependency-group-title">
-                                      <TableIcon size={14} />
-                                      Tables ({view.dependent_tables.length})
-                                    </h5>
-                                    <div className="dependency-list">
-                                      {view.dependent_tables.map((table: string, idx: number) => (
-                                        <Badge key={idx} variant="default" className="dependency-badge">
-                                          {table}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
+                                <h4 className="dependency-section-title"><Database size={16} />Dependencies ({totalDeps})</h4>
+                                {view.dependent_tables?.length > 0 && (
+                                  <div className="dependency-group"><h5 className="dependency-group-title"><TableIcon size={14} />Tables ({view.dependent_tables.length})</h5><div className="dependency-list">{view.dependent_tables.map((t: string, i: number) => <Badge key={i} variant="default" className="dependency-badge">{t}</Badge>)}</div></div>
                                 )}
-                                
-                                {view.dependent_views && view.dependent_views.length > 0 && (
-                                  <div className="dependency-group">
-                                    <h5 className="dependency-group-title">
-                                      <Eye size={14} />
-                                      Views ({view.dependent_views.length})
-                                    </h5>
-                                    <div className="dependency-list">
-                                      {view.dependent_views.map((v: string, idx: number) => (
-                                        <Badge key={idx} variant="info" className="dependency-badge">
-                                          {v}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
+                                {view.dependent_views?.length > 0 && (
+                                  <div className="dependency-group"><h5 className="dependency-group-title"><Eye size={14} />Views ({view.dependent_views.length})</h5><div className="dependency-list">{view.dependent_views.map((v: string, i: number) => <Badge key={i} variant="info" className="dependency-badge">{v}</Badge>)}</div></div>
                                 )}
-                                
-                                {view.dependent_functions && view.dependent_functions.length > 0 && (
-                                  <div className="dependency-group">
-                                    <h5 className="dependency-group-title">
-                                      <Code size={14} />
-                                      Functions ({view.dependent_functions.length})
-                                    </h5>
-                                    <div className="dependency-list">
-                                      {view.dependent_functions.map((func: string, idx: number) => (
-                                        <Badge key={idx} variant="warning" className="dependency-badge">
-                                          {func}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
+                                {view.dependent_functions?.length > 0 && (
+                                  <div className="dependency-group"><h5 className="dependency-group-title"><Code size={14} />Functions ({view.dependent_functions.length})</h5><div className="dependency-list">{view.dependent_functions.map((f: string, i: number) => <Badge key={i} variant="warning" className="dependency-badge">{f}</Badge>)}</div></div>
                                 )}
                               </div>
                             ) : (
-                              <div className="dependency-section">
-                                <h4 className="dependency-section-title">
-                                  <Database size={16} />
-                                  Dependencies
-                                </h4>
-                                <p className="text-muted">No dependencies found</p>
-                              </div>
+                              <div className="dependency-section"><h4 className="dependency-section-title"><Database size={16} />Dependencies</h4><p className="text-muted">No dependencies found</p></div>
                             )}
                           </div>
                         </td>
@@ -932,218 +715,71 @@ const ViewsSection: React.FC<any> = ({ views, formatDate }) => {
   );
 };
 
-// Routines Section Component (for both SPs and Functions) - Table Format with Clickable Names
-const RoutinesSection: React.FC<any> = ({ routines, title, formatDate }) => {
+// ============ Routines Section ============
+const RoutinesSection: React.FC<{ routines: AssessmentReportRoutine[]; title: string }> = ({ routines, title }) => {
   const [expandedRoutine, setExpandedRoutine] = useState<number | null>(null);
   const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
 
-  const handleRoutineClick = (index: number) => {
-    setExpandedRoutine(expandedRoutine === index ? null : index);
-  };
-
-  // Extract dataset from routine_name (format: "dataset.routinename")
-  const getDataset = (r: any) => {
-    const name = r.routine_name || '';
-    return name.includes('.') ? name.split('.')[0] : 'Unknown';
-  };
-
-  // Get unique datasets
+  const getDataset = (r: any) => { const name = r.routine_name || ''; return name.includes('.') ? name.split('.')[0] : 'Unknown'; };
   const datasetOptions = [
     { value: 'all', label: `All Datasets (${routines.length})` },
-    ...Array.from(new Set(routines.map((r: any) => getDataset(r)))).sort().map((ds: any) => ({
-      value: ds,
-      label: `${ds} (${routines.filter((r: any) => getDataset(r) === ds).length})`,
-    })),
+    ...Array.from(new Set(routines.map(r => getDataset(r)))).sort().map((ds: any) => ({ value: ds, label: `${ds} (${routines.filter(r => getDataset(r) === ds).length})` })),
   ];
-
-  const filteredRoutines = selectedDataset === 'all'
-    ? routines
-    : routines.filter((r: any) => getDataset(r) === selectedDataset);
+  const filteredRoutines = selectedDataset === 'all' ? routines : routines.filter(r => getDataset(r) === selectedDataset);
 
   return (
     <div className="section-content">
       <div className="section-header-row">
         <h2 className="section-heading">{title} ({filteredRoutines.length})</h2>
-        <div className="section-filters">
-          <Select
-            value={selectedDataset}
-            onChange={setSelectedDataset}
-            options={datasetOptions}
-          />
-        </div>
+        <div className="section-filters"><Select value={selectedDataset} onChange={setSelectedDataset} options={datasetOptions} /></div>
       </div>
       {filteredRoutines.length === 0 ? (
-        <div className="empty-state">
-          <Code size={48} />
-          <p>No {title.toLowerCase()} found</p>
-        </div>
+        <div className="empty-state"><Code size={48} /><p>No {title.toLowerCase()} found</p></div>
       ) : (
         <div className="table-container">
           <table className="data-table">
-            <thead>
-              <tr>
-                <th>Dataset</th>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Language</th>
-                <th>Created Time</th>
-              </tr>
-            </thead>
+            <thead><tr><th>Dataset</th><th>Name</th><th>Type</th><th>Language</th><th>Created Time</th></tr></thead>
             <tbody>
               {filteredRoutines.map((routine: any, index: number) => {
                 const isExpanded = expandedRoutine === index;
-                const totalDeps = (routine.dependent_tables?.length || 0) + 
-                                 (routine.dependent_views?.length || 0) + 
-                                 (routine.dependent_functions?.length || 0) +
-                                 (routine.calls_procedures?.length || 0);
+                const totalDeps = (routine.dependent_tables?.length || 0) + (routine.dependent_views?.length || 0) + (routine.dependent_functions?.length || 0) + (routine.calls_procedures?.length || 0);
                 const dataset = getDataset(routine);
                 const routineName = routine.routine_name?.includes('.') ? routine.routine_name.split('.').slice(1).join('.') : routine.routine_name;
-                
                 return (
                   <React.Fragment key={index}>
                     <tr>
                       <td className="font-medium">{dataset}</td>
-                      <td>
-                        <button
-                          className="table-name-link"
-                          onClick={() => handleRoutineClick(index)}
-                          title="Click to view dependencies"
-                        >
-                          {routineName}
-                        </button>
-                      </td>
-                      <td>
-                        <Badge variant="default">{routine.routine_type}</Badge>
-                      </td>
-                      <td>
-                        {routine.external_language ? (
-                          <Badge variant="info">{routine.external_language}</Badge>
-                        ) : (
-                          <span className="text-muted">SQL</span>
-                        )}
-                      </td>
+                      <td><button className="table-name-link" onClick={() => setExpandedRoutine(isExpanded ? null : index)} title="Click to view dependencies">{routineName}</button></td>
+                      <td><Badge variant="default">{routine.routine_type}</Badge></td>
+                      <td>{routine.external_language ? <Badge variant="info">{routine.external_language}</Badge> : <span className="text-muted">SQL</span>}</td>
                       <td className="text-sm">{formatDate(routine.creation_time)}</td>
                     </tr>
-                    
                     {isExpanded && (
                       <tr className="expanded-row">
                         <td colSpan={5}>
                           <div className="dependency-details">
-                            {/* Routine Metadata */}
                             {(routine.return_type || routine.external_language) && (
                               <div className="dependency-section">
-                                <h4 className="dependency-section-title">
-                                  <Code size={16} />
-                                  Routine Information
-                                </h4>
+                                <h4 className="dependency-section-title"><Code size={16} />Routine Information</h4>
                                 <div className="routine-metadata">
-                                  {routine.return_type && (
-                                    <div className="metadata-item">
-                                      <span className="metadata-label">Return Type:</span>
-                                      <code className="metadata-value">{routine.return_type}</code>
-                                    </div>
-                                  )}
-                                  {routine.external_language && (
-                                    <div className="metadata-item">
-                                      <span className="metadata-label">Language:</span>
-                                      <Badge variant="info">{routine.external_language}</Badge>
-                                    </div>
-                                  )}
+                                  {routine.return_type && <div className="metadata-item"><span className="metadata-label">Return Type:</span><code className="metadata-value">{routine.return_type}</code></div>}
+                                  {routine.external_language && <div className="metadata-item"><span className="metadata-label">Language:</span><Badge variant="info">{routine.external_language}</Badge></div>}
                                 </div>
                               </div>
                             )}
-                            
-                            {/* SQL Definition */}
                             {routine.definition && (
-                              <div className="dependency-section">
-                                <h4 className="dependency-section-title">
-                                  <Code size={16} />
-                                  Definition
-                                </h4>
-                                <pre className="sql-code"><code>{routine.definition}</code></pre>
-                              </div>
+                              <div className="dependency-section"><h4 className="dependency-section-title"><Code size={16} />Definition</h4><pre className="sql-code"><code>{routine.definition}</code></pre></div>
                             )}
-                            
-                            {/* Dependencies */}
                             {totalDeps > 0 ? (
                               <div className="dependency-section">
-                                <h4 className="dependency-section-title">
-                                  <Database size={16} />
-                                  Dependencies ({totalDeps})
-                                </h4>
-                                
-                                {routine.dependent_tables && routine.dependent_tables.length > 0 && (
-                                  <div className="dependency-group">
-                                    <h5 className="dependency-group-title">
-                                      <TableIcon size={14} />
-                                      Tables ({routine.dependent_tables.length})
-                                    </h5>
-                                    <div className="dependency-list">
-                                      {routine.dependent_tables.map((table: string, idx: number) => (
-                                        <Badge key={idx} variant="default" className="dependency-badge">
-                                          {table}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                
-                                {routine.dependent_views && routine.dependent_views.length > 0 && (
-                                  <div className="dependency-group">
-                                    <h5 className="dependency-group-title">
-                                      <Eye size={14} />
-                                      Views ({routine.dependent_views.length})
-                                    </h5>
-                                    <div className="dependency-list">
-                                      {routine.dependent_views.map((v: string, idx: number) => (
-                                        <Badge key={idx} variant="info" className="dependency-badge">
-                                          {v}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                
-                                {routine.dependent_functions && routine.dependent_functions.length > 0 && (
-                                  <div className="dependency-group">
-                                    <h5 className="dependency-group-title">
-                                      <Code size={14} />
-                                      Functions ({routine.dependent_functions.length})
-                                    </h5>
-                                    <div className="dependency-list">
-                                      {routine.dependent_functions.map((func: string, idx: number) => (
-                                        <Badge key={idx} variant="warning" className="dependency-badge">
-                                          {func}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                                
-                                {routine.calls_procedures && routine.calls_procedures.length > 0 && (
-                                  <div className="dependency-group">
-                                    <h5 className="dependency-group-title">
-                                      <Code size={14} />
-                                      Calls Procedures ({routine.calls_procedures.length})
-                                    </h5>
-                                    <div className="dependency-list">
-                                      {routine.calls_procedures.map((proc: string, idx: number) => (
-                                        <Badge key={idx} variant="error" className="dependency-badge">
-                                          {proc}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
+                                <h4 className="dependency-section-title"><Database size={16} />Dependencies ({totalDeps})</h4>
+                                {routine.dependent_tables?.length > 0 && <div className="dependency-group"><h5 className="dependency-group-title"><TableIcon size={14} />Tables ({routine.dependent_tables.length})</h5><div className="dependency-list">{routine.dependent_tables.map((t: string, i: number) => <Badge key={i} variant="default" className="dependency-badge">{t}</Badge>)}</div></div>}
+                                {routine.dependent_views?.length > 0 && <div className="dependency-group"><h5 className="dependency-group-title"><Eye size={14} />Views ({routine.dependent_views.length})</h5><div className="dependency-list">{routine.dependent_views.map((v: string, i: number) => <Badge key={i} variant="info" className="dependency-badge">{v}</Badge>)}</div></div>}
+                                {routine.dependent_functions?.length > 0 && <div className="dependency-group"><h5 className="dependency-group-title"><Code size={14} />Functions ({routine.dependent_functions.length})</h5><div className="dependency-list">{routine.dependent_functions.map((f: string, i: number) => <Badge key={i} variant="warning" className="dependency-badge">{f}</Badge>)}</div></div>}
+                                {routine.calls_procedures?.length > 0 && <div className="dependency-group"><h5 className="dependency-group-title"><Code size={14} />Calls Procedures ({routine.calls_procedures.length})</h5><div className="dependency-list">{routine.calls_procedures.map((p: string, i: number) => <Badge key={i} variant="error" className="dependency-badge">{p}</Badge>)}</div></div>}
                               </div>
                             ) : (
-                              <div className="dependency-section">
-                                <h4 className="dependency-section-title">
-                                  <Database size={16} />
-                                  Dependencies
-                                </h4>
-                                <p className="text-muted">No dependencies found</p>
-                              </div>
+                              <div className="dependency-section"><h4 className="dependency-section-title"><Database size={16} />Dependencies</h4><p className="text-muted">No dependencies found</p></div>
                             )}
                           </div>
                         </td>
@@ -1160,74 +796,29 @@ const RoutinesSection: React.FC<any> = ({ routines, title, formatDate }) => {
   );
 };
 
-// ML Models Section Component
-const MLModelsSection: React.FC<any> = ({ mlModels, sparkModels, formatDate }) => (
+
+// ============ ML Models Section ============
+const MLModelsSection: React.FC<{ mlModels: any[]; sparkModels: any[] }> = ({ mlModels, sparkModels }) => (
   <div className="section-content">
     <h2 className="section-heading">ML & Spark Models</h2>
-    
-    {/* ML Models */}
     <div className="subsection">
       <h3 className="subsection-heading">BigQuery ML Models ({mlModels.length})</h3>
-      {mlModels.length === 0 ? (
-        <div className="empty-state-small">
-          <p>No ML models found</p>
-        </div>
-      ) : (
+      {mlModels.length === 0 ? <div className="empty-state-small"><p>No ML models found</p></div> : (
         <div className="table-container">
           <table className="data-table">
-            <thead>
-              <tr>
-                <th>Model Name</th>
-                <th>Model Type</th>
-                <th>Dataset</th>
-                <th>Created</th>
-                <th>Last Modified</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mlModels.map((model: any, index: number) => (
-                <tr key={index}>
-                  <td className="font-medium">{model.model_name}</td>
-                  <td><Badge variant="info">{model.model_type}</Badge></td>
-                  <td>{model.dataset_name}</td>
-                  <td className="text-sm">{formatDate(model.creation_time)}</td>
-                  <td className="text-sm">{formatDate(model.last_modified_time)}</td>
-                </tr>
-              ))}
-            </tbody>
+            <thead><tr><th>Model Name</th><th>Model Type</th><th>Dataset</th><th>Created</th><th>Last Modified</th></tr></thead>
+            <tbody>{mlModels.map((m, i) => <tr key={i}><td className="font-medium">{m.model_name}</td><td><Badge variant="info">{m.model_type}</Badge></td><td>{m.dataset_name}</td><td className="text-sm">{formatDate(m.creation_time)}</td><td className="text-sm">{formatDate(m.last_modified_time)}</td></tr>)}</tbody>
           </table>
         </div>
       )}
     </div>
-
-    {/* Spark Models */}
     <div className="subsection">
       <h3 className="subsection-heading">Spark Models ({sparkModels.length})</h3>
-      {sparkModels.length === 0 ? (
-        <div className="empty-state-small">
-          <p>No Spark models found</p>
-        </div>
-      ) : (
+      {sparkModels.length === 0 ? <div className="empty-state-small"><p>No Spark models found</p></div> : (
         <div className="table-container">
           <table className="data-table">
-            <thead>
-              <tr>
-                <th>Routine Name</th>
-                <th>Type</th>
-                <th>Language</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sparkModels.map((model: any, index: number) => (
-                <tr key={index}>
-                  <td className="font-medium">{model.routine_name}</td>
-                  <td><Badge variant="warning">Spark</Badge></td>
-                  <td><Badge variant="default">{model.external_language}</Badge></td>
-                  <td className="text-sm">{formatDate(model.creation_time)}</td>
-                </tr>
-              ))}
-            </tbody>
+            <thead><tr><th>Routine Name</th><th>Type</th><th>Language</th><th>Created</th></tr></thead>
+            <tbody>{sparkModels.map((m, i) => <tr key={i}><td className="font-medium">{m.routine_name}</td><td><Badge variant="warning">Spark</Badge></td><td><Badge variant="default">{m.external_language}</Badge></td><td className="text-sm">{formatDate(m.creation_time)}</td></tr>)}</tbody>
           </table>
         </div>
       )}
@@ -1235,144 +826,52 @@ const MLModelsSection: React.FC<any> = ({ mlModels, sparkModels, formatDate }) =
   </div>
 );
 
-// Continue in next part...
-
-// Query Insights Section Component with Time Filters and Charts
-
-// User Insights Section Component
-const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
-  const [timeFilter, setTimeFilter] = useState('all'); // all, 24h, 7d, 30d
-  
-  // Filter queries by time frame
+// ============ User Insights Section ============
+const UserInsightsSection: React.FC<{ queryStats: any[] }> = ({ queryStats }) => {
+  const [timeFilter, setTimeFilter] = useState('all');
   const getFilteredQueries = () => {
     if (timeFilter === 'all') return queryStats;
-    
-    const now = new Date();
-    const cutoffTime = new Date();
-    
-    switch (timeFilter) {
-      case '24h':
-        cutoffTime.setHours(now.getHours() - 24);
-        break;
-      case '7d':
-        cutoffTime.setDate(now.getDate() - 7);
-        break;
-      case '30d':
-        cutoffTime.setDate(now.getDate() - 30);
-        break;
-      default:
-        return queryStats;
-    }
-    
-    return queryStats.filter((query: any) => {
-      if (!query.execution_time) return false;
-      const queryTime = new Date(query.execution_time);
-      return queryTime >= cutoffTime;
-    });
+    const now = new Date(); const cutoff = new Date();
+    switch (timeFilter) { case '24h': cutoff.setHours(now.getHours() - 24); break; case '7d': cutoff.setDate(now.getDate() - 7); break; case '30d': cutoff.setDate(now.getDate() - 30); break; default: return queryStats; }
+    return queryStats.filter((q: any) => q.execution_time && new Date(q.execution_time) >= cutoff);
   };
-  
   const filteredQueries = getFilteredQueries();
-  
-  // Group queries by user and calculate metrics
-  const userStats = filteredQueries.reduce((acc: any, query: any) => {
-    const user = query.user_email || 'Unknown';
-    if (!acc[user]) {
-      acc[user] = {
-        queryCount: 0,
-        totalBytesScanned: 0,
-        totalSlotMilliseconds: 0,
-        cacheHits: 0,
-        totalQueries: 0,
-      };
-    }
-    acc[user].queryCount++;
-    acc[user].totalQueries++;
-    acc[user].totalBytesScanned += query.bytes_scanned || 0;
-    acc[user].totalSlotMilliseconds += query.slot_milliseconds || 0;
-    if (query.cache_hit) acc[user].cacheHits++;
+  const userStats = filteredQueries.reduce((acc: any, q: any) => {
+    const user = q.user_email || 'Unknown';
+    if (!acc[user]) acc[user] = { queryCount: 0, totalBytesScanned: 0, totalSlotMilliseconds: 0, cacheHits: 0, totalQueries: 0 };
+    acc[user].queryCount++; acc[user].totalQueries++; acc[user].totalBytesScanned += q.bytes_scanned || 0; acc[user].totalSlotMilliseconds += q.slot_milliseconds || 0; if (q.cache_hit) acc[user].cacheHits++;
     return acc;
   }, {});
-
   const users = Object.entries(userStats).map(([email, stats]: [string, any]) => ({
-    email,
-    queryCount: stats.queryCount,
-    totalBytesScanned: stats.totalBytesScanned,
-    totalSlotMilliseconds: stats.totalSlotMilliseconds,
-    cacheHits: stats.cacheHits,
+    email, queryCount: stats.queryCount, totalBytesScanned: stats.totalBytesScanned, totalSlotMilliseconds: stats.totalSlotMilliseconds,
     cacheHitRate: stats.totalQueries > 0 ? (stats.cacheHits / stats.totalQueries * 100).toFixed(1) : '0.0',
   })).sort((a, b) => b.queryCount - a.queryCount);
 
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const gb = bytes / (1024 * 1024 * 1024);
-    if (gb >= 1) return `${gb.toFixed(2)} GB`;
-    const mb = bytes / (1024 * 1024);
-    if (mb >= 1) return `${mb.toFixed(2)} MB`;
-    const kb = bytes / 1024;
-    return `${kb.toFixed(2)} KB`;
-  };
-
-  const formatSlots = (milliseconds: number) => {
-    if (milliseconds === 0) return '0';
-    const seconds = milliseconds / 1000;
-    if (seconds >= 3600) return `${(seconds / 3600).toFixed(2)} slot-hrs`;
-    if (seconds >= 60) return `${(seconds / 60).toFixed(2)} slot-mins`;
-    return `${seconds.toFixed(2)} slot-secs`;
-  };
+  const formatBytes = (bytes: number) => { if (bytes === 0) return '0 B'; const gb = bytes / (1024**3); if (gb >= 1) return `${gb.toFixed(2)} GB`; const mb = bytes / (1024**2); if (mb >= 1) return `${mb.toFixed(2)} MB`; return `${(bytes / 1024).toFixed(2)} KB`; };
+  const formatSlots = (ms: number) => { if (ms === 0) return '0'; const s = ms / 1000; if (s >= 3600) return `${(s / 3600).toFixed(2)} slot-hrs`; if (s >= 60) return `${(s / 60).toFixed(2)} slot-mins`; return `${s.toFixed(2)} slot-secs`; };
 
   return (
     <div className="section-content">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h2 className="section-heading">User Insights ({users.length} users)</h2>
-        
-        {/* Time Filter */}
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <span style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>Time Frame:</span>
-          <Select
-            value={timeFilter}
-            onChange={(val) => setTimeFilter(val as string)}
-            options={[
-              { value: 'all', label: 'All Time' },
-              { value: '24h', label: 'Last 24 Hours' },
-              { value: '7d', label: 'Last 7 Days' },
-              { value: '30d', label: 'Last 30 Days' },
-            ]}
-          />
+          <Select value={timeFilter} onChange={(val) => setTimeFilter(val as string)} options={[{ value: 'all', label: 'All Time' }, { value: '24h', label: 'Last 24 Hours' }, { value: '7d', label: 'Last 7 Days' }, { value: '30d', label: 'Last 30 Days' }]} />
         </div>
       </div>
-      
-      {users.length === 0 ? (
-        <div className="empty-state">
-          <Users size={48} />
-          <p>No user data found for selected time frame</p>
-        </div>
-      ) : (
+      {users.length === 0 ? <div className="empty-state"><Users size={48} /><p>No user data found for selected time frame</p></div> : (
         <div className="table-container">
           <table className="data-table">
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left' }}>User Email</th>
-                <th style={{ textAlign: 'right' }}>Queries Executed</th>
-                <th style={{ textAlign: 'right' }}>Total Data Scanned</th>
-                <th style={{ textAlign: 'right' }}>Slots Utilized</th>
-                <th style={{ textAlign: 'right' }}>Cache Hit Ratio</th>
+            <thead><tr><th style={{ textAlign: 'left' }}>User Email</th><th style={{ textAlign: 'right' }}>Queries Executed</th><th style={{ textAlign: 'right' }}>Total Data Scanned</th><th style={{ textAlign: 'right' }}>Slots Utilized</th><th style={{ textAlign: 'right' }}>Cache Hit Ratio</th></tr></thead>
+            <tbody>{users.map((u, i) => (
+              <tr key={i}>
+                <td className="font-medium" style={{ textAlign: 'left' }}>{u.email}</td>
+                <td style={{ textAlign: 'right' }}>{u.queryCount.toLocaleString()}</td>
+                <td style={{ textAlign: 'right' }}>{formatBytes(u.totalBytesScanned)}</td>
+                <td style={{ textAlign: 'right' }}>{formatSlots(u.totalSlotMilliseconds)}</td>
+                <td style={{ textAlign: 'right' }}><Badge variant={parseFloat(u.cacheHitRate) > 50 ? 'success' : parseFloat(u.cacheHitRate) > 20 ? 'warning' : 'default'}>{u.cacheHitRate}%</Badge></td>
               </tr>
-            </thead>
-            <tbody>
-              {users.map((user: any, index: number) => (
-                <tr key={index}>
-                  <td className="font-medium" style={{ textAlign: 'left' }}>{user.email}</td>
-                  <td style={{ textAlign: 'right' }}>{user.queryCount.toLocaleString()}</td>
-                  <td style={{ textAlign: 'right' }}>{formatBytes(user.totalBytesScanned)}</td>
-                  <td style={{ textAlign: 'right' }}>{formatSlots(user.totalSlotMilliseconds)}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    <Badge variant={parseFloat(user.cacheHitRate) > 50 ? 'success' : parseFloat(user.cacheHitRate) > 20 ? 'warning' : 'default'}>
-                      {user.cacheHitRate}%
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+            ))}</tbody>
           </table>
         </div>
       )}
@@ -1380,242 +879,76 @@ const UserInsightsSection: React.FC<any> = ({ queryStats }) => {
   );
 };
 
-// Security Section Component
-const SecuritySection: React.FC<any> = ({ securityPolicies, columns, tables }) => {
+
+// ============ Security Section ============
+const SecuritySection: React.FC<{ securityPolicies: any[]; columns: any[]; tables: any[] }> = ({ securityPolicies, columns, tables }) => {
   const [expandedPolicy, setExpandedPolicy] = useState<number | null>(null);
-  
-  // Filter RLS policies
   const rlsPolicies = securityPolicies.filter((p: any) => p.security_type === 'RLS');
-  
-  // Create a map of table_id to table_name for quick lookup
-  const tableIdToName = tables.reduce((acc: any, table: any) => {
-    acc[table.id] = `${table.dataset_name}.${table.table_name}`;
-    return acc;
-  }, {});
-  
-  // Helper function to safely parse policy_tags
-  const parsePolicyTags = (policyTags: any): string[] => {
-    console.log('parsePolicyTags input:', policyTags, 'type:', typeof policyTags);
-    
-    if (!policyTags) return [];
-    
-    // If it's already an array, return it
-    if (Array.isArray(policyTags)) {
-      console.log('Already array:', policyTags);
-      return policyTags;
-    }
-    
-    // If it's a string, try to parse it as JSON
-    if (typeof policyTags === 'string') {
-      // Handle empty string
-      if (policyTags.trim() === '' || policyTags === '[]') {
-        return [];
-      }
-      
-      try {
-        const parsed = JSON.parse(policyTags);
-        console.log('Parsed from string:', parsed);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch (e) {
-        console.warn('Failed to parse policy_tags:', policyTags, e);
-        return [];
-      }
-    }
-    
+  const tableIdToName = tables.reduce((acc: any, t: any) => { acc[t.id] = `${t.dataset_name}.${t.table_name}`; return acc; }, {});
+
+  const parsePolicyTags = (pt: any): string[] => {
+    if (!pt) return []; if (Array.isArray(pt)) return pt;
+    if (typeof pt === 'string') { if (pt.trim() === '' || pt === '[]') return []; try { const p = JSON.parse(pt); return Array.isArray(p) ? p : []; } catch { return []; } }
     return [];
   };
-  
-  // Extract CLS data from columns (columns with policy tags) and enrich with table names
-  const clsColumns = columns
-    .map((col: any) => {
-      const tags = parsePolicyTags(col.policy_tags);
-      return {
-        ...col,
-        policy_tags: tags,
-        table_name: tableIdToName[col.table_id] || 'Unknown'
-      };
-    })
-    .filter((col: any) => col.policy_tags && col.policy_tags.length > 0);
 
-  // Also extract CLS entries from securityPolicies (collected by backend security step)
-  const clsFromPolicies = securityPolicies
-    .filter((p: any) => p.security_type === 'CLS')
-    .map((p: any) => ({
-      column_name: p.security_metadata?.column_name || p.policy_name?.replace('policy_tag_', '') || 'Unknown',
-      data_type: 'N/A',
-      policy_tags: [p.security_metadata?.policy_tag || p.policy_name || 'Policy Tag'],
-      table_name: p.table_name || 'Unknown'
-    }));
-  
-  // Merge both sources, dedup by table+column
+  const clsColumns = columns.map((col: any) => ({ ...col, policy_tags: parsePolicyTags(col.policy_tags), table_name: tableIdToName[col.table_id] || 'Unknown' })).filter((c: any) => c.policy_tags.length > 0);
+  const clsFromPolicies = securityPolicies.filter((p: any) => p.security_type === 'CLS').map((p: any) => ({ column_name: p.security_metadata?.column_name || p.policy_name?.replace('policy_tag_', '') || 'Unknown', data_type: 'N/A', policy_tags: [p.security_metadata?.policy_tag || p.policy_name || 'Policy Tag'], table_name: p.table_name || 'Unknown' }));
   const allClsColumns = [...clsColumns];
   const existingKeys = new Set(clsColumns.map((c: any) => `${c.table_name}.${c.column_name}`));
-  for (const cp of clsFromPolicies) {
-    if (!existingKeys.has(`${cp.table_name}.${cp.column_name}`)) {
-      allClsColumns.push(cp);
-    }
-  }
-  
-  // Group CLS columns by table
-  const clsByTable = allClsColumns.reduce((acc: any, col: any) => {
-    const tableName = col.table_name;
-    if (!acc[tableName]) {
-      acc[tableName] = [];
-    }
-    acc[tableName].push(col);
-    return acc;
-  }, {});
-  
+  for (const cp of clsFromPolicies) { if (!existingKeys.has(`${cp.table_name}.${cp.column_name}`)) allClsColumns.push(cp); }
+  const clsByTable = allClsColumns.reduce((acc: any, col: any) => { if (!acc[col.table_name]) acc[col.table_name] = []; acc[col.table_name].push(col); return acc; }, {});
   const totalSecurityItems = rlsPolicies.length + Object.keys(clsByTable).length;
 
   return (
     <div className="section-content">
       <h2 className="section-heading">Security Policies</h2>
-      
-      {totalSecurityItems === 0 ? (
-        <div className="empty-state">
-          <Shield size={48} />
-          <p>No security policies found</p>
-        </div>
-      ) : (
+      {totalSecurityItems === 0 ? <div className="empty-state"><Shield size={48} /><p>No security policies found</p></div> : (
         <div className="security-sections">
-          {/* Row-Level Security (RLS) Section */}
           {rlsPolicies.length > 0 && (
             <div className="security-subsection">
-              <h3 className="subsection-heading">
-                <Shield size={20} />
-                Row-Level Security (RLS) Policies ({rlsPolicies.length})
-              </h3>
+              <h3 className="subsection-heading"><Shield size={20} />Row-Level Security (RLS) Policies ({rlsPolicies.length})</h3>
               <div className="rls-policies-list">
                 {rlsPolicies.map((policy: any, index: number) => {
                   const isExpanded = expandedPolicy === index;
-                  const hasDDL = policy.security_metadata && policy.security_metadata.ddl;
-                  
+                  const hasDDL = policy.security_metadata?.ddl;
                   return (
                     <div key={index} className="rls-policy-card">
                       <div className="rls-policy-header">
                         <div className="rls-policy-info">
-                          <h4 className="rls-policy-name">
-                            <Shield size={16} />
-                            {policy.policy_name}
-                          </h4>
-                          <div className="rls-policy-meta">
-                            <Badge variant="info">
-                              <Database size={12} />
-                              {policy.table_name}
-                            </Badge>
-                          </div>
+                          <h4 className="rls-policy-name"><Shield size={16} />{policy.policy_name}</h4>
+                          <div className="rls-policy-meta"><Badge variant="info"><Database size={12} />{policy.table_name}</Badge></div>
                         </div>
-                        {hasDDL && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setExpandedPolicy(isExpanded ? null : index)}
-                          >
-                            {isExpanded ? 'Hide' : 'Show'} DDL
-                          </Button>
-                        )}
+                        {hasDDL && <Button variant="outline" size="sm" onClick={() => setExpandedPolicy(isExpanded ? null : index)}>{isExpanded ? 'Hide' : 'Show'} DDL</Button>}
                       </div>
-                      
                       <div className="rls-policy-details">
-                        <div className="rls-detail-row">
-                          <span className="rls-detail-label">Filter Predicate:</span>
-                          <code className="rls-detail-value">{policy.filter_predicate || 'N/A'}</code>
-                        </div>
-                        
-                        <div className="rls-detail-row">
-                          <span className="rls-detail-label">Grantees:</span>
-                          <div className="rls-grantees">
-                            {policy.grantees && policy.grantees.length > 0 ? (
-                              policy.grantees.map((grantee: string, idx: number) => (
-                                <Badge key={idx} variant="success" className="grantee-badge">
-                                  <Users size={12} />
-                                  {grantee.trim()}
-                                </Badge>
-                              ))
-                            ) : (
-                              <span className="text-muted">No grantees specified</span>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {policy.creation_time && (
-                          <div className="rls-detail-row">
-                            <span className="rls-detail-label">Created:</span>
-                            <span className="rls-detail-value">{new Date(policy.creation_time).toLocaleString()}</span>
-                          </div>
-                        )}
+                        <div className="rls-detail-row"><span className="rls-detail-label">Filter Predicate:</span><code className="rls-detail-value">{policy.filter_predicate || 'N/A'}</code></div>
+                        <div className="rls-detail-row"><span className="rls-detail-label">Grantees:</span><div className="rls-grantees">{policy.grantees?.length > 0 ? policy.grantees.map((g: string, i: number) => <Badge key={i} variant="success" className="grantee-badge"><Users size={12} />{g.trim()}</Badge>) : <span className="text-muted">No grantees specified</span>}</div></div>
                       </div>
-                      
-                      {isExpanded && hasDDL && (
-                        <div className="rls-ddl-section">
-                          <div className="rls-ddl-header">
-                            <Code size={14} />
-                            <span>Policy DDL</span>
-                          </div>
-                          <pre className="rls-ddl-code"><code>{policy.security_metadata.ddl}</code></pre>
-                        </div>
-                      )}
+                      {isExpanded && hasDDL && <div className="rls-ddl-section"><div className="rls-ddl-header"><Code size={14} /><span>Policy DDL</span></div><pre className="rls-ddl-code"><code>{policy.security_metadata.ddl}</code></pre></div>}
                     </div>
                   );
                 })}
               </div>
             </div>
           )}
-          
-          {/* Column-Level Security (CLS) Section */}
           {Object.keys(clsByTable).length > 0 && (
             <div className="security-subsection">
-              <h3 className="subsection-heading">
-                <Lock size={20} />
-                Column-Level Security (CLS) - Policy Tags ({Object.keys(clsByTable).length} tables)
-              </h3>
+              <h3 className="subsection-heading"><Lock size={20} />Column-Level Security (CLS) - Policy Tags ({Object.keys(clsByTable).length} tables)</h3>
               <div className="cls-tables">
                 {Object.entries(clsByTable).map(([tableName, cols]: [string, any], tableIdx: number) => (
                   <div key={tableIdx} className="cls-table-group">
-                    <h4 className="cls-table-name">
-                      <Database size={16} />
-                      {tableName}
-                      <Badge variant="default" className="cls-column-count">
-                        {cols.length} {cols.length === 1 ? 'column' : 'columns'}
-                      </Badge>
-                    </h4>
+                    <h4 className="cls-table-name"><Database size={16} />{tableName}<Badge variant="default" className="cls-column-count">{cols.length} {cols.length === 1 ? 'column' : 'columns'}</Badge></h4>
                     <div className="table-container">
                       <table className="data-table cls-table">
-                        <thead>
-                          <tr>
-                            <th>Column Name</th>
-                            <th>Data Type</th>
-                            <th>Policy Tags</th>
+                        <thead><tr><th>Column Name</th><th>Data Type</th><th>Policy Tags</th></tr></thead>
+                        <tbody>{cols.map((col: any, i: number) => (
+                          <tr key={i}>
+                            <td className="font-medium"><Lock size={14} className="inline-icon" />{col.column_name}</td>
+                            <td><Badge variant="default">{col.data_type}</Badge></td>
+                            <td><div className="policy-tags-list">{col.policy_tags?.length > 0 ? col.policy_tags.map((tag: string, j: number) => <Badge key={j} variant="warning" className="policy-tag"><Shield size={12} />{tag}</Badge>) : <span className="text-muted">No tags</span>}</div></td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {cols.map((col: any, colIdx: number) => (
-                            <tr key={colIdx}>
-                              <td className="font-medium">
-                                <Lock size={14} className="inline-icon" />
-                                {col.column_name}
-                              </td>
-                              <td>
-                                <Badge variant="default">{col.data_type}</Badge>
-                              </td>
-                              <td>
-                                <div className="policy-tags-list">
-                                  {col.policy_tags && col.policy_tags.length > 0 ? (
-                                    col.policy_tags.map((tag: string, tagIdx: number) => (
-                                      <Badge key={tagIdx} variant="warning" className="policy-tag">
-                                        <Shield size={12} />
-                                        {tag}
-                                      </Badge>
-                                    ))
-                                  ) : (
-                                    <span className="text-muted">No tags</span>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
+                        ))}</tbody>
                       </table>
                     </div>
                   </div>
@@ -1629,64 +962,8 @@ const SecuritySection: React.FC<any> = ({ securityPolicies, columns, tables }) =
   );
 };
 
-// Sharded Tables Section Component
-const ShardedTablesSection: React.FC<any> = ({ shardedTables, formatSize, formatDate }) => {
-  const [expandedShard, setExpandedShard] = useState<number | null>(null);
 
-  return (
-    <div className="section-content">
-      <h2 className="section-heading">Sharded Table Groups ({shardedTables.length})</h2>
-      {shardedTables.length === 0 ? (
-        <div className="empty-state">
-          <TrendingUp size={48} />
-          <p>No sharded tables found</p>
-        </div>
-      ) : (
-        <div className="sharded-list">
-          {shardedTables.map((shard: any, index: number) => {
-            const isExpanded = expandedShard === index;
-            
-            return (
-              <div key={index} className="shard-item">
-                <div className="shard-header">
-                  <div className="shard-info">
-                    <h4 className="shard-name">{shard.shard_group}</h4>
-                    <div className="shard-meta">
-                      <Badge variant="info">{shard.shard_count} shards</Badge>
-                      <span className="text-sm">Size: {formatSize(shard.total_size_mb)}</span>
-                      <span className="text-sm text-muted">
-                        Range: {formatDate(shard.date_range_start)} - {formatDate(shard.date_range_end)}
-                      </span>
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setExpandedShard(isExpanded ? null : index)}
-                  >
-                    {isExpanded ? 'Hide' : 'Show'} Tables
-                  </Button>
-                </div>
-                
-                {isExpanded && shard.shard_tables && (
-                  <div className="shard-tables">
-                    <ul>
-                      {shard.shard_tables.map((table: string, idx: number) => (
-                        <li key={idx}>{table}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// Recommendations Section Component
+// ============ Recommendations Section (self-fetching) ============
 const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessmentId }) => {
   const [data, setData] = useState<RecommendationsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1697,137 +974,51 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
   const [dskPageSize, setDskPageSize] = useState<string | number>(20);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const result = await getAssessmentRecommendations(assessmentId);
-        setData(result);
-      } catch (err: any) {
-        setError(err.detail || err.message || 'Failed to load recommendations');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
+    (async () => {
+      try { setLoading(true); setData(await getAssessmentRecommendations(assessmentId)); } catch (err: any) { setError(err.detail || err.message || 'Failed'); } finally { setLoading(false); }
+    })();
   }, [assessmentId]);
 
-  if (loading) return <div className="section-content"><div style={{ padding: '40px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }}></div><p style={{ marginTop: '16px', color: 'var(--color-text-secondary)' }}>Generating recommendations...</p></div></div>;
-  if (error || !data) return <div className="section-content"><p style={{ color: 'var(--color-error)', padding: '20px' }}>{error || 'No data'}</p></div>;
+  if (loading) return <TabSpinner message="Generating recommendations..." />;
+  if (error || !data) return <TabError message={error || 'No data'} />;
 
   const { query_classification: qc, config_recommendation: cr, dist_sort_keys: dsk, architecture: arch } = data;
-
-  // Extract datasets and tables from dsk for filters
   const getDatasetFromTable = (name: string) => name.includes('.') ? name.split('.')[0] : 'Unknown';
   const dskDatasets = Array.from(new Set(dsk.map(r => getDatasetFromTable(r.table_name)))).sort();
-  const datasetOptions = [
-    { value: 'all', label: `All Datasets (${dskDatasets.length})` },
-    ...dskDatasets.map(ds => ({ value: ds, label: ds })),
-  ];
-
-  const filteredDsk = dsk.filter(r => {
-    const ds = getDatasetFromTable(r.table_name);
-    const dsMatch = selectedDataset === 'all' || ds === selectedDataset;
-    const tblMatch = selectedTable === 'all' || r.table_name === selectedTable;
-    return dsMatch && tblMatch;
-  });
-
-  const tableOptions = [
-    { value: 'all', label: `All Tables (${(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset)).length})` },
-    ...(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset))
-      .map(r => ({ value: r.table_name, label: r.table_name })),
-  ];
+  const datasetOptions = [{ value: 'all', label: `All Datasets (${dskDatasets.length})` }, ...dskDatasets.map(ds => ({ value: ds, label: ds }))];
+  const filteredDsk = dsk.filter(r => { const ds = getDatasetFromTable(r.table_name); return (selectedDataset === 'all' || ds === selectedDataset) && (selectedTable === 'all' || r.table_name === selectedTable); });
+  const tableOptions = [{ value: 'all', label: `All Tables (${(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset)).length})` }, ...(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset)).map(r => ({ value: r.table_name, label: r.table_name }))];
 
   return (
     <div className="section-content">
       <h2 className="section-heading">Migration Recommendations</h2>
-
-      {/* Distribution & Sort Key Recommendations */}
       <div className="rec-section">
         <h3 className="rec-section-title"><TableIcon size={18} /> Distribution & Sort Key Recommendations</h3>
         <div className="section-filters" style={{ marginBottom: 'var(--spacing-4)' }}>
-          <SearchableSelect
-            value={selectedDataset}
-            onChange={(v) => { setSelectedDataset(v); setSelectedTable('all'); setDskPage(1); }}
-            options={datasetOptions}
-            placeholder="All Datasets"
-          />
-          <SearchableSelect
-            value={selectedTable}
-            onChange={(v) => { setSelectedTable(v); setDskPage(1); }}
-            options={tableOptions}
-            placeholder="All Tables"
-          />
-          <SearchableSelect
-            value={dskPageSize}
-            onChange={(v) => { setDskPageSize(v); setDskPage(1); }}
-            options={[
-              { value: 20, label: '20 rows' },
-              { value: 50, label: '50 rows' },
-              { value: 100, label: '100 rows' },
-              { value: 200, label: '200 rows' },
-            ]}
-            placeholder="Rows per page"
-          />
+          <SearchableSelect value={selectedDataset} onChange={(v) => { setSelectedDataset(v); setSelectedTable('all'); setDskPage(1); }} options={datasetOptions} placeholder="All Datasets" />
+          <SearchableSelect value={selectedTable} onChange={(v) => { setSelectedTable(v); setDskPage(1); }} options={tableOptions} placeholder="All Tables" />
+          <SearchableSelect value={dskPageSize} onChange={(v) => { setDskPageSize(v); setDskPage(1); }} options={[{ value: 20, label: '20 rows' }, { value: 50, label: '50 rows' }, { value: 100, label: '100 rows' }, { value: 200, label: '200 rows' }]} placeholder="Rows per page" />
         </div>
-        {filteredDsk.length === 0 ? (
-          <div className="empty-state-small"><p>No table-level recommendations available.</p></div>
-        ) : (
+        {filteredDsk.length === 0 ? <div className="empty-state-small"><p>No table-level recommendations available.</p></div> : (
           <>
-          <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>
-            Showing {Math.min((dskPage - 1) * Number(dskPageSize) + 1, filteredDsk.length)}–{Math.min(dskPage * Number(dskPageSize), filteredDsk.length)} of {filteredDsk.length} tables
-          </div>
-          <div className="table-container">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Table</th>
-                  <th>DISTKEY</th>
-                  <th>SORTKEY</th>
-                  <th>Reasoning</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredDsk.slice((dskPage - 1) * Number(dskPageSize), dskPage * Number(dskPageSize)).map((row, i) => (
-                  <tr key={i}>
-                    <td className="font-mono font-medium">{row.table_name}</td>
-                    <td><Badge variant={row.distkey === 'EVEN' ? 'default' : 'info'}>{row.distkey}</Badge></td>
-                    <td><Badge variant={row.sortkey === 'AUTO' ? 'default' : 'info'}>{row.sortkey}</Badge></td>
-                    <td>
-                      <ul className="rec-reasoning-list">
-                        {row.reasoning.map((r, j) => <li key={j}>{r}</li>)}
-                      </ul>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {Math.ceil(filteredDsk.length / Number(dskPageSize)) > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '16px' }}>
-              <button
-                className="filter-btn"
-                disabled={dskPage <= 1}
-                onClick={() => setDskPage(dskPage - 1)}
-                style={{ padding: '6px 16px', cursor: dskPage <= 1 ? 'not-allowed' : 'pointer', opacity: dskPage <= 1 ? 0.5 : 1 }}
-              >
-                ← Previous
-              </button>
-              <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-                Page {dskPage} of {Math.ceil(filteredDsk.length / Number(dskPageSize))}
-              </span>
-              <button
-                className="filter-btn"
-                disabled={dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize))}
-                onClick={() => setDskPage(dskPage + 1)}
-                style={{ padding: '6px 16px', cursor: dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize)) ? 'not-allowed' : 'pointer', opacity: dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize)) ? 0.5 : 1 }}
-              >
-                Next →
-              </button>
+            <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>Showing {Math.min((dskPage - 1) * Number(dskPageSize) + 1, filteredDsk.length)}–{Math.min(dskPage * Number(dskPageSize), filteredDsk.length)} of {filteredDsk.length} tables</div>
+            <div className="table-container">
+              <table className="data-table">
+                <thead><tr><th>Table</th><th>DISTKEY</th><th>SORTKEY</th><th>Reasoning</th></tr></thead>
+                <tbody>{filteredDsk.slice((dskPage - 1) * Number(dskPageSize), dskPage * Number(dskPageSize)).map((row, i) => (
+                  <tr key={i}><td className="font-mono font-medium">{row.table_name}</td><td><Badge variant={row.distkey === 'EVEN' ? 'default' : 'info'}>{row.distkey}</Badge></td><td><Badge variant={row.sortkey === 'AUTO' ? 'default' : 'info'}>{row.sortkey}</Badge></td><td><ul className="rec-reasoning-list">{row.reasoning.map((r, j) => <li key={j}>{r}</li>)}</ul></td></tr>
+                ))}</tbody>
+              </table>
             </div>
-          )}
+            {Math.ceil(filteredDsk.length / Number(dskPageSize)) > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '16px' }}>
+                <button className="filter-btn" disabled={dskPage <= 1} onClick={() => setDskPage(dskPage - 1)} style={{ padding: '6px 16px', cursor: dskPage <= 1 ? 'not-allowed' : 'pointer', opacity: dskPage <= 1 ? 0.5 : 1 }}>← Previous</button>
+                <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>Page {dskPage} of {Math.ceil(filteredDsk.length / Number(dskPageSize))}</span>
+                <button className="filter-btn" disabled={dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize))} onClick={() => setDskPage(dskPage + 1)} style={{ padding: '6px 16px', cursor: dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize)) ? 'not-allowed' : 'pointer', opacity: dskPage >= Math.ceil(filteredDsk.length / Number(dskPageSize)) ? 0.5 : 1 }}>Next →</button>
+              </div>
+            )}
           </>
         )}
-
         <div className="rec-info-box" style={{ marginTop: 'var(--spacing-6)' }}>
           <div className="rec-info-title"><Info size={16} /> Key Optimization Guidelines</div>
           <ul className="rec-info-list">
@@ -1838,45 +1029,23 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
           </ul>
         </div>
       </div>
-
-      {/* Query Classification & Architecture */}
       <div className="rec-section">
         <h3 className="rec-section-title"><Activity size={18} /> Query Classification & Architecture</h3>
         <div className="rec-cards-row">
-          <div className="rec-card rec-card-blue">
-            <div className="rec-card-icon"><Zap size={24} /></div>
-            <div className="rec-card-value">{qc.adhoc_count.toLocaleString()}</div>
-            <div className="rec-card-label">Ad-hoc Queries</div>
-            <div className="rec-card-pct">{qc.adhoc_pct}%</div>
-          </div>
-          <div className="rec-card rec-card-purple">
-            <div className="rec-card-icon"><TrendingUp size={24} /></div>
-            <div className="rec-card-value">{qc.bi_count.toLocaleString()}</div>
-            <div className="rec-card-label">BI / Scheduled Queries</div>
-            <div className="rec-card-pct">{qc.bi_pct}%</div>
-          </div>
-          <div className="rec-card rec-card-green">
-            <div className="rec-card-icon"><Activity size={24} /></div>
-            <div className="rec-card-value">{qc.total_queries.toLocaleString()}</div>
-            <div className="rec-card-label">Total Queries Analyzed</div>
-          </div>
+          <div className="rec-card rec-card-blue"><div className="rec-card-icon"><Zap size={24} /></div><div className="rec-card-value">{qc.adhoc_count.toLocaleString()}</div><div className="rec-card-label">Ad-hoc Queries</div><div className="rec-card-pct">{qc.adhoc_pct}%</div></div>
+          <div className="rec-card rec-card-purple"><div className="rec-card-icon"><TrendingUp size={24} /></div><div className="rec-card-value">{qc.bi_count.toLocaleString()}</div><div className="rec-card-label">BI / Scheduled Queries</div><div className="rec-card-pct">{qc.bi_pct}%</div></div>
+          <div className="rec-card rec-card-green"><div className="rec-card-icon"><Activity size={24} /></div><div className="rec-card-value">{qc.total_queries.toLocaleString()}</div><div className="rec-card-label">Total Queries Analyzed</div></div>
         </div>
-
-        {/* Architecture Recommendation */}
         {arch.strategies.map((s, i) => (
-          <div key={i} className="rec-info-box">
-            <div className="rec-info-title"><Info size={16} /> {s.title}</div>
-            <ul className="rec-info-list">
-              {s.points.map((p, j) => <li key={j}>{p}</li>)}
-            </ul>
-          </div>
+          <div key={i} className="rec-info-box"><div className="rec-info-title"><Info size={16} /> {s.title}</div><ul className="rec-info-list">{s.points.map((p, j) => <li key={j}>{p}</li>)}</ul></div>
         ))}
       </div>
     </div>
   );
 };
 
-// TCO Analysis Section Component
+
+// ============ TCO Analysis Section (self-fetching) ============
 const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }) => {
   const [data, setData] = useState<TCOData | null>(null);
   const [regions, setRegions] = useState<AWSRegion[]>([]);
@@ -1884,29 +1053,15 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => { getTCORegions().then(r => setRegions(r.regions)).catch(() => {}); }, []);
   useEffect(() => {
-    getTCORegions().then(r => setRegions(r.regions)).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const result = await getAssessmentTCO(assessmentId, selectedRegion);
-        setData(result);
-      } catch (err: any) {
-        setError(err.detail || err.message || 'Failed to load TCO analysis');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
+    (async () => { try { setLoading(true); setData(await getAssessmentTCO(assessmentId, selectedRegion)); } catch (err: any) { setError(err.detail || err.message || 'Failed'); } finally { setLoading(false); } })();
   }, [assessmentId, selectedRegion]);
 
-  const fmt = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fmt = (n: number) => `${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-  if (loading) return <div className="section-content"><div style={{ padding: '40px', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }}></div><p style={{ marginTop: '16px', color: 'var(--color-text-secondary)' }}>Calculating TCO...</p></div></div>;
-  if (error || !data) return <div className="section-content"><p style={{ color: 'var(--color-error)', padding: '20px' }}>{error || 'No data'}</p></div>;
+  if (loading) return <TabSpinner message="Calculating TCO..." />;
+  if (error || !data) return <TabError message={error || 'No data'} />;
 
   const { bigquery_costs: bq, provisioned_costs: prov, serverless_costs: svls, migration_costs: mig, comparison: cmp, recommendation: rec, workload_summary: wl } = data;
   const ri1yr3yr = cmp.provisioned_ri1yr_3yr_tco ?? cmp.provisioned_3yr_tco;
@@ -1919,22 +1074,14 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
         <h2 className="section-heading" style={{ margin: 0 }}>TCO Analysis</h2>
         <div className="tco-region-select">
           <label>AWS Region:</label>
-          <SearchableSelect
-            value={selectedRegion}
-            onChange={(val) => setSelectedRegion(val as string)}
-            options={regions.map(r => ({ value: r.value, label: r.label }))}
-            placeholder="Select region..."
-          />
+          <SearchableSelect value={selectedRegion} onChange={(val) => setSelectedRegion(val as string)} options={regions.map(r => ({ value: r.value, label: r.label }))} placeholder="Select region..." />
         </div>
       </div>
 
-      {/* Cost Optimization Opportunity */}
       <div className={`tco-savings-box ${cmp.savings_pct > 0 ? 'tco-savings-positive' : 'tco-savings-neutral'}`}>
         <div className="tco-savings-icon"><DollarSign size={28} /></div>
         <div className="tco-savings-content">
-          <div className="tco-savings-title">
-            {cmp.savings_pct > 0 ? `${cmp.savings_pct}% Cost Optimization Opportunity` : 'Cost Comparison'}
-          </div>
+          <div className="tco-savings-title">{cmp.savings_pct > 0 ? `${cmp.savings_pct}% Cost Optimization Opportunity` : 'Cost Comparison'}</div>
           <div className="tco-savings-detail">
             BigQuery 3-Year: <strong>{fmt(cmp.bq_3yr_tco)}</strong> → Best Redshift ({cmp.best_option}): <strong>{fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.provisioned_3yr_tco)}</strong>
             {cmp.savings_pct > 0 && <> — Savings: <strong>{fmt(cmp.savings_amount)}</strong></>}
@@ -1942,7 +1089,6 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
         </div>
       </div>
 
-      {/* Provisioned not viable warning */}
       {cmp.provisioned_viable === false && cmp.provisioned_note && (
         <div className="rec-info-box" style={{ borderLeft: '4px solid #f59e0b', background: '#fffbeb' }}>
           <div className="rec-info-title" style={{ color: '#b45309' }}><AlertTriangle size={16} /> Light Workload Detected</div>
@@ -1950,33 +1096,18 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
         </div>
       )}
 
-      {/* Monthly Cost Summary */}
       <div className="tco-section">
         <h3 className="rec-section-title"><Database size={18} /> Monthly Cost Summary</h3>
         <div className="tco-cost-grid">
-          <div className="tco-cost-card">
-            <div className="tco-cost-label">BigQuery (Current)</div>
-            <div className="tco-cost-value">{fmt(bq.monthly)}<span>/mo</span></div>
-            <div className="tco-cost-detail">Storage {fmt(bq.storage.monthly)} + Query {fmt(bq.query.monthly)}</div>
-          </div>
-          <div className="tco-cost-card">
-            <div className="tco-cost-label">Redshift Provisioned</div>
-            <div className="tco-cost-value">{fmt(prov.monthly)}<span>/mo</span></div>
-            <div className="tco-cost-detail">{prov.num_nodes}× {prov.node_type}</div>
-          </div>
-          <div className="tco-cost-card">
-            <div className="tco-cost-label">Redshift Serverless</div>
-            <div className="tco-cost-value">{fmt(svls.monthly)}<span>/mo</span></div>
-            <div className="tco-cost-detail">{svls.est_rpu_hours_monthly} RPU-hrs/mo</div>
-          </div>
+          <div className="tco-cost-card"><div className="tco-cost-label">BigQuery (Current)</div><div className="tco-cost-value">{fmt(bq.monthly)}<span>/mo</span></div><div className="tco-cost-detail">Storage {fmt(bq.storage.monthly)} + Query {fmt(bq.query.monthly)}</div></div>
+          <div className="tco-cost-card"><div className="tco-cost-label">Redshift Provisioned</div><div className="tco-cost-value">{fmt(prov.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{prov.num_nodes}× {prov.node_type}</div></div>
+          <div className="tco-cost-card"><div className="tco-cost-label">Redshift Serverless</div><div className="tco-cost-value">{fmt(svls.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{svls.est_rpu_hours_monthly} RPU-hrs/mo</div></div>
         </div>
       </div>
 
-      {/* Redshift Cost Details */}
       <div className="tco-section">
         <h3 className="rec-section-title"><Server size={18} /> Redshift Cost Details</h3>
         <div className="rec-config-grid">
-          {/* Provisioned */}
           <div className={`rec-config-card ${cmp.best_option === 'provisioned' ? 'rec-config-recommended' : ''}`}>
             {cmp.best_option === 'provisioned' && <div className="rec-badge">Best Value</div>}
             {cmp.provisioned_viable === false && <div className="rec-badge" style={{ background: '#f59e0b' }}>Not Recommended</div>}
@@ -1991,25 +1122,13 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
               <div className="rec-config-row"><span>Storage</span><span>{fmt(prov.storage_monthly)}/mo</span></div>
               <div className="rec-config-row rec-config-row-total"><span>On-Demand</span><span>{fmt(prov.monthly)}/mo</span></div>
               <div className="rec-config-row"><span>Annual (On-Demand)</span><span>{fmt(prov.annual)}</span></div>
-              {prov.ri_1yr_monthly != null && (
-                <div className="rec-config-row"><span>1-Year RI</span><span>{fmt(prov.ri_1yr_monthly)}/mo</span></div>
-              )}
-              {prov.ri_3yr_monthly != null && (
-                <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(prov.ri_3yr_monthly)}/mo</span></div>
-              )}
+              {prov.ri_1yr_monthly != null && <div className="rec-config-row"><span>1-Year RI</span><span>{fmt(prov.ri_1yr_monthly)}/mo</span></div>}
+              {prov.ri_3yr_monthly != null && <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(prov.ri_3yr_monthly)}/mo</span></div>}
             </div>
             {prov.sizing_rationale && prov.sizing_rationale.length > 0 && (
-              <div className="rec-sizing-rationale">
-                <div className="rec-sizing-rationale-title">Sizing Rationale</div>
-                <ul className="rec-sizing-rationale-list">
-                  {prov.sizing_rationale.map((r: string, i: number) => (
-                    <li key={i}>{r}</li>
-                  ))}
-                </ul>
-              </div>
+              <div className="rec-sizing-rationale"><div className="rec-sizing-rationale-title">Sizing Rationale</div><ul className="rec-sizing-rationale-list">{prov.sizing_rationale.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></div>
             )}
           </div>
-          {/* Serverless */}
           <div className={`rec-config-card ${cmp.best_option === 'serverless' ? 'rec-config-recommended' : ''}`}>
             {cmp.best_option === 'serverless' && <div className="rec-badge">Best Value</div>}
             <div className="rec-config-header"><Zap size={20} /><span>Serverless</span></div>
@@ -2027,143 +1146,61 @@ const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }
         </div>
       </div>
 
-      {/* 3-Year TCO Comparison Bar Chart */}
       <div className="tco-section">
         <h3 className="rec-section-title"><TrendingUp size={18} /> 3-Year TCO Comparison</h3>
         <div className="tco-bar-chart">
-          <div className="tco-bar-item">
-            <div className="tco-bar-label-top">{fmt(cmp.bq_3yr_tco)}</div>
-            <div className="tco-bar" style={{ height: `${Math.max((cmp.bq_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #ef4444, #f87171)' }}></div>
-            <div className="tco-bar-label">BigQuery</div>
-          </div>
-          <div className="tco-bar-item">
-            <div className="tco-bar-label-top">{fmt(cmp.provisioned_3yr_tco)}</div>
-            <div className="tco-bar" style={{ height: `${Math.max((cmp.provisioned_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #3b82f6, #60a5fa)' }}></div>
-            <div className="tco-bar-label">Prov. On-Demand</div>
-          </div>
-          {cmp.provisioned_viable !== false && (
-            <>
-              <div className="tco-bar-item">
-                <div className="tco-bar-label-top">{fmt(ri1yr3yr)}</div>
-                <div className="tco-bar" style={{ height: `${Math.max((ri1yr3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #2563eb, #93c5fd)' }}></div>
-                <div className="tco-bar-label">Prov. 1-Yr RI</div>
-              </div>
-              <div className="tco-bar-item">
-                <div className="tco-bar-label-top">{fmt(ri3yr3yr)}</div>
-                <div className="tco-bar" style={{ height: `${Math.max((ri3yr3yr / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #1d4ed8, #bfdbfe)' }}></div>
-                <div className="tco-bar-label">Prov. 3-Yr RI</div>
-              </div>
-            </>
-          )}
-          <div className="tco-bar-item">
-            <div className="tco-bar-label-top">{fmt(cmp.serverless_3yr_tco)}</div>
-            <div className="tco-bar" style={{ height: `${Math.max((cmp.serverless_3yr_tco / maxTCO) * 200, 20)}px`, background: 'linear-gradient(to top, #22c55e, #4ade80)' }}></div>
-            <div className="tco-bar-label">Serverless</div>
-          </div>
+          {[
+            { label: 'BigQuery', value: cmp.bq_3yr_tco, color: '#4285F4' },
+            { label: 'Provisioned (On-Demand)', value: cmp.provisioned_3yr_tco, color: '#34A853' },
+            { label: 'Provisioned (1yr RI)', value: ri1yr3yr, color: '#0F9D58' },
+            { label: 'Provisioned (3yr RI)', value: ri3yr3yr, color: '#0B8043' },
+            { label: 'Serverless', value: cmp.serverless_3yr_tco, color: '#FBBC04' },
+          ].map((item, i) => (
+            <div key={i} className="tco-bar-item">
+              <div className="tco-bar-label-top">{fmt(item.value)}</div>
+              <div className="tco-bar" style={{ height: `${Math.max((item.value / maxTCO) * 200, 20)}px`, background: item.color }}></div>
+              <div className="tco-bar-label">{item.label}</div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Workload Summary */}
-      {wl && wl.workload_type && (
-        <div className="tco-section">
-          <h3 className="rec-section-title"><BarChart3 size={18} /> Workload Profile</h3>
-          <div className="tco-workload-card">
-            <div className="tco-workload-header">
-              <span className={`tco-workload-badge tco-workload-${wl.workload_type.pattern}`}>{wl.workload_type.label}</span>
-            </div>
-            <p className="tco-workload-desc">{wl.workload_type.description}</p>
-            <div className="tco-workload-stats">
-              <div className="tco-workload-stat">
-                <span className="tco-workload-stat-value">{wl.total_queries.toLocaleString()}</span>
-                <span className="tco-workload-stat-label">Total Queries</span>
-              </div>
-              <div className="tco-workload-stat">
-                <span className="tco-workload-stat-value">~{wl.workload_type.daily_queries.toLocaleString()}</span>
-                <span className="tco-workload-stat-label">Queries/Day</span>
-              </div>
-              <div className="tco-workload-stat">
-                <span className="tco-workload-stat-value">{wl.monthly_slot_hours.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
-                <span className="tco-workload-stat-label">Slot-Hours/Mo</span>
-              </div>
-              <div className="tco-workload-stat">
-                <span className="tco-workload-stat-value">{wl.estimated_rpu_hours_monthly.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
-                <span className="tco-workload-stat-label">Est. RPU-Hrs/Mo</span>
-              </div>
-              {wl.max_concurrent_slots != null && wl.max_concurrent_slots > 0 && (
-                <div className="tco-workload-stat">
-                  <span className="tco-workload-stat-value">{wl.max_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
-                  <span className="tco-workload-stat-label">Max Slots/Query</span>
-                </div>
-              )}
-              {wl.min_concurrent_slots != null && wl.min_concurrent_slots > 0 && (
-                <div className="tco-workload-stat">
-                  <span className="tco-workload-stat-value">{wl.min_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
-                  <span className="tco-workload-stat-label">Min Slots/Query</span>
-                </div>
-              )}
-              {wl.avg_concurrent_slots != null && wl.avg_concurrent_slots > 0 && (
-                <div className="tco-workload-stat">
-                  <span className="tco-workload-stat-value">{wl.avg_concurrent_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
-                  <span className="tco-workload-stat-label">Avg Slots/Query</span>
-                </div>
-              )}
-              {wl.estimated_peak_slots != null && wl.estimated_peak_slots > 0 && (
-                <div className="tco-workload-stat">
-                  <span className="tco-workload-stat-value">{wl.estimated_peak_slots.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
-                  <span className="tco-workload-stat-label">Peak Slots (P95)</span>
-                </div>
-              )}
-              {wl.avg_wall_clock_seconds != null && (
-                <div className="tco-workload-stat">
-                  <span className="tco-workload-stat-value">{wl.avg_wall_clock_seconds.toFixed(1)}s</span>
-                  <span className="tco-workload-stat-label">Avg Query Duration</span>
-                </div>
-              )}
-              {wl.active_hours_per_day != null && (
-                <div className="tco-workload-stat">
-                  <span className="tco-workload-stat-value">{wl.active_hours_per_day.toFixed(1)}</span>
-                  <span className="tco-workload-stat-label">Active Hrs/Day</span>
-                </div>
-              )}
-              <div className="tco-workload-stat">
-                <span className="tco-workload-stat-value">{wl.query_time_span_days.toFixed(0)}</span>
-                <span className="tco-workload-stat-label">Days Analyzed</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Recommendation */}
       {rec && (
         <div className="tco-section">
           <h3 className="rec-section-title"><CheckCircle size={18} /> Recommendation</h3>
-          <div className={`tco-rec-card tco-rec-${rec.confidence}`}>
+          <div className={`tco-recommendation-box ${rec.confidence === 'high' ? 'tco-rec-high' : rec.confidence === 'medium' ? 'tco-rec-medium' : 'tco-rec-low'}`}>
             <div className="tco-rec-header">
               <div className="tco-rec-title">{rec.title}</div>
-              <span className={`tco-rec-confidence tco-rec-confidence-${rec.confidence}`}>
-                {rec.confidence === 'high' ? 'High Confidence' : 'Medium Confidence'}
-              </span>
+              <Badge variant={rec.confidence === 'high' ? 'success' : rec.confidence === 'medium' ? 'warning' : 'default'}>{rec.confidence} confidence</Badge>
             </div>
-            {rec.annual_savings_vs_bq > 0 && (
-              <div className="tco-rec-savings">
-                Estimated annual savings vs BigQuery: <strong>{fmt(rec.annual_savings_vs_bq)}</strong>
-              </div>
-            )}
-            <ul className="tco-rec-reasons">
-              {rec.reasons.map((r, i) => <li key={i}>{r}</li>)}
-            </ul>
+            <ul className="tco-rec-reasons">{rec.reasons.map((r, i) => <li key={i}>{r}</li>)}</ul>
+            {rec.annual_savings_vs_bq > 0 && <div className="tco-rec-savings">Estimated annual savings vs BigQuery: <strong>${fmt(rec.annual_savings_vs_bq)}</strong></div>}
           </div>
         </div>
       )}
 
-      {/* Migration Cost */}
-      <div className="rec-info-box">
-        <div className="rec-info-title"><Info size={16} /> Migration Cost</div>
-        <p style={{ margin: '4px 0 0', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-          One-time data transfer (GCP → AWS): <strong>{fmt(mig.total)}</strong> ({mig.data_volume_gb} GB). Included in Redshift 3-year totals above.
-        </p>
-      </div>
+      {wl && (
+        <div className="tco-section">
+          <h3 className="rec-section-title"><BarChart3 size={18} /> Workload Summary</h3>
+          <div className="tco-workload-grid">
+            <div className="tco-workload-item"><span>Query Time Span</span><span>{wl.query_time_span_days} days</span></div>
+            <div className="tco-workload-item"><span>Monthly Slot Hours</span><span>{wl.monthly_slot_hours?.toLocaleString()}</span></div>
+            <div className="tco-workload-item"><span>Monthly TB Scanned</span><span>{wl.monthly_tb_scanned?.toFixed(2)}</span></div>
+            <div className="tco-workload-item"><span>Total Queries</span><span>{wl.total_queries?.toLocaleString()}</span></div>
+            {wl.avg_concurrent_slots != null && <div className="tco-workload-item"><span>Avg Concurrent Slots</span><span>{wl.avg_concurrent_slots?.toFixed(1)}</span></div>}
+            {wl.estimated_peak_slots != null && <div className="tco-workload-item"><span>Peak Slots</span><span>{wl.estimated_peak_slots?.toLocaleString()}</span></div>}
+            {wl.active_hours_per_day != null && <div className="tco-workload-item"><span>Active Hours/Day</span><span>{wl.active_hours_per_day?.toFixed(1)}</span></div>}
+            <div className="tco-workload-item"><span>Workload Pattern</span><span><Badge variant="info">{wl.workload_type?.label || wl.workload_type?.pattern}</Badge></span></div>
+          </div>
+        </div>
+      )}
+
+      {data.cost_notes && data.cost_notes.length > 0 && (
+        <div className="rec-info-box" style={{ marginTop: 'var(--spacing-4)' }}>
+          <div className="rec-info-title"><Info size={16} /> Cost Notes</div>
+          <ul className="rec-info-list">{data.cost_notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+        </div>
+      )}
     </div>
   );
 };

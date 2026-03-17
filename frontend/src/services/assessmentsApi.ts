@@ -247,10 +247,82 @@ export interface AssessmentReportIndex {
 }
 
 /**
- * Get comprehensive assessment report
+ * Get comprehensive assessment report (full — used for PDF download)
  */
 export const getAssessmentReport = async (assessmentId: number): Promise<AssessmentFullReport> => {
   return api.get(`/api/assessments/${assessmentId}/report`);
+};
+
+// ---- Lazy-load per-section endpoints ----
+
+export interface ReportSummary {
+  assessment: AssessmentFullReport['assessment'];
+  datasets: DatasetSummary[];
+}
+
+export interface PaginatedTablesResponse {
+  tables: AssessmentReportTable[];
+  columns: AssessmentReportColumn[];
+  indexes: AssessmentReportIndex[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface PaginatedViewsResponse {
+  views: AssessmentReportView[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface RoutinesResponse {
+  routines: AssessmentReportRoutine[];
+}
+
+export interface SecurityResponse {
+  security_policies: AssessmentReportSecurity[];
+  columns: AssessmentReportColumn[];
+  tables: { id: number; dataset_name: string; table_name: string }[];
+}
+
+export interface MLModelsResponse {
+  ml_models: AssessmentReportMLModel[];
+  spark_models: AssessmentReportRoutine[];
+}
+
+export interface UserInsightsResponse {
+  query_stats: AssessmentReportQueryStat[];
+}
+
+export const getReportSummary = async (assessmentId: number): Promise<ReportSummary> => {
+  return api.get(`/api/assessments/${assessmentId}/report/summary`);
+};
+
+export const getReportTables = async (assessmentId: number, page: number = 1, pageSize: number = 50): Promise<PaginatedTablesResponse> => {
+  return api.get(`/api/assessments/${assessmentId}/report/tables?page=${page}&page_size=${pageSize}`);
+};
+
+export const getReportViews = async (assessmentId: number, page: number = 1, pageSize: number = 50): Promise<PaginatedViewsResponse> => {
+  return api.get(`/api/assessments/${assessmentId}/report/views?page=${page}&page_size=${pageSize}`);
+};
+
+export const getReportRoutines = async (assessmentId: number): Promise<RoutinesResponse> => {
+  return api.get(`/api/assessments/${assessmentId}/report/routines`);
+};
+
+export const getReportSecurity = async (assessmentId: number): Promise<SecurityResponse> => {
+  return api.get(`/api/assessments/${assessmentId}/report/security`);
+};
+
+export const getReportMLModels = async (assessmentId: number): Promise<MLModelsResponse> => {
+  return api.get(`/api/assessments/${assessmentId}/report/ml-models`);
+};
+
+export const getReportUserInsights = async (assessmentId: number): Promise<UserInsightsResponse> => {
+  return api.get(`/api/assessments/${assessmentId}/report/user-insights`);
 };
 
 
