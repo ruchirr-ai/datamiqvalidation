@@ -43,6 +43,16 @@ INVALID_PAYLOAD_BATCH_LOW = {
     "batch_size": 50,
 }
 
+VALID_CREATE_PAYLOAD_WITH_RUN_NAME = {
+    **VALID_CREATE_PAYLOAD,
+    "run_name": "Pre-release check",
+}
+
+VALID_CREATE_PAYLOAD_WITHOUT_RUN_NAME = {
+    **VALID_CREATE_PAYLOAD,
+    # run_name intentionally omitted
+}
+
 
 # ---------------------------------------------------------------------------
 # Helper factories
@@ -268,6 +278,7 @@ class TestListValidationRunsIntegration:
         assert resp.status_code == 200
         svc.list_runs.assert_called_once_with(
             workspace_id=1, page=1, page_size=10, migration_id=10, status="completed",
+            include_table_results=False,
         )
 
     def test_empty_list(self, mb, client):
@@ -500,6 +511,7 @@ class TestWorkspaceIsolationIntegration:
 
         svc.list_runs.assert_called_once_with(
             workspace_id=2, page=1, page_size=20, migration_id=None, status=None,
+            include_table_results=False,
         )
 
     def test_get_passes_workspace_id(self, mb, client_workspace2):
@@ -566,3 +578,179 @@ class TestRateLimitingIntegration:
 
         assert response.status_code == 201
         assert response.json()["id"] == 1
+
+
+# ---------------------------------------------------------------------------
+# run_name round-trip (POST → GET)
+# ---------------------------------------------------------------------------
+
+
+@patch("routers.validation_router._build_service")
+class TestRunNameIntegration:
+    """
+    Integration tests for run_name persistence through the HTTP layer.
+
+    Validates: Requirements 1.3
+    """
+
+    def test_create_with_run_name_returns_run_name(self, mb, client):
+        """POST / with run_name → response includes run_name."""
+        svc = MagicMock()
+        svc.create_validation_run.return_value = _run(run_name="Pre-release check")
+        mb.return_value = svc
+
+        resp = client.post("/api/validations/", json=VALID_CREATE_PAYLOAD_WITH_RUN_NAME)
+
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["run_name"] == "Pre-release check"
+
+    def test_create_with_run_name_passes_to_service(self, mb, client):
+        """POST / forwards run_name from request body to service layer."""
+        svc = MagicMock()
+        svc.create_validation_run.return_value = _run(run_name="Pre-release check")
+        mb.return_value = svc
+
+        client.post("/api/validations/", json=VALID_CREATE_PAYLOAD_WITH_RUN_NAME)
+
+        assert svc.create_validation_run.call_args[1]["run_name"] == "Pre-release check"
+
+    def test_create_without_run_name_returns_null(self, mb, client):
+        """POST / without run_name → response has run_name=null."""
+        svc = MagicMock()
+        svc.create_validation_run.return_value = _run(run_name=None)
+        mb.return_value = svc
+
+        resp = client.post("/api/validations/", json=VALID_CREATE_PAYLOAD_WITHOUT_RUN_NAME)
+
+        assert resp.status_code == 201
+        assert resp.json()["run_name"] is None
+
+    def test_get_run_returns_run_name(self, mb, client):
+        """GET /{run_id} returns the persisted run_name."""
+        svc = MagicMock()
+        svc.get_run.return_value = _run(id=7, run_name="Nightly validation")
+        mb.return_value = svc
+
+        resp = client.get("/api/validations/7")
+
+        assert resp.status_code == 200
+        assert resp.json()["run_name"] == "Nightly validation"
+
+    def test_get_run_returns_null_run_name(self, mb, client):
+        """GET /{run_id} returns run_name=null when not set."""
+        svc = MagicMock()
+        svc.get_run.return_value = _run(id=8, run_name=None)
+        mb.return_value = svc
+
+        resp = client.get("/api/validations/8")
+
+        assert resp.status_code == 200
+        assert resp.json()["run_name"] is None
+
+
+# ---------------------------------------------------------------------------
+# include_table_results query parameter
+# ---------------------------------------------------------------------------
+
+
+@patch("routers.validation_router._build_service")
+class TestIncludeTableResultsIntegration:
+    """
+    Integration tests for the include_table_results query parameter on
+    GET /api/validations/.
+
+    Validates: Requirements 6.1, 6.2, 6.3
+    """
+
+    def test_include_table_results_true_returns_array(self, mb, client):
+        """GET /?include_table_results=true → each run has table_results array."""
+        svc = MagicMock()
+        svc.list_runs.return_value = {
+            "runs": [
+                _run(id=1, run_name="Run A", table_results=[
+                    _tbl(id=10, table_name="users"),
+                    _tbl(id=11, table_name="orders", ddl_status="failed", status="failed"),
+                ]),
+            ],
+            "total": 1, "page": 1, "page_size": 20,
+        }
+        mb.return_value = svc
+
+        resp = client.get("/api/validations/", params={"include_table_results": "true"})
+
+        assert resp.status_code == 200
+        body = resp.json()
+        run = body["runs"][0]
+        assert run["table_results"] is not None
+        assert len(run["table_results"]) == 2
+        assert run["table_results"][0]["table_name"] == "users"
+        assert run["table_results"][1]["table_name"] == "orders"
+        assert run["table_results"][1]["ddl_status"] == "failed"
+
+    def test_include_table_results_true_passes_param_to_service(self, mb, client):
+        """GET /?include_table_results=true forwards the flag to service.list_runs."""
+        svc = MagicMock()
+        svc.list_runs.return_value = {
+            "runs": [], "total": 0, "page": 1, "page_size": 20,
+        }
+        mb.return_value = svc
+
+        client.get("/api/validations/", params={"include_table_results": "true"})
+
+        svc.list_runs.assert_called_once_with(
+            workspace_id=1, page=1, page_size=20,
+            migration_id=None, status=None,
+            include_table_results=True,
+        )
+
+    def test_include_table_results_false_returns_no_table_results(self, mb, client):
+        """GET /?include_table_results=false → runs have table_results=null."""
+        svc = MagicMock()
+        svc.list_runs.return_value = {
+            "runs": [_run(id=1)],
+            "total": 1, "page": 1, "page_size": 20,
+        }
+        mb.return_value = svc
+
+        resp = client.get("/api/validations/", params={"include_table_results": "false"})
+
+        assert resp.status_code == 200
+        run = resp.json()["runs"][0]
+        assert run.get("table_results") is None
+
+    def test_include_table_results_omitted_defaults_false(self, mb, client):
+        """GET / without include_table_results → defaults to false, no table_results."""
+        svc = MagicMock()
+        svc.list_runs.return_value = {
+            "runs": [_run(id=2)],
+            "total": 1, "page": 1, "page_size": 20,
+        }
+        mb.return_value = svc
+
+        resp = client.get("/api/validations/")
+
+        assert resp.status_code == 200
+        run = resp.json()["runs"][0]
+        assert run.get("table_results") is None
+        # Verify service received include_table_results=False
+        svc.list_runs.assert_called_once_with(
+            workspace_id=1, page=1, page_size=20,
+            migration_id=None, status=None,
+            include_table_results=False,
+        )
+
+    def test_include_table_results_true_empty_tables(self, mb, client):
+        """GET /?include_table_results=true with run having no table results → empty array."""
+        svc = MagicMock()
+        svc.list_runs.return_value = {
+            "runs": [_run(id=3, table_results=[])],
+            "total": 1, "page": 1, "page_size": 20,
+        }
+        mb.return_value = svc
+
+        resp = client.get("/api/validations/", params={"include_table_results": "true"})
+
+        assert resp.status_code == 200
+        run = resp.json()["runs"][0]
+        assert run["table_results"] == []

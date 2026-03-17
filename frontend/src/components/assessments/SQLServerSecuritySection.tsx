@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { Shield, Users, Lock, Database, Key, UserCheck, FileText } from 'lucide-react';
+import { Shield, Users, Lock, Key, UserCheck, FileText, Link2 } from 'lucide-react';
 import { Badge } from '../ui';
 
 interface SecurityUser {
@@ -82,6 +82,19 @@ interface EncryptionInfo {
   created_date: string | null;
 }
 
+interface LinkedServer {
+  server_name: string;
+  product: string;
+  provider_name: string;
+  data_source: string;
+  default_catalog: string;
+  is_remote_login_enabled: boolean;
+  is_rpc_out_enabled: boolean;
+  is_data_access_enabled: boolean;
+  mapped_logins: string;
+  modified_date: string | null;
+}
+
 interface SecurityMetadata {
   users: SecurityUser[];
   permissions: ObjectPermission[];
@@ -90,6 +103,7 @@ interface SecurityMetadata {
   policies: SecurityPolicy[];
   logins: LoginSecurity[];
   encryption: EncryptionInfo[];
+  linkedServers: LinkedServer[];
 }
 
 interface SQLServerSecuritySectionProps {
@@ -98,9 +112,9 @@ interface SQLServerSecuritySectionProps {
 }
 
 export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> = ({ security, formatDate }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'permissions' | 'roles' | 'schemas' | 'policies' | 'logins' | 'encryption'>('users');
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'permissions' | 'roles' | 'policies' | 'logins' | 'encryption' | 'linkedServers'>('users');
 
-  if (!security || (!security.users && !security.permissions && !security.roles && !security.schemas && !security.policies && !security.logins && !security.encryption)) {
+  if (!security || (!security.users && !security.permissions && !security.roles && !security.schemas && !security.policies && !security.logins && !security.encryption && !security.linkedServers)) {
     return (
       <div className="section-content">
         <div className="empty-state">
@@ -118,6 +132,7 @@ export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> =
   const policies = security.policies || [];
   const logins = security.logins || [];
   const encryption = security.encryption || [];
+  const linkedServers = security.linkedServers || [];
 
   return (
     <div className="section-content">
@@ -230,27 +245,7 @@ export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> =
           <FileText size={16} />
           Policies ({policies.length})
         </button>
-        <button
-          className={`sub-tab ${activeSubTab === 'schemas' ? 'active' : ''}`}
-          onClick={() => setActiveSubTab('schemas')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '12px 16px',
-            border: 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: 500,
-            color: activeSubTab === 'schemas' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-            borderBottom: activeSubTab === 'schemas' ? '2px solid var(--color-primary)' : '2px solid transparent',
-            transition: 'all 0.2s ease'
-          }}
-        >
-          <Database size={16} />
-          Schemas ({schemas.length})
-        </button>
+
         <button
           className={`sub-tab ${activeSubTab === 'encryption' ? 'active' : ''}`}
           onClick={() => setActiveSubTab('encryption')}
@@ -271,6 +266,27 @@ export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> =
         >
           <Key size={16} />
           Encryption ({encryption.length})
+        </button>
+        <button
+          className={`sub-tab ${activeSubTab === 'linkedServers' ? 'active' : ''}`}
+          onClick={() => setActiveSubTab('linkedServers')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '12px 16px',
+            border: 'none',
+            background: 'none',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 500,
+            color: activeSubTab === 'linkedServers' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+            borderBottom: activeSubTab === 'linkedServers' ? '2px solid var(--color-primary)' : '2px solid transparent',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Link2 size={16} />
+          Linked Servers ({linkedServers.length})
         </button>
       </div>
 
@@ -421,43 +437,6 @@ export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> =
                     </td>
                     <td style={{ textAlign: 'left' }}>{role.members_count}</td>
                     <td style={{ textAlign: 'left' }}>{role.description || 'No description'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {/* Schemas Tab */}
-      {activeSubTab === 'schemas' && (
-        <div className="table-container">
-          {schemas.length === 0 ? (
-            <div className="empty-state">
-              <Database size={48} />
-              <p>No schemas found</p>
-            </div>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th style={{ textAlign: 'left' }}>Schema Name</th>
-                  <th style={{ textAlign: 'left' }}>Owner</th>
-                  <th style={{ textAlign: 'left' }}>Owner Type</th>
-                  <th style={{ textAlign: 'left' }}>Created Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {schemas.map((schema, idx) => (
-                  <tr key={idx}>
-                    <td style={{ textAlign: 'left' }}>{schema.schema_name}</td>
-                    <td style={{ textAlign: 'left' }}>{schema.owner_name}</td>
-                    <td style={{ textAlign: 'left' }}>
-                      <Badge variant="default">{schema.owner_type}</Badge>
-                    </td>
-                    <td style={{ textAlign: 'left' }} className="timestamp-value">
-                      {formatDate(schema.created_date)}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -627,6 +606,67 @@ export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> =
                     </td>
                     <td style={{ textAlign: 'left' }} className="timestamp-value">
                       {formatDate(enc.created_date)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Linked Servers Tab */}
+      {activeSubTab === 'linkedServers' && (
+        <div className="table-container">
+          {linkedServers.length === 0 ? (
+            <div className="empty-state">
+              <Link2 size={48} />
+              <p>No linked servers found</p>
+            </div>
+          ) : (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Server Name</th>
+                  <th style={{ textAlign: 'left' }}>Product</th>
+                  <th style={{ textAlign: 'left' }}>Provider</th>
+                  <th style={{ textAlign: 'left' }}>Data Source</th>
+                  <th style={{ textAlign: 'left' }}>Default Catalog</th>
+                  <th style={{ textAlign: 'left' }}>Remote Login</th>
+                  <th style={{ textAlign: 'left' }}>RPC Out</th>
+                  <th style={{ textAlign: 'left' }}>Data Access</th>
+                  <th style={{ textAlign: 'left' }}>Mapped Logins</th>
+                  <th style={{ textAlign: 'left' }}>Modified Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linkedServers.map((ls, idx) => (
+                  <tr key={idx}>
+                    <td style={{ textAlign: 'left' }}>{ls.server_name}</td>
+                    <td style={{ textAlign: 'left' }}>{ls.product || '-'}</td>
+                    <td style={{ textAlign: 'left' }}>
+                      <Badge variant="default">{ls.provider_name || '-'}</Badge>
+                    </td>
+                    <td style={{ textAlign: 'left' }}>{ls.data_source || '-'}</td>
+                    <td style={{ textAlign: 'left' }}>{ls.default_catalog || '-'}</td>
+                    <td style={{ textAlign: 'left' }}>
+                      <Badge variant={ls.is_remote_login_enabled ? 'success' : 'default'}>
+                        {ls.is_remote_login_enabled ? 'Enabled' : 'Disabled'}
+                      </Badge>
+                    </td>
+                    <td style={{ textAlign: 'left' }}>
+                      <Badge variant={ls.is_rpc_out_enabled ? 'success' : 'default'}>
+                        {ls.is_rpc_out_enabled ? 'Enabled' : 'Disabled'}
+                      </Badge>
+                    </td>
+                    <td style={{ textAlign: 'left' }}>
+                      <Badge variant={ls.is_data_access_enabled ? 'success' : 'default'}>
+                        {ls.is_data_access_enabled ? 'Enabled' : 'Disabled'}
+                      </Badge>
+                    </td>
+                    <td style={{ textAlign: 'left' }}>{ls.mapped_logins || '-'}</td>
+                    <td style={{ textAlign: 'left' }} className="timestamp-value">
+                      {formatDate(ls.modified_date)}
                     </td>
                   </tr>
                 ))}

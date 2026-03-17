@@ -210,7 +210,7 @@ export const SQLServerTablesSection: React.FC<SQLServerTablesSectionProps> = ({
                 }}
               >
                 <TableIcon size={16} />
-                Partitioning
+                Partitions
               </button>
             </div>
 

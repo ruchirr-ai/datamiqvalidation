@@ -466,3 +466,35 @@ INVALID_CREATE_VALIDATION_RUN_WRONG_TYPES = {
     "source_connection_id": 100,
     "target_connection_id": 200,
 }
+
+# ---------------------------------------------------------------------------
+# run_name validation payloads (Validation UX Redesign)
+# ---------------------------------------------------------------------------
+
+VALID_CREATE_VALIDATION_RUN_WITH_RUN_NAME = {
+    "migration_id": 10,
+    "source_connection_id": 100,
+    "target_connection_id": 200,
+    "run_name": "Pre-release check",
+}
+
+VALID_CREATE_VALIDATION_RUN_RUN_NAME_MAX_LENGTH = {
+    "migration_id": 10,
+    "source_connection_id": 100,
+    "target_connection_id": 200,
+    "run_name": "A" * 255,
+}
+
+VALID_CREATE_VALIDATION_RUN_RUN_NAME_NONE = {
+    "migration_id": 10,
+    "source_connection_id": 100,
+    "target_connection_id": 200,
+    "run_name": None,
+}
+
+INVALID_CREATE_VALIDATION_RUN_RUN_NAME_TOO_LONG = {
+    "migration_id": 10,
+    "source_connection_id": 100,
+    "target_connection_id": 200,
+    "run_name": "A" * 256,
+}

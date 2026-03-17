@@ -50,6 +50,15 @@ function formatDuration(seconds: number | null): string {
   return `${m}m ${s}s`;
 }
 
+export function formatTableSummary(passed: number, failed: number, errors: number): JSX.Element {
+  const parts: JSX.Element[] = [];
+  if (passed > 0) parts.push(<span key="passed" className="summary-passed">{passed} Passed</span>);
+  if (failed > 0) parts.push(<span key="failed" className="summary-failed">{failed} Failed</span>);
+  if (errors > 0) parts.push(<span key="error" className="summary-error">{errors} Errors</span>);
+  if (parts.length === 0) return <span className="summary-none">—</span>;
+  return <>{parts.reduce<JSX.Element[]>((acc, el, i) => i === 0 ? [el] : [...acc, <span key={`sep-${i}`} className="summary-separator">, </span>, el], [])}</>;
+}
+
 export const ValidationDashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { t } = useLanguage();
@@ -60,6 +69,12 @@ export const ValidationDashboardPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // --- Expandable rows ---
+  const [expandedRunId, setExpandedRunId] = useState<number | null>(null);
+  const [expandedTableResults, setExpandedTableResults] = useState<Record<number, import('../services/validationApi').ValidationTableResult[]>>({});
+  const [expandedLoading, setExpandedLoading] = useState<Record<number, boolean>>({});
+  const [expandedError, setExpandedError] = useState<Record<number, string | null>>({});
+
   // --- Filters & pagination ---
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [page, setPage] = useState(1);
@@ -67,6 +82,7 @@ export const ValidationDashboardPage: React.FC = () => {
 
   // --- Create form ---
   const [showForm, setShowForm] = useState(false);
+  const [runName, setRunName] = useState<string>('');
   const [formMigrationId, setFormMigrationId] = useState<number>(0);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const [tableConfigs, setTableConfigs] = useState<Record<string, { ddl: boolean; row_count: boolean; data_match: boolean; sampling_mode: 'all' | 'random'; sample_limit: number | undefined; batch_size: number }>>({});
@@ -87,10 +103,7 @@ export const ValidationDashboardPage: React.FC = () => {
   const [showTablesDropdown, setShowTablesDropdown] = useState(false);
   const tablesDropdownRef = useRef<HTMLDivElement>(null);
 
-  // --- Logs modal ---
-  const [logsRunId, setLogsRunId] = useState<number | null>(null);
-  const [logsData, setLogsData] = useState<any[]>([]);
-  const [logsLoading, setLogsLoading] = useState(false);
+
 
   // --- Auto-refresh ---
   const refreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -202,10 +215,6 @@ export const ValidationDashboardPage: React.FC = () => {
     };
   }, [runs, fetchRuns]);
 
-  // --- Summary stats ---
-  const passedRuns = runs.filter((r) => r.status === 'completed').length;
-  const failedRuns = runs.filter((r) => r.status === 'failed').length;
-  const runningRuns = runs.filter((r) => r.status === 'running' || r.status === 'pending').length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // --- Handlers ---
@@ -222,17 +231,43 @@ export const ValidationDashboardPage: React.FC = () => {
     }
   };
 
-  const handleViewLogs = async (e: React.MouseEvent, runId: number) => {
+
+
+  const handleChevronClick = async (e: React.MouseEvent | React.KeyboardEvent, runId: number) => {
     e.stopPropagation();
-    setLogsRunId(runId);
-    setLogsLoading(true);
+    if (expandedRunId === runId) {
+      setExpandedRunId(null);
+      return;
+    }
+    setExpandedRunId(runId);
+    // If already cached, don't re-fetch
+    if (expandedTableResults[runId]) return;
+    // Fetch table results
+    setExpandedLoading((prev) => ({ ...prev, [runId]: true }));
+    setExpandedError((prev) => ({ ...prev, [runId]: null }));
     try {
       const results = await getValidationTableResults(runId);
-      setLogsData(results);
-    } catch {
-      setLogsData([]);
+      setExpandedTableResults((prev) => ({ ...prev, [runId]: results }));
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : 'Failed to load table results';
+      setExpandedError((prev) => ({ ...prev, [runId]: msg }));
     } finally {
-      setLogsLoading(false);
+      setExpandedLoading((prev) => ({ ...prev, [runId]: false }));
+    }
+  };
+
+  const handleRetryExpand = async (e: React.MouseEvent, runId: number) => {
+    e.stopPropagation();
+    setExpandedLoading((prev) => ({ ...prev, [runId]: true }));
+    setExpandedError((prev) => ({ ...prev, [runId]: null }));
+    try {
+      const results = await getValidationTableResults(runId);
+      setExpandedTableResults((prev) => ({ ...prev, [runId]: results }));
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : 'Failed to load table results';
+      setExpandedError((prev) => ({ ...prev, [runId]: msg }));
+    } finally {
+      setExpandedLoading((prev) => ({ ...prev, [runId]: false }));
     }
   };
 
@@ -299,6 +334,7 @@ export const ValidationDashboardPage: React.FC = () => {
       tables: selectedTables.length > 0 ? selectedTables : undefined,
       table_configs: tableConfigsList.length > 0 ? tableConfigsList : undefined,
       bedrock_model: bedrockModel || undefined,
+      run_name: runName.trim() || undefined,
     };
 
     // Auto-fill connections from migration info
@@ -331,6 +367,7 @@ export const ValidationDashboardPage: React.FC = () => {
   };
 
   const resetForm = () => {
+    setRunName('');
     setFormMigrationId(0);
     setSelectedTables([]);
     setTableConfigs({});
@@ -356,23 +393,7 @@ export const ValidationDashboardPage: React.FC = () => {
           </h1>
           <p className="validation-subtitle">{t('validation.subtitle')}</p>
         </div>
-        <div className="validation-compact-stats">
-          <div className="compact-stat">
-            <span className="compact-stat-dot completed" />
-            <span className="compact-stat-value">{passedRuns}</span>
-            <span className="compact-stat-label">{t('validation.passed')}</span>
-          </div>
-          <div className="compact-stat">
-            <span className="compact-stat-dot failed" />
-            <span className="compact-stat-value">{failedRuns}</span>
-            <span className="compact-stat-label">{t('validation.failed')}</span>
-          </div>
-          <div className="compact-stat">
-            <span className="compact-stat-dot running" />
-            <span className="compact-stat-value">{runningRuns}</span>
-            <span className="compact-stat-label">{t('validation.active')}</span>
-          </div>
-        </div>
+
       </div>
 
       {/* Toolbar */}
@@ -402,6 +423,22 @@ export const ValidationDashboardPage: React.FC = () => {
       {showForm && (
         <div className="validation-create-form">
           <h3 className="validation-create-title">{t('validation.newRun')}</h3>
+
+          {/* Run Name (optional) */}
+          <div className="validation-form-grid">
+            <div className="validation-form-field validation-form-field-wide">
+              <label className="validation-form-label" htmlFor="vf-run-name">Run Name</label>
+              <input
+                id="vf-run-name"
+                type="text"
+                className="validation-form-input"
+                placeholder="e.g. Pre-release check (optional)"
+                maxLength={255}
+                value={runName}
+                onChange={(e) => setRunName(e.target.value)}
+              />
+            </div>
+          </div>
 
           {/* Row 1: Migration selector */}
           <div className="validation-form-grid">
@@ -673,7 +710,8 @@ export const ValidationDashboardPage: React.FC = () => {
           <table className="validation-table">
             <thead>
               <tr>
-                <th>{t('validation.id')}</th>
+                <th style={{ width: 36 }} />
+                <th>Name</th>
                 <th>{t('jobs.status')}</th>
                 <th>{t('validation.progress')}</th>
                 <th>{t('validation.tables')}</th>
@@ -683,69 +721,120 @@ export const ValidationDashboardPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {runs.map((run) => (
-                <tr key={run.id} onClick={() => handleRowClick(run.id)}>
-                  <td>{run.id}</td>
-                  <td>
-                    <span className={`validation-status-badge ${run.status}`}>{run.status}</span>
-                  </td>
-
-                  <td>
-                    {run.status === 'running' ? (
-                      <div className="validation-progress-cell">
-                        <div className="validation-progress-bar-enhanced">
-                          <div
-                            className="validation-progress-fill-enhanced"
-                            style={{ width: `${run.progress_percentage}%` }}
-                          />
+              {runs.map((run) => {
+                const isExpanded = expandedRunId === run.id;
+                return (
+                  <React.Fragment key={run.id}>
+                    <tr onClick={() => handleRowClick(run.id)} style={{ cursor: 'pointer' }}>
+                      <td className="validation-chevron-cell" style={{ cursor: 'default' }}>
+                        <button
+                          type="button"
+                          role="button"
+                          className={`validation-chevron-btn${isExpanded ? ' expanded' : ''}`}
+                          aria-label={`Expand run ${run.id}`}
+                          aria-expanded={isExpanded}
+                          onClick={(e) => handleChevronClick(e, run.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              handleChevronClick(e, run.id);
+                            }
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true" style={{ transition: 'transform 0.2s ease', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                            <path d="M3 5l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </button>
+                      </td>
+                      <td className="validation-name-cell" data-testid={`run-name-${run.id}`}>
+                        {run.run_name || `Run #${run.id}`}
+                      </td>
+                      <td>
+                        <span className={`validation-status-badge ${run.status}`}>{run.status}</span>
+                      </td>
+                      <td>
+                        {run.status === 'running' ? (
+                          <div className="validation-progress-cell">
+                            <div className="validation-progress-bar-enhanced">
+                              <div
+                                className="validation-progress-fill-enhanced"
+                                style={{ width: `${run.progress_percentage}%` }}
+                              />
+                            </div>
+                            <span className="validation-progress-text">{run.progress_percentage}%</span>
+                          </div>
+                        ) : run.status === 'completed' || run.status === 'failed' ? (
+                          <span className="validation-progress-text">100%</span>
+                        ) : (
+                          <span className="validation-progress-text">—</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="validation-tables-cell">
+                          {formatTableSummary(run.tables_passed, run.tables_failed, run.tables_error)}
                         </div>
-                        <span className="validation-progress-text">{run.progress_percentage}%</span>
-                      </div>
-                    ) : run.status === 'completed' || run.status === 'failed' ? (
-                      <span className="validation-progress-text">100%</span>
-                    ) : (
-                      <span className="validation-progress-text">—</span>
+                      </td>
+                      <td>{formatDate(run.started_at)}</td>
+                      <td>{formatDuration(run.duration_seconds)}</td>
+                      <td style={{ cursor: 'default' }}>
+                        <div className="validation-actions-cell" style={{ justifyContent: 'center' }}>
+                          <button
+                            className="validation-delete-btn"
+                            onClick={(e) => handleDelete(e, run.id)}
+                            aria-label={`Delete run ${run.id}`}
+                            title="Delete"
+                            type="button"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                              <path d="M3 4h10M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1M5 4v8a1 1 0 001 1h4a1 1 0 001-1V4" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="validation-expanded-row">
+                        <td colSpan={8}>
+                          {expandedLoading[run.id] ? (
+                            <div className="validation-expanded-loading">
+                              <div className="validation-spinner" />
+                              Loading table results...
+                            </div>
+                          ) : expandedError[run.id] ? (
+                            <div className="validation-expanded-error">
+                              <span>{expandedError[run.id]}</span>
+                              <button type="button" onClick={(e) => handleRetryExpand(e, run.id)}>Retry</button>
+                            </div>
+                          ) : expandedTableResults[run.id] ? (
+                            <table className="validation-nested-table">
+                              <thead>
+                                <tr>
+                                  <th>Table Name</th>
+                                  <th>DDL</th>
+                                  <th>Row Count</th>
+                                  <th>Data Match</th>
+                                  <th>Overall</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {expandedTableResults[run.id].map((tr) => (
+                                  <tr key={tr.id}>
+                                    <td>{tr.table_name}</td>
+                                    <td><span className={`mini-status-badge ${tr.ddl_status || 'pending'}`}>{tr.ddl_status || 'pending'}</span></td>
+                                    <td><span className={`mini-status-badge ${tr.row_count_status || 'pending'}`}>{tr.row_count_status || 'pending'}</span></td>
+                                    <td><span className={`mini-status-badge ${tr.data_match_status || 'pending'}`}>{tr.data_match_status || 'pending'}</span></td>
+                                    <td><span className={`mini-status-badge ${tr.status || 'pending'}`}>{tr.status || 'pending'}</span></td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : null}
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                  <td>
-                    <div className="validation-tables-cell">
-                      <span className="passed-count">{run.tables_passed}p</span>
-                      <span className="separator">/</span>
-                      <span className="failed-count">{run.tables_failed}f</span>
-                      <span className="separator">/</span>
-                      <span className="error-count">{run.tables_error}e</span>
-                    </div>
-                  </td>
-                  <td>{formatDate(run.started_at)}</td>
-                  <td>{formatDuration(run.duration_seconds)}</td>
-                  <td>
-                    <div className="validation-actions-cell">
-                      <button
-                        className="validation-logs-btn"
-                        onClick={(e) => handleViewLogs(e, run.id)}
-                        aria-label={`View logs for run ${run.id}`}
-                        title="View Logs"
-                        type="button"
-                      >
-                        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                          <path d="M3 3h9M3 6h9M3 9h6M3 12h4" strokeLinecap="round" />
-                        </svg>
-                      </button>
-                      <button
-                        className="validation-delete-btn"
-                        onClick={(e) => handleDelete(e, run.id)}
-                        aria-label={`Delete run ${run.id}`}
-                        title="Delete"
-                        type="button"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-                          <path d="M3 4h10M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1M5 4v8a1 1 0 001 1h4a1 1 0 001-1V4" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -780,51 +869,6 @@ export const ValidationDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* Logs Modal */}
-      {logsRunId !== null && (
-        <div className="validation-logs-overlay" onClick={() => setLogsRunId(null)}>
-          <div className="validation-logs-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="validation-logs-modal-header">
-              <h3>Validation Run #{logsRunId} — Table Progress</h3>
-              <button type="button" className="validation-logs-close" onClick={() => setLogsRunId(null)} aria-label="Close logs">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                  <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-            <div className="validation-logs-modal-body">
-              {logsLoading ? (
-                <div className="validation-loading"><div className="validation-spinner" /> Loading...</div>
-              ) : logsData.length === 0 ? (
-                <p className="validation-empty-text">No table results yet.</p>
-              ) : (
-                <table className="validation-logs-table">
-                  <thead>
-                    <tr>
-                      <th>Table</th>
-                      <th>DDL</th>
-                      <th>Row Count</th>
-                      <th>Data Match</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logsData.map((r: any) => (
-                      <tr key={r.id}>
-                        <td className="logs-table-name">{r.table_name}</td>
-                        <td><span className={`log-step-badge ${r.ddl_status || 'pending'}`}>{r.ddl_status || '—'}</span></td>
-                        <td><span className={`log-step-badge ${r.row_count_status || 'pending'}`}>{r.row_count_status || '—'}</span></td>
-                        <td><span className={`log-step-badge ${r.data_match_status || 'pending'}`}>{r.data_match_status || '—'}</span></td>
-                        <td><span className={`validation-status-badge ${r.status}`}>{r.status}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

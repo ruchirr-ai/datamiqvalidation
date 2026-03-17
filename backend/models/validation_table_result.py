@@ -5,7 +5,7 @@ Database model for per-table validation results including DDL comparison,
 row count verification, and record-level data matching outcomes.
 """
 
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Index, Boolean
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from database import Base
@@ -26,6 +26,9 @@ class ValidationTableResult(Base):
     workspace_id = Column(Integer, nullable=False)
     table_name = Column(String(255), nullable=False)
     dataset_name = Column(String(255), nullable=True)
+    ddl_check = Column(Boolean, nullable=False, server_default='true')
+    row_count_check = Column(Boolean, nullable=False, server_default='true')
+    data_match_check = Column(Boolean, nullable=False, server_default='true')
     ddl_status = Column(String(50), nullable=True)
     ddl_comparison_result = Column(JSONB, nullable=True)
     row_count_status = Column(String(50), nullable=True)
@@ -63,6 +66,9 @@ class ValidationTableResult(Base):
             'workspace_id': self.workspace_id,
             'table_name': self.table_name,
             'dataset_name': self.dataset_name,
+            'ddl_check': self.ddl_check,
+            'row_count_check': self.row_count_check,
+            'data_match_check': self.data_match_check,
             'ddl_status': self.ddl_status,
             'ddl_comparison_result': self.ddl_comparison_result,
             'row_count_status': self.row_count_status,

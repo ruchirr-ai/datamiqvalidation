@@ -249,6 +249,7 @@ class ValidationService:
         sample_limit: Optional[int] = None,
         type_mapping_overrides: Optional[Dict[str, str]] = None,
         created_by: str = "",
+        run_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a validation run for a completed migration.
 
@@ -362,15 +363,28 @@ class ValidationService:
             tables_failed=0,
             tables_error=0,
             created_by=created_by,
+            run_name=run_name,
         )
 
         # 6. Create one ValidationTableResult per table
+        # Build a lookup for per-table check flags from table_configs
+        config_lookup: Dict[str, Dict[str, Any]] = {}
+        if table_configs:
+            for tc in table_configs:
+                tname = tc.get("table_name", "")
+                if tname:
+                    config_lookup[tname] = tc
+
         for table_name in resolved_tables:
+            tc = config_lookup.get(table_name, {})
             self.repo.create_table_result(
                 run_id=run.id,
                 workspace_id=workspace_id,
                 table_name=table_name,
                 status="pending",
+                ddl_check=tc.get("ddl_check", True),
+                row_count_check=tc.get("row_count_check", True),
+                data_match_check=tc.get("data_match_check", True),
             )
 
         # 7. Cache the run in Redis (TTL 15 min)
@@ -605,9 +619,11 @@ class ValidationService:
             table_has_failure = False
 
             try:
-                # --- DDL comparison -----------------------------------
-                ddl_result = {"status": "error", "result": {}}
-                if assessment_id is not None:
+                # --- DDL comparison (skip if ddl_check is False) ------
+                ddl_result = {"status": "skipped", "result": {}}
+                if not getattr(table_result, 'ddl_check', True):
+                    ddl_result = {"status": "skipped", "result": {}}
+                elif assessment_id is not None:
                     ddl_result = self._validate_ddl(
                         run_id=run_id,
                         table_name=table_name,
@@ -635,15 +651,17 @@ class ValidationService:
                 elif ddl_status == "failed":
                     table_has_failure = True
 
-                # --- Row count validation -----------------------------
-                row_count_result = self._validate_row_count(
-                    run_id=run_id,
-                    table_name=table_name,
-                    dataset_name=tbl_dataset,
-                    source_conn_params=source_conn_params,
-                    target_conn_params=target_conn_params,
-                    workspace_id=workspace_id,
-                )
+                # --- Row count validation (skip if row_count_check is False) ---
+                row_count_result = {"status": "skipped", "result": {}}
+                if getattr(table_result, 'row_count_check', True):
+                    row_count_result = self._validate_row_count(
+                        run_id=run_id,
+                        table_name=table_name,
+                        dataset_name=tbl_dataset,
+                        source_conn_params=source_conn_params,
+                        target_conn_params=target_conn_params,
+                        workspace_id=workspace_id,
+                    )
 
                 rc_status = row_count_result["status"]
                 if rc_status == "error":
@@ -651,54 +669,56 @@ class ValidationService:
                 elif rc_status == "failed":
                     table_has_failure = True
 
-                # --- Record-level matching ----------------------------
-                # Determine primary key from AssessmentColumn metadata
-                primary_key = []
-                if assessment_id is not None and tbl_dataset:
-                    try:
-                        assessment_table = (
-                            self.db.query(AssessmentTable)
-                            .filter(
-                                AssessmentTable.assessment_id == assessment_id,
-                                AssessmentTable.dataset_name == tbl_dataset,
-                                AssessmentTable.table_name == table_name,
-                            )
-                            .first()
-                        )
-                        if assessment_table:
-                            pk_columns = (
-                                self.db.query(AssessmentColumn)
+                # --- Record-level matching (skip if data_match_check is False) ---
+                records_result = {"status": "skipped", "result": {}}
+                if getattr(table_result, 'data_match_check', True):
+                    # Determine primary key from AssessmentColumn metadata
+                    primary_key = []
+                    if assessment_id is not None and tbl_dataset:
+                        try:
+                            assessment_table = (
+                                self.db.query(AssessmentTable)
                                 .filter(
-                                    AssessmentColumn.table_id == assessment_table.id,
-                                    AssessmentColumn.column_metadata.isnot(None),
+                                    AssessmentTable.assessment_id == assessment_id,
+                                    AssessmentTable.dataset_name == tbl_dataset,
+                                    AssessmentTable.table_name == table_name,
                                 )
-                                .all()
+                                .first()
                             )
-                            for col in pk_columns:
-                                meta = col.column_metadata or {}
-                                if meta.get("is_primary_key"):
-                                    primary_key.append(col.column_name)
-                    except Exception as pk_exc:
-                        logger.warning(
-                            "Failed to determine primary key from assessment",
-                            extra={
-                                "run_id": run_id,
-                                "table_name": table_name,
-                                "error": str(pk_exc),
-                            },
-                        )
+                            if assessment_table:
+                                pk_columns = (
+                                    self.db.query(AssessmentColumn)
+                                    .filter(
+                                        AssessmentColumn.table_id == assessment_table.id,
+                                        AssessmentColumn.column_metadata.isnot(None),
+                                    )
+                                    .all()
+                                )
+                                for col in pk_columns:
+                                    meta = col.column_metadata or {}
+                                    if meta.get("is_primary_key"):
+                                        primary_key.append(col.column_name)
+                        except Exception as pk_exc:
+                            logger.warning(
+                                "Failed to determine primary key from assessment",
+                                extra={
+                                    "run_id": run_id,
+                                    "table_name": table_name,
+                                    "error": str(pk_exc),
+                                },
+                            )
 
-                records_result = self._validate_records(
-                    run_id=run_id,
-                    table_name=table_name,
-                    dataset_name=tbl_dataset,
-                    source_conn_params=source_conn_params,
-                    target_conn_params=target_conn_params,
-                    primary_key=primary_key,
-                    batch_size=batch_size,
-                    type_mapping_overrides=type_mapping_overrides,
-                    workspace_id=workspace_id,
-                )
+                    records_result = self._validate_records(
+                        run_id=run_id,
+                        table_name=table_name,
+                        dataset_name=tbl_dataset,
+                        source_conn_params=source_conn_params,
+                        target_conn_params=target_conn_params,
+                        primary_key=primary_key,
+                        batch_size=batch_size,
+                        type_mapping_overrides=type_mapping_overrides,
+                        workspace_id=workspace_id,
+                    )
 
                 rec_status = records_result["status"]
                 if rec_status == "error":
@@ -707,12 +727,16 @@ class ValidationService:
                     table_has_failure = True
 
                 # --- Determine overall table status -------------------
-                all_error = (
-                    ddl_result["status"] == "error"
-                    and row_count_result["status"] == "error"
-                    and records_result["status"] == "error"
-                )
-                if all_error:
+                # Filter out skipped checks for status determination
+                active_statuses = [
+                    s for s in [ddl_result["status"], row_count_result["status"], records_result["status"]]
+                    if s != "skipped"
+                ]
+                all_error = all(s == "error" for s in active_statuses) if active_statuses else False
+                if not active_statuses:
+                    # All checks were skipped
+                    table_status = "completed"
+                elif all_error:
                     table_status = "error"
                 elif table_has_failure or table_has_error:
                     table_status = "failed"
@@ -942,6 +966,7 @@ class ValidationService:
         status: Optional[str] = None,
         page: int = 1,
         page_size: int = 20,
+        include_table_results: bool = False,
     ) -> Dict[str, Any]:
         """List validation runs with pagination and optional filters.
 
@@ -951,20 +976,53 @@ class ValidationService:
             status: Optional filter by run status.
             page: 1-based page number.
             page_size: Results per page (default 20, max 100).
+            include_table_results: When True, include summary-level
+                table result fields in each run response.
 
         Returns:
             Dict with 'runs' list, 'total', 'page', and 'page_size'.
         """
-        runs, total = self.repo.list_runs(
-            workspace_id=workspace_id,
-            migration_id=migration_id,
-            status=status,
-            page=page,
-            page_size=page_size,
-        )
+        if include_table_results:
+            runs, total = self.repo.list_runs_with_table_results(
+                workspace_id=workspace_id,
+                migration_id=migration_id,
+                status=status,
+                page=page,
+                page_size=page_size,
+            )
+            run_dicts = []
+            for r in runs:
+                d = r.to_dict()
+                table_results = getattr(r, "_table_results", None)
+                if table_results is not None:
+                    d["table_results"] = [
+                        {
+                            "id": tr.id,
+                            "run_id": tr.run_id,
+                            "table_name": tr.table_name,
+                            "dataset_name": tr.dataset_name,
+                            "ddl_status": tr.ddl_status,
+                            "row_count_status": tr.row_count_status,
+                            "data_match_status": tr.data_match_status,
+                            "status": tr.status,
+                        }
+                        for tr in table_results
+                    ]
+                else:
+                    d["table_results"] = []
+                run_dicts.append(d)
+        else:
+            runs, total = self.repo.list_runs(
+                workspace_id=workspace_id,
+                migration_id=migration_id,
+                status=status,
+                page=page,
+                page_size=page_size,
+            )
+            run_dicts = [r.to_dict() for r in runs]
 
         return {
-            "runs": [r.to_dict() for r in runs],
+            "runs": run_dicts,
             "total": total,
             "page": page,
             "page_size": page_size,
