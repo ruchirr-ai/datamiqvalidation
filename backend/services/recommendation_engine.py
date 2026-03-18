@@ -476,7 +476,7 @@ class RecommendationEngine:
         # --- Serverless Recommendation ---
         serverless = self._recommend_serverless(
             total_size_gb, total_queries, monthly_slot_hours,
-            rpu_hours_monthly, peak_slots
+            rpu_hours_monthly, peak_slots, avg_slots
         )
 
         # --- Decision: Which is recommended? ---
@@ -722,28 +722,25 @@ class RecommendationEngine:
     def _recommend_serverless(
         self, size_gb: float, query_count: int,
         monthly_slot_hours: float, rpu_hours_monthly: float,
-        peak_slots: float
+        peak_slots: float, avg_slots: float = 0
     ) -> Dict:
         """
         Recommend serverless configuration using actual BQ workload data.
 
-        Mapping: 1 BQ slot = 1 GiB memory, 1 RPU = 16 GiB memory.
-        So RPU needed = ceil(peak_slots / 16), rounded up to nearest 8.
-
-        Base RPU: minimum RPUs always available.
-        Max RPU: upper limit for auto-scaling (up to 1024).
+        Mapping: 1 BQ slot ≈ 1 GiB memory, 1 RPU ≈ 2 BQ slots.
+        Base RPU = floor(avg_slots / 2) rounded down to nearest 8.
+        Max RPU = based on peak_slots for auto-scaling headroom.
         """
-        # Peak BQ slots → memory → RPU
-        # 1 BQ slot = 1 GiB, 1 RPU = 16 GiB
-        memory_needed_gib = max(16, math.ceil(peak_slots))
-        raw_rpu = math.ceil(memory_needed_gib / 16)
-        # Round DOWN to nearest multiple of 8 (valid RPU increments)
-        base_rpu = max(8, math.floor(raw_rpu / 8) * 8)
+        # Base RPU from avg slots (not peak) — same logic as _analyze_workload
+        # 1 RPU ≈ 2 BQ slots → avg_slots / 2 = RPUs needed
+        base_avg = avg_slots if avg_slots > 0 else peak_slots
+        rpus_from_avg = max(8, math.ceil(base_avg / 2))
+        base_rpu = max(8, math.floor(rpus_from_avg / 8) * 8)
 
-        # Max RPU: allow headroom for burst (2x base, min 32)
-        max_rpu = max(base_rpu * 2, 32)
+        # Max RPU from peak slots for auto-scaling headroom
+        rpus_from_peak = max(8, math.ceil(peak_slots / 2))
+        max_rpu = max(base_rpu, math.ceil(rpus_from_peak / 8) * 8)
         max_rpu = min(max_rpu, 1024)
-        max_rpu = math.ceil(max_rpu / 8) * 8
 
         # Actual RPU-hours from workload analysis
         actual_rpu_hours = rpu_hours_monthly

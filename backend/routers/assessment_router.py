@@ -1448,10 +1448,14 @@ async def get_query_insights(
         
         total_filtered = len(filtered_stats)
         
-        # Paginate
+        # Cap query table to top 100 results to keep response lightweight
+        # All metrics above are computed from the FULL dataset
+        capped_stats = filtered_stats[:100]
+        
+        # Paginate within the capped 100
         start = (page - 1) * page_size
         end = start + page_size
-        page_stats = filtered_stats[start:end]
+        page_stats = capped_stats[start:end]
         
         # --- New metrics: concurrent queries, slot utilization, query runtime ---
         # Estimate max concurrent queries using 1-minute windows
@@ -1796,8 +1800,8 @@ async def get_query_insights(
             "pagination": {
                 "page": page,
                 "page_size": page_size,
-                "total_filtered": total_filtered,
-                "total_pages": (total_filtered + page_size - 1) // page_size
+                "total_filtered": min(total_filtered, 100),
+                "total_pages": min((total_filtered + page_size - 1) // page_size, (100 + page_size - 1) // page_size)
             }
         }
     except HTTPException:
