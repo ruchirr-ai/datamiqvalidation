@@ -294,10 +294,10 @@ class RecommendationEngine:
         billed_seconds_per_hour = min(billed_seconds_per_hour, 3600)
 
         # Step 3: Convert BQ slots to RPUs for sizing
-        # 1 RPU = 16 GiB memory ≈ 2 BQ slots. So RPU needed = ceil(avg_slots / 2).
-        # Round up to nearest multiple of 8 (AWS valid RPU increments: 8, 16, 24, ..., 1024).
+        # 1 RPU = 16 GiB memory ≈ 2 BQ slots. So RPU needed = avg_slots / 2.
+        # Round DOWN to nearest multiple of 8 (AWS valid RPU increments: 8, 16, 24, ..., 1024).
         rpus_from_avg = max(8, math.ceil(estimated_avg_concurrent_slots / 2))
-        estimated_base_rpu = max(8, math.ceil(rpus_from_avg / 8) * 8)
+        estimated_base_rpu = max(8, math.floor(rpus_from_avg / 8) * 8)
 
         # Step 4: Calculate monthly RPU-hours
         # active_hours_per_day = total_slot_hours / (time_span_days × 24)
@@ -737,8 +737,8 @@ class RecommendationEngine:
         # 1 BQ slot = 1 GiB, 1 RPU = 16 GiB
         memory_needed_gib = max(16, math.ceil(peak_slots))
         raw_rpu = math.ceil(memory_needed_gib / 16)
-        # Round up to nearest 8 (valid RPU increments)
-        base_rpu = max(8, math.ceil(raw_rpu / 8) * 8)
+        # Round DOWN to nearest multiple of 8 (valid RPU increments)
+        base_rpu = max(8, math.floor(raw_rpu / 8) * 8)
 
         # Max RPU: allow headroom for burst (2x base, min 32)
         max_rpu = max(base_rpu * 2, 32)
