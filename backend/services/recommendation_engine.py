@@ -294,46 +294,18 @@ class RecommendationEngine:
         billed_seconds_per_hour = min(billed_seconds_per_hour, 3600)
 
         # Step 3: Convert BQ slots to RPUs for sizing
-        # 1 RPU = 16 GB RAM + ~2 vCPUs. BQ slot ≈ 1 vCPU.
-        # Base RPU should handle the average concurrent slot usage.
-        # Peak slots are handled by auto-scaling (up to max_rpu).
-        # Use avg concurrent slots converted to RPUs (slots / 2).
+        # 1 RPU = 16 GiB memory ≈ 2 BQ slots. So RPU needed = ceil(avg_slots / 2).
+        # Round up to nearest multiple of 8 (AWS valid RPU increments: 8, 16, 24, ..., 1024).
         rpus_from_avg = max(8, math.ceil(estimated_avg_concurrent_slots / 2))
-        # Round up to valid RPU values: 8, 16, 32, 48, 64, ...
-        valid_rpus = [8, 16, 32, 48, 64, 96, 128, 192, 256, 512]
-        estimated_base_rpu = 8
-        for rpu in valid_rpus:
-            if rpu >= rpus_from_avg:
-                estimated_base_rpu = rpu
-                break
-        else:
-            estimated_base_rpu = valid_rpus[-1]
+        estimated_base_rpu = max(8, math.ceil(rpus_from_avg / 8) * 8)
 
         # Step 4: Calculate monthly RPU-hours
-        # RPU-hours = (billed_seconds_per_hour / 3600) × RPUs × active_hours_per_day × 30
-        # Active hours per day: estimate from query distribution
-        if daily_queries <= 0:
-            active_hours_per_day = 0
-        elif daily_queries < 10:
-            active_hours_per_day = 1  # Sporadic
-        elif daily_queries < 100:
-            active_hours_per_day = min(daily_queries * billed_seconds_per_query / 3600, 8)
-        else:
-            active_hours_per_day = min(daily_queries * billed_seconds_per_query / 3600, 16)
-        # Cap: can't exceed 24 hours
+        # active_hours_per_day = total_slot_hours / (time_span_days × 24)
+        # RPU-hours/month = base_rpu × active_hours_per_day × 30
+        active_hours_per_day = total_slot_hours / (time_span_days * 24) if time_span_days > 0 else 0
         active_hours_per_day = min(active_hours_per_day, 24)
 
-        # RPU-hours/month = base_rpu × active_hours_per_day × 30
-        # This represents the minimum billing (base RPU always allocated during active time)
         estimated_rpu_hours_monthly = estimated_base_rpu * active_hours_per_day * 30
-
-        # Cross-check: RPU-hours should be at least proportional to BQ slot-hours
-        # but accounting for the RPU/slot ratio and Redshift's different execution model.
-        # Redshift typically needs 1.5-3x the wall-clock time of BQ for equivalent queries
-        # (BQ has more aggressive parallelism with 100s-1000s of slots).
-        # Minimum: slot_hours / slots_per_rpu × overhead_factor
-        slot_based_rpu_hours = (monthly_slot_hours / 2) * 1.5  # 1.5x overhead
-        estimated_rpu_hours_monthly = max(estimated_rpu_hours_monthly, slot_based_rpu_hours)
 
         # --- Per-query concurrent slot stats (already computed above) ---
         if per_query_slots:
@@ -619,8 +591,8 @@ class RecommendationEngine:
         # If peak is much higher than avg (>3x), size for a middle ground with concurrency scaling
         # Otherwise, size closer to peak for consistent performance
         if peak_to_avg_ratio > 3:
-            # High variance workload - size for sustained + use concurrency scaling for peaks
-            target_memory_gib = max(32, math.ceil(avg_slots * 1.5))
+            # High variance workload - size for avg (1 BQ slot ≈ 1 GiB), concurrency scaling handles peaks
+            target_memory_gib = max(32, math.ceil(avg_slots))
             use_concurrency_scaling = True
         else:
             # Steady workload - size for peak with some headroom
