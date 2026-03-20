@@ -295,9 +295,12 @@ class RecommendationEngine:
 
         # Step 3: Convert BQ slots to RPUs for sizing
         # 1 RPU = 16 GiB memory ≈ 2 BQ slots. So RPU needed = avg_slots / 2.
-        # Round DOWN to nearest multiple of 8 (AWS valid RPU increments: 8, 16, 24, ..., 1024).
-        rpus_from_avg = max(8, math.ceil(estimated_avg_concurrent_slots / 2))
-        estimated_base_rpu = max(8, math.floor(rpus_from_avg / 8) * 8)
+        # Valid RPU values: 4, 8, 16, 24, 32, ..., 1024 (4 is minimum, then multiples of 8).
+        rpus_from_avg = max(1, math.ceil(estimated_avg_concurrent_slots / 2))
+        if rpus_from_avg <= 4:
+            estimated_base_rpu = 4
+        else:
+            estimated_base_rpu = math.floor(rpus_from_avg / 8) * 8
 
         # Step 4: Calculate monthly RPU-hours
         # active_hours_per_day = total_slot_hours / (time_span_days × 24)
@@ -616,12 +619,15 @@ class RecommendationEngine:
         best_cost = float('inf')
         
         for node_type, mem_per_node, hourly_cost, max_nodes in ra3_options:
+            # Minimum nodes: ra3.xlplus supports single-node clusters, others need 2
+            min_nodes = 1 if node_type == 'ra3.xlplus' else 2
+            
             # Calculate nodes needed for compute
-            nodes_for_compute = max(2, math.ceil(target_memory_gib / mem_per_node))
+            nodes_for_compute = max(min_nodes, math.ceil(target_memory_gib / mem_per_node))
             
             # Calculate nodes needed for storage using actual node storage capacity
             node_storage_gb = self.NODE_TYPES[node_type]['storage_gb']
-            nodes_for_storage = max(2, math.ceil(size_gb / node_storage_gb)) if node_storage_gb > 0 else 2
+            nodes_for_storage = max(min_nodes, math.ceil(size_gb / node_storage_gb)) if node_storage_gb > 0 else min_nodes
             
             nodes_needed = max(nodes_for_compute, nodes_for_storage)
             
@@ -733,12 +739,16 @@ class RecommendationEngine:
         """
         # Base RPU from avg slots (not peak) — same logic as _analyze_workload
         # 1 RPU ≈ 2 BQ slots → avg_slots / 2 = RPUs needed
+        # Valid RPU values: 4, 8, 16, 24, 32, ..., 1024 (4 is minimum, then multiples of 8).
         base_avg = avg_slots if avg_slots > 0 else peak_slots
-        rpus_from_avg = max(8, math.ceil(base_avg / 2))
-        base_rpu = max(8, math.floor(rpus_from_avg / 8) * 8)
+        rpus_from_avg = max(1, math.ceil(base_avg / 2))
+        if rpus_from_avg <= 4:
+            base_rpu = 4
+        else:
+            base_rpu = math.floor(rpus_from_avg / 8) * 8
 
         # Max RPU from peak slots for auto-scaling headroom
-        rpus_from_peak = max(8, math.ceil(peak_slots / 2))
+        rpus_from_peak = max(1, math.ceil(peak_slots / 2))
         max_rpu = max(base_rpu, math.ceil(rpus_from_peak / 8) * 8)
         max_rpu = min(max_rpu, 1024)
 
