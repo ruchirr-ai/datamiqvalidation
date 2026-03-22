@@ -130,10 +130,10 @@ REDSHIFT_PRICING = {
     'ap-south-1': {
         'label': 'Asia Pacific (Mumbai)',
         'provisioned': {
-            'ra3.xlplus': 1.086, 'ra3.4xlarge': 3.26, 'ra3.16xlarge': 13.04,
+            'ra3.xlplus': 1.235, 'ra3.4xlarge': 3.706, 'ra3.16xlarge': 14.824,
             'dc2.large': 0.25, 'dc2.8xlarge': 4.80,
         },
-        'serverless_per_rpu_hour': 0.360,
+        'serverless_per_rpu_hour': 0.4275,
         'managed_storage_per_gb_month': 0.024,
     },
     'ap-northeast-1': {

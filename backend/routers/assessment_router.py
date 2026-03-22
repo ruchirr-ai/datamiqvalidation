@@ -1483,10 +1483,14 @@ async def get_query_insights(
         
         total_filtered = len(filtered_stats)
         
-        # Paginate
+        # Cap query table to top 100 results to keep response lightweight
+        # All metrics above are computed from the FULL dataset
+        capped_stats = filtered_stats[:100]
+        
+        # Paginate within the capped 100
         start = (page - 1) * page_size
         end = start + page_size
-        page_stats = filtered_stats[start:end]
+        page_stats = capped_stats[start:end]
         
         # --- New metrics: concurrent queries, slot utilization, query runtime ---
         # Estimate max concurrent queries using 1-minute windows
@@ -1593,6 +1597,45 @@ async def get_query_insights(
         # This differs from avg_query_runtime_seconds which is estimated wall-clock time.
         # slot-time = concurrent_slots × wall_clock, so slot-time > wall-clock for parallel queries.
         avg_execution_time_seconds = (avg_slot_ms_per_query / 1000) if avg_slot_ms_per_query > 0 else 0
+
+        # ── NEW KPIs: Peak Hour/Day, Repeat Query Rate, Active Hours/Day ──
+        # Peak hour-of-day and day-of-week
+        hour_query_counts = {}
+        dow_query_counts = {}
+        for q in query_stats:
+            if q.execution_time:
+                hod = q.execution_time.hour
+                hour_query_counts[hod] = hour_query_counts.get(hod, 0) + 1
+                dow = q.execution_time.strftime('%A')  # Monday, Tuesday, ...
+                dow_query_counts[dow] = dow_query_counts.get(dow, 0) + 1
+        peak_hour = max(hour_query_counts, key=hour_query_counts.get) if hour_query_counts else 0
+        peak_hour_queries = hour_query_counts.get(peak_hour, 0)
+        peak_day_of_week = max(dow_query_counts, key=dow_query_counts.get) if dow_query_counts else 'N/A'
+        peak_day_queries = dow_query_counts.get(peak_day_of_week, 0)
+
+        # Repeat query rate: % of queries with identical normalized query_text
+        normalized_queries = {}
+        for q in query_stats:
+            if q.query_text:
+                # Normalize: lowercase, collapse whitespace
+                norm = re.sub(r'\s+', ' ', q.query_text.strip().lower())
+                normalized_queries[norm] = normalized_queries.get(norm, 0) + 1
+        total_with_text = sum(normalized_queries.values())
+        repeated_count = sum(c for c in normalized_queries.values() if c > 1)
+        repeat_query_rate = round((repeated_count / total_with_text * 100), 1) if total_with_text > 0 else 0
+        unique_query_count = len(normalized_queries)
+
+        # Active hours per day: total_slot_hours / (span_days × 24)
+        # Determine time span from query data
+        kpi_exec_times = [q.execution_time for q in query_stats if q.execution_time]
+        if len(kpi_exec_times) >= 2:
+            kpi_span_seconds = (max(kpi_exec_times) - min(kpi_exec_times)).total_seconds()
+            kpi_span_days = max(kpi_span_seconds / 86400, 1)
+        else:
+            kpi_span_days = 30
+        total_slot_hours_kpi = total_slot_ms / (1000 * 3600)
+        active_hours_per_day = round(total_slot_hours_kpi / (kpi_span_days * 24), 2) if kpi_span_days > 0 else 0
+        active_hours_per_day = min(active_hours_per_day, 24)
 
         # ── Q3: Duration distribution histogram (bucket by minutes) ──
         duration_buckets = {}
@@ -1762,7 +1805,15 @@ async def get_query_insights(
                 "p50_slot_utilization": p50_slot_utilization,
                 "p90_slot_utilization": p90_slot_utilization,
                 "p95_slot_utilization": p95_slot_utilization,
-                "p99_slot_utilization": p99_slot_utilization
+                "p99_slot_utilization": p99_slot_utilization,
+                "peak_hour": peak_hour,
+                "peak_hour_queries": peak_hour_queries,
+                "peak_day_of_week": peak_day_of_week,
+                "peak_day_queries": peak_day_queries,
+                "repeat_query_rate": repeat_query_rate,
+                "unique_query_count": unique_query_count,
+                "active_hours_per_day": active_hours_per_day,
+                "query_time_span_days": round(kpi_span_days, 1)
             },
             "charts": {
                 "read_write_distribution": {
@@ -1784,8 +1835,8 @@ async def get_query_insights(
             "pagination": {
                 "page": page,
                 "page_size": page_size,
-                "total_filtered": total_filtered,
-                "total_pages": (total_filtered + page_size - 1) // page_size
+                "total_filtered": min(total_filtered, 100),
+                "total_pages": min((total_filtered + page_size - 1) // page_size, (100 + page_size - 1) // page_size)
             }
         }
     except HTTPException:
