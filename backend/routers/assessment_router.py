@@ -837,6 +837,36 @@ async def get_assessment_report_summary(assessment_id: int, db: Session = Depend
         except Exception:
             pass
 
+        # For SQL Server, compute extra summary counts
+        trigger_count = 0
+        schemas_count = 0
+        security_items_count = 0
+        security_policies_preview = []
+        if source_db_type == 'sqlserver':
+            try:
+                routines = assessment_repo.get_routines(assessment_id)
+                trigger_count = len([r for r in routines if r.routine_type == 'TRIGGER'])
+            except Exception:
+                pass
+            try:
+                security_policies = assessment_repo.get_security_policies(assessment_id)
+                security_items_count = len(security_policies)
+                schemas_count = len([s for s in security_policies if s.security_type == 'SCHEMA'])
+                # Include security policies preview for schemas tab
+                security_policies_preview = [
+                    {
+                        "security_type": s.security_type,
+                        "table_name": s.table_name,
+                        "policy_name": s.policy_name,
+                        "filter_predicate": s.filter_predicate,
+                        "grantees": s.grantees or [],
+                        "security_metadata": s.security_metadata or {}
+                    }
+                    for s in security_policies
+                ]
+            except Exception:
+                pass
+
         return {
             "assessment": {
                 "id": assessment.id,
@@ -851,7 +881,10 @@ async def get_assessment_report_summary(assessment_id: int, db: Session = Depend
                 "total_routines": assessment.total_routines,
                 "total_ml_models": assessment.total_ml_models,
                 "total_size_mb": assessment.total_size_mb,
-                "source_db_type": source_db_type
+                "source_db_type": source_db_type,
+                "trigger_count": trigger_count,
+                "schemas_count": schemas_count,
+                "security_items_count": security_items_count
             },
             "datasets": [
                 {
@@ -859,10 +892,12 @@ async def get_assessment_report_summary(assessment_id: int, db: Session = Depend
                     "location": d.location,
                     "creation_time": d.creation_time.isoformat() if d.creation_time else None,
                     "table_count": d.table_count,
-                    "total_size_mb": d.total_size_mb
+                    "total_size_mb": d.total_size_mb,
+                    "dataset_metadata": d.dataset_metadata or {}
                 }
                 for d in datasets
-            ]
+            ],
+            "security_policies_preview": security_policies_preview
         }
     except HTTPException:
         raise

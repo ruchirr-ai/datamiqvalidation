@@ -48,6 +48,7 @@ export interface DatasetSummary {
   location: string | null;
   table_count: number;
   total_size_mb: number;
+  dataset_metadata?: Record<string, any>;
 }
 
 export interface AssessmentDetailResponse {
@@ -256,8 +257,13 @@ export const getAssessmentReport = async (assessmentId: number): Promise<Assessm
 // ---- Lazy-load per-section endpoints ----
 
 export interface ReportSummary {
-  assessment: AssessmentFullReport['assessment'];
+  assessment: AssessmentFullReport['assessment'] & {
+    trigger_count?: number;
+    schemas_count?: number;
+    security_items_count?: number;
+  };
   datasets: DatasetSummary[];
+  security_policies_preview?: any[];
 }
 
 export interface PaginatedTablesResponse {
