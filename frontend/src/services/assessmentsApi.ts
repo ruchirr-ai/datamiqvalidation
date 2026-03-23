@@ -274,6 +274,7 @@ export interface PaginatedTablesResponse {
   page: number;
   page_size: number;
   total_pages: number;
+  datasets: string[];
 }
 
 export interface PaginatedViewsResponse {
@@ -307,8 +308,10 @@ export const getReportSummary = async (assessmentId: number): Promise<ReportSumm
   return api.get(`/api/assessments/${assessmentId}/report/summary`);
 };
 
-export const getReportTables = async (assessmentId: number, page: number = 1, pageSize: number = 50): Promise<PaginatedTablesResponse> => {
-  return api.get(`/api/assessments/${assessmentId}/report/tables?page=${page}&page_size=${pageSize}`);
+export const getReportTables = async (assessmentId: number, page: number = 1, pageSize: number = 50, dataset?: string): Promise<PaginatedTablesResponse> => {
+  let url = `/api/assessments/${assessmentId}/report/tables?page=${page}&page_size=${pageSize}`;
+  if (dataset && dataset !== 'all') url += `&dataset=${encodeURIComponent(dataset)}`;
+  return api.get(url);
 };
 
 export const getReportViews = async (assessmentId: number, page: number = 1, pageSize: number = 50): Promise<PaginatedViewsResponse> => {

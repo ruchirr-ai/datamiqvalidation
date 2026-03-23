@@ -907,7 +907,7 @@ async def get_assessment_report_summary(assessment_id: int, db: Session = Depend
 
 
 @router.get("/{assessment_id}/report/tables")
-async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_size: int = 50, db: Session = Depends(get_db)):
+async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_size: int = 50, dataset: str = None, db: Session = Depends(get_db)):
     """Get paginated tables with their columns for an assessment."""
     try:
         assessment_repo = AssessmentRepository(db)
@@ -918,6 +918,13 @@ async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_s
         all_tables = assessment_repo.get_tables(assessment_id)
         all_columns = assessment_repo.get_columns(assessment_id)
         all_indexes = assessment_repo.get_indexes(assessment_id)
+
+        # Collect all distinct dataset names (from ALL tables, before filtering/pagination)
+        all_datasets = sorted(set(t.dataset_name for t in all_tables if t.dataset_name))
+
+        # Apply dataset filter if specified
+        if dataset and dataset != 'all':
+            all_tables = [t for t in all_tables if t.dataset_name == dataset]
 
         total = len(all_tables)
         start = (page - 1) * page_size
@@ -967,7 +974,8 @@ async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_s
             "total": total,
             "page": page,
             "page_size": page_size,
-            "total_pages": (total + page_size - 1) // page_size
+            "total_pages": (total + page_size - 1) // page_size,
+            "datasets": all_datasets
         }
     except HTTPException:
         raise

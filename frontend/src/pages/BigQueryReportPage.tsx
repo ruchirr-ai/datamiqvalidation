@@ -54,6 +54,7 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
   const [tablesError, setTablesError] = useState<string | null>(null);
   const [tablesPage, setTablesPage] = useState(1);
   const [tablesPageSize, setTablesPageSize] = useState(50);
+  const [tablesDataset, setTablesDataset] = useState<string>('all');
 
   const [viewsData, setViewsData] = useState<PaginatedViewsResponse | null>(null);
   const [viewsLoading, setViewsLoading] = useState(false);
@@ -81,9 +82,9 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
   const [downloading, setDownloading] = useState(false);
   const loadedTabsRef = useRef<Set<string>>(new Set(['summary']));
 
-  const fetchTables = useCallback(async (page: number, pageSize: number) => {
+  const fetchTables = useCallback(async (page: number, pageSize: number, dataset?: string) => {
     setTablesLoading(true); setTablesError(null);
-    try { const data = await getReportTables(id, page, pageSize); setTablesData(data); loadedTabsRef.current.add('tables'); }
+    try { const data = await getReportTables(id, page, pageSize, dataset); setTablesData(data); loadedTabsRef.current.add('tables'); }
     catch (err: any) { setTablesError(err.detail || err.message || 'Failed to load tables'); }
     finally { setTablesLoading(false); }
   }, [id]);
@@ -99,7 +100,7 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
     const tab = activeTab;
     if (loadedTabsRef.current.has(tab) && tab !== 'tables' && tab !== 'views') return;
     switch (tab) {
-      case 'tables': fetchTables(tablesPage, tablesPageSize); break;
+      case 'tables': fetchTables(tablesPage, tablesPageSize, tablesDataset); break;
       case 'views': fetchViews(viewsPage, viewsPageSize); break;
       case 'procedures': case 'functions':
         if (!loadedTabsRef.current.has('routines')) {
@@ -128,7 +129,7 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
     }
   }, [activeTab]);
 
-  useEffect(() => { if (activeTab === 'tables') fetchTables(tablesPage, tablesPageSize); }, [tablesPage, tablesPageSize]);
+  useEffect(() => { if (activeTab === 'tables') fetchTables(tablesPage, tablesPageSize, tablesDataset); }, [tablesPage, tablesPageSize, tablesDataset]);
   useEffect(() => { if (activeTab === 'views') fetchViews(viewsPage, viewsPageSize); }, [viewsPage, viewsPageSize]);
 
   const getStoredProcedures = () => routinesData ? routinesData.routines.filter(r => r.routine_type === 'PROCEDURE') : [];
@@ -186,10 +187,10 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
         {activeTab === 'datasets' && <BQDatasetsSection datasets={summary.datasets} />}
         {activeTab === 'tables' && (
           tablesLoading ? <TabSpinner message="Loading tables..." /> :
-          tablesError ? <TabError message={tablesError} onRetry={() => fetchTables(tablesPage, tablesPageSize)} /> :
+          tablesError ? <TabError message={tablesError} onRetry={() => fetchTables(tablesPage, tablesPageSize, tablesDataset)} /> :
           tablesData ? (
             <div className="section-content">
-              <TablesSection tables={tablesData.tables} columns={tablesData.columns} />
+              <TablesSection tables={tablesData.tables} columns={tablesData.columns} datasets={tablesData.datasets || []} selectedDataset={tablesDataset} onDatasetChange={(ds: string) => { setTablesDataset(ds); setTablesPage(1); }} />
               <PaginationControls page={tablesData.page} totalPages={tablesData.total_pages} total={tablesData.total} pageSize={tablesPageSize} onPageChange={setTablesPage} onPageSizeChange={(s) => { setTablesPageSize(s); setTablesPage(1); }} />
             </div>
           ) : <TabSpinner message="Loading tables..." />
@@ -315,19 +316,21 @@ const BQDatasetsSection: React.FC<{ datasets: DatasetSummary[] }> = ({ datasets 
 
 
 // ============ Tables Section ============
-const TablesSection: React.FC<{ tables: AssessmentReportTable[]; columns: AssessmentReportColumn[] }> = ({ tables, columns }) => {
+const TablesSection: React.FC<{
+  tables: AssessmentReportTable[];
+  columns: AssessmentReportColumn[];
+  datasets: string[];
+  selectedDataset: string;
+  onDatasetChange: (ds: string) => void;
+}> = ({ tables, columns, datasets, selectedDataset, onDatasetChange }) => {
   const [selectedTable, setSelectedTable] = useState<AssessmentReportTable | null>(null);
   const [showColumnsModal, setShowColumnsModal] = useState(false);
-  const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
 
   const baseTables = tables.filter(t => t.table_type === 'BASE TABLE');
   const datasetOptions = [
-    { value: 'all', label: `All Datasets (${baseTables.length})` },
-    ...Array.from(new Set(baseTables.map(t => t.dataset_name))).sort().map(ds => ({
-      value: ds, label: `${ds} (${baseTables.filter(t => t.dataset_name === ds).length})`,
-    })),
+    { value: 'all', label: `All Datasets (${datasets.length})` },
+    ...datasets.map(ds => ({ value: ds, label: ds })),
   ];
-  const filteredTables = selectedDataset === 'all' ? baseTables : baseTables.filter(t => t.dataset_name === selectedDataset);
 
   const formatColumnArray = (arr: any) => {
     if (!arr) return 'None';
@@ -341,17 +344,17 @@ const TablesSection: React.FC<{ tables: AssessmentReportTable[]; columns: Assess
   return (
     <div className="section-content">
       <div className="section-header-row">
-        <h2 className="section-heading">Tables ({filteredTables.length})</h2>
-        <div className="section-filters"><Select value={selectedDataset} onChange={setSelectedDataset} options={datasetOptions} /></div>
+        <h2 className="section-heading">Tables ({baseTables.length})</h2>
+        <div className="section-filters"><Select value={selectedDataset} onChange={(v: any) => onDatasetChange(v)} options={datasetOptions} /></div>
       </div>
-      {filteredTables.length === 0 ? (
+      {baseTables.length === 0 ? (
         <div className="empty-state"><TableIcon size={48} /><p>No tables found</p></div>
       ) : (
         <div className="table-container">
           <table className="data-table">
             <thead><tr><th>Dataset Name</th><th>Table Name</th><th>Creation Time</th><th>Row Count</th><th>Size</th><th>Partitioning</th><th>Clustering</th></tr></thead>
             <tbody>
-              {filteredTables.map(table => (
+              {baseTables.map(table => (
                 <tr key={table.id}>
                   <td className="font-medium">{table.dataset_name}</td>
                   <td><button className="table-name-link" onClick={() => { setSelectedTable(table); setShowColumnsModal(true); }} title="Click to view columns">{table.table_name}</button></td>
