@@ -334,6 +334,18 @@ export const getReportUserInsights = async (assessmentId: number): Promise<UserI
   return api.get(`/api/assessments/${assessmentId}/report/user-insights`);
 };
 
+/** Fetch ALL tables (no pagination) for CSV export */
+export const getAllReportTables = async (assessmentId: number, dataset?: string): Promise<{ tables: AssessmentReportTable[]; total: number }> => {
+  let url = `/api/assessments/${assessmentId}/report/tables?export=all`;
+  if (dataset && dataset !== 'all') url += `&dataset=${encodeURIComponent(dataset)}`;
+  return api.get(url);
+};
+
+/** Fetch ALL views (no pagination) for CSV export */
+export const getAllReportViews = async (assessmentId: number): Promise<{ views: AssessmentReportView[]; total: number }> => {
+  return api.get(`/api/assessments/${assessmentId}/report/views?export=all`);
+};
+
 
 // ---- Recommendations Types ----
 

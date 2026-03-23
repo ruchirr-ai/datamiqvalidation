@@ -907,8 +907,8 @@ async def get_assessment_report_summary(assessment_id: int, db: Session = Depend
 
 
 @router.get("/{assessment_id}/report/tables")
-async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_size: int = 50, dataset: str = None, db: Session = Depends(get_db)):
-    """Get paginated tables with their columns for an assessment."""
+async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_size: int = 50, dataset: str = None, export: str = None, db: Session = Depends(get_db)):
+    """Get paginated tables with their columns for an assessment. Use export=csv to get all tables."""
     try:
         assessment_repo = AssessmentRepository(db)
         assessment = assessment_repo.get_by_id(assessment_id)
@@ -925,6 +925,23 @@ async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_s
         # Apply dataset filter if specified
         if dataset and dataset != 'all':
             all_tables = [t for t in all_tables if t.dataset_name == dataset]
+
+        # If export=all, return ALL tables without pagination (for CSV export)
+        if export == 'all':
+            return {
+                "tables": [
+                    {
+                        "id": t.id, "project_id": t.project_id, "dataset_name": t.dataset_name,
+                        "table_name": t.table_name, "table_type": t.table_type,
+                        "creation_time": t.creation_time.isoformat() if t.creation_time else None,
+                        "row_count": t.row_count, "size_mb": t.size_mb,
+                        "partitioning_columns": t.partitioning_columns or [],
+                        "clustering_columns": t.clustering_columns or [],
+                    }
+                    for t in all_tables
+                ],
+                "total": len(all_tables),
+            }
 
         total = len(all_tables)
         start = (page - 1) * page_size
@@ -985,8 +1002,8 @@ async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_s
 
 
 @router.get("/{assessment_id}/report/views")
-async def get_assessment_report_views(assessment_id: int, page: int = 1, page_size: int = 50, db: Session = Depends(get_db)):
-    """Get paginated views for an assessment."""
+async def get_assessment_report_views(assessment_id: int, page: int = 1, page_size: int = 50, export: str = None, db: Session = Depends(get_db)):
+    """Get paginated views for an assessment. Use export=all to get all views."""
     try:
         assessment_repo = AssessmentRepository(db)
         assessment = assessment_repo.get_by_id(assessment_id)
@@ -994,6 +1011,24 @@ async def get_assessment_report_views(assessment_id: int, page: int = 1, page_si
             raise HTTPException(status_code=404, detail="Assessment not found")
 
         all_views = assessment_repo.get_views(assessment_id)
+
+        # If export=all, return ALL views without pagination (for CSV export)
+        if export == 'all':
+            return {
+                "views": [
+                    {
+                        "view_name": v.view_name, "view_type": v.view_type,
+                        "creation_time": v.creation_time.isoformat() if v.creation_time else None,
+                        "dependent_tables": v.dependent_tables or [],
+                        "dependent_views": v.dependent_views or [],
+                        "dependent_functions": v.dependent_functions or [],
+                        "dependency_depth": v.dependency_depth
+                    }
+                    for v in all_views
+                ],
+                "total": len(all_views),
+            }
+
         total = len(all_views)
         start = (page - 1) * page_size
         end = start + page_size

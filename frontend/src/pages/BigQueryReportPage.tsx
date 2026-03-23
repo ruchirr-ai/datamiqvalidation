@@ -30,11 +30,13 @@ import {
   getReportMLModels, MLModelsResponse,
   getReportUserInsights, UserInsightsResponse,
   AssessmentReportTable, AssessmentReportColumn, AssessmentReportView,
-  AssessmentReportRoutine, DatasetSummary
+  AssessmentReportRoutine, DatasetSummary,
+  getAllReportTables, getAllReportViews
 } from '../services/assessmentsApi';
 import QueryInsightsSection from '../components/assessments/QueryInsightsSection';
 import { DownloadReportModal } from '../components/assessments/DownloadReportModal';
 import { generatePDF } from '../utils/pdfReport';
+import { downloadCsv } from '../utils/csvExport';
 import { TabSpinner, TabError, PaginationControls, formatSize, formatDate, formatNumber } from './reportUtils';
 import './AssessmentReportPage.css';
 
@@ -135,6 +137,77 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
   const getStoredProcedures = () => routinesData ? routinesData.routines.filter(r => r.routine_type === 'PROCEDURE') : [];
   const getFunctions = () => routinesData ? routinesData.routines.filter(r => r.routine_type === 'FUNCTION') : [];
 
+  // CSV Export handlers
+  const [csvExporting, setCsvExporting] = useState<string | null>(null);
+
+  const handleExportTablesCsv = async () => {
+    setCsvExporting('tables');
+    try {
+      const data = await getAllReportTables(id, tablesDataset !== 'all' ? tablesDataset : undefined);
+      const tables = data.tables.filter((t: any) => t.table_type === 'BASE TABLE');
+      downloadCsv(tables, [
+        { key: 'dataset_name', header: 'Dataset Name' },
+        { key: 'table_name', header: 'Table Name' },
+        { key: 'creation_time', header: 'Creation Time' },
+        { key: 'row_count', header: 'Row Count' },
+        { key: 'size_mb', header: 'Size (MB)' },
+        { key: 'partitioning_columns', header: 'Partitioning' },
+        { key: 'clustering_columns', header: 'Clustering' },
+      ], `tables_export.csv`);
+    } catch (err) { console.error('CSV export failed:', err); }
+    finally { setCsvExporting(null); }
+  };
+
+  const handleExportViewsCsv = async () => {
+    setCsvExporting('views');
+    try {
+      const data = await getAllReportViews(id);
+      downloadCsv(data.views, [
+        { key: 'view_name', header: 'View Name' },
+        { key: 'view_type', header: 'Type' },
+        { key: 'creation_time', header: 'Creation Time' },
+        { key: 'dependent_tables', header: 'Dependent Tables' },
+        { key: 'dependent_views', header: 'Dependent Views' },
+        { key: 'dependent_functions', header: 'Dependent Functions' },
+      ], `views_export.csv`);
+    } catch (err) { console.error('CSV export failed:', err); }
+    finally { setCsvExporting(null); }
+  };
+
+  const handleExportRoutinesCsv = (type: 'procedures' | 'functions') => {
+    const routines = type === 'procedures' ? getStoredProcedures() : getFunctions();
+    downloadCsv(routines, [
+      { key: 'routine_name', header: 'Name' },
+      { key: 'routine_type', header: 'Type' },
+      { key: 'external_language', header: 'Language' },
+      { key: 'return_type', header: 'Return Type' },
+      { key: 'creation_time', header: 'Creation Time' },
+      { key: 'dependent_tables', header: 'Dependent Tables' },
+      { key: 'dependent_views', header: 'Dependent Views' },
+    ], `${type}_export.csv`);
+  };
+
+  const handleExportMLModelsCsv = () => {
+    if (!mlModelsData) return;
+    if (mlModelsData.ml_models.length > 0) {
+      downloadCsv(mlModelsData.ml_models, [
+        { key: 'model_name', header: 'Model Name' },
+        { key: 'model_type', header: 'Model Type' },
+        { key: 'dataset_name', header: 'Dataset' },
+        { key: 'creation_time', header: 'Created' },
+        { key: 'last_modified_time', header: 'Last Modified' },
+      ], `ml_models_export.csv`);
+    }
+    if (mlModelsData.spark_models.length > 0) {
+      downloadCsv(mlModelsData.spark_models, [
+        { key: 'routine_name', header: 'Routine Name' },
+        { key: 'routine_type', header: 'Type' },
+        { key: 'external_language', header: 'Language' },
+        { key: 'creation_time', header: 'Created' },
+      ], `spark_models_export.csv`);
+    }
+  };
+
   const handleDownloadPDF = async (selectedSections: string[]) => {
     setDownloading(true);
     try {
@@ -190,7 +263,7 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
           tablesError ? <TabError message={tablesError} onRetry={() => fetchTables(tablesPage, tablesPageSize, tablesDataset)} /> :
           tablesData ? (
             <div className="section-content">
-              <TablesSection tables={tablesData.tables} columns={tablesData.columns} datasets={tablesData.datasets || []} selectedDataset={tablesDataset} onDatasetChange={(ds: string) => { setTablesDataset(ds); setTablesPage(1); }} />
+              <TablesSection tables={tablesData.tables} columns={tablesData.columns} datasets={tablesData.datasets || []} selectedDataset={tablesDataset} onDatasetChange={(ds: string) => { setTablesDataset(ds); setTablesPage(1); }} onExportCsv={handleExportTablesCsv} csvExporting={csvExporting === 'tables'} />
               <PaginationControls page={tablesData.page} totalPages={tablesData.total_pages} total={tablesData.total} pageSize={tablesPageSize} onPageChange={setTablesPage} onPageSizeChange={(s) => { setTablesPageSize(s); setTablesPage(1); }} />
             </div>
           ) : <TabSpinner message="Loading tables..." />
@@ -200,7 +273,7 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
           viewsError ? <TabError message={viewsError} onRetry={() => fetchViews(viewsPage, viewsPageSize)} /> :
           viewsData ? (
             <div className="section-content">
-              <ViewsSection views={viewsData.views} />
+              <ViewsSection views={viewsData.views} onExportCsv={handleExportViewsCsv} csvExporting={csvExporting === 'views'} />
               <PaginationControls page={viewsData.page} totalPages={viewsData.total_pages} total={viewsData.total} pageSize={viewsPageSize} onPageChange={setViewsPage} onPageSizeChange={(s) => { setViewsPageSize(s); setViewsPage(1); }} />
             </div>
           ) : <TabSpinner message="Loading views..." />
@@ -208,19 +281,19 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
         {activeTab === 'procedures' && (
           routinesLoading ? <TabSpinner message="Loading stored procedures..." /> :
           routinesError ? <TabError message={routinesError} /> :
-          routinesData ? <RoutinesSection routines={getStoredProcedures()} title="Stored Procedures" /> :
+          routinesData ? <RoutinesSection routines={getStoredProcedures()} title="Stored Procedures" onExportCsv={() => handleExportRoutinesCsv('procedures')} /> :
           <TabSpinner message="Loading stored procedures..." />
         )}
         {activeTab === 'functions' && (
           routinesLoading ? <TabSpinner message="Loading functions..." /> :
           routinesError ? <TabError message={routinesError} /> :
-          routinesData ? <RoutinesSection routines={getFunctions()} title="Functions" /> :
+          routinesData ? <RoutinesSection routines={getFunctions()} title="Functions" onExportCsv={() => handleExportRoutinesCsv('functions')} /> :
           <TabSpinner message="Loading functions..." />
         )}
         {activeTab === 'ml-models' && (
           mlModelsLoading ? <TabSpinner message="Loading ML models..." /> :
           mlModelsError ? <TabError message={mlModelsError} /> :
-          mlModelsData ? <MLModelsSection mlModels={mlModelsData.ml_models} sparkModels={mlModelsData.spark_models} /> :
+          mlModelsData ? <MLModelsSection mlModels={mlModelsData.ml_models} sparkModels={mlModelsData.spark_models} onExportCsv={handleExportMLModelsCsv} /> :
           <TabSpinner message="Loading ML models..." />
         )}
         {activeTab === 'query-insights' && <QueryInsightsSection assessmentId={id} isSQLServer={false} />}
@@ -322,7 +395,9 @@ const TablesSection: React.FC<{
   datasets: string[];
   selectedDataset: string;
   onDatasetChange: (ds: string) => void;
-}> = ({ tables, columns, datasets, selectedDataset, onDatasetChange }) => {
+  onExportCsv?: () => void;
+  csvExporting?: boolean;
+}> = ({ tables, columns, datasets, selectedDataset, onDatasetChange, onExportCsv, csvExporting }) => {
   const [selectedTable, setSelectedTable] = useState<AssessmentReportTable | null>(null);
   const [showColumnsModal, setShowColumnsModal] = useState(false);
 
@@ -345,7 +420,10 @@ const TablesSection: React.FC<{
     <div className="section-content">
       <div className="section-header-row">
         <h2 className="section-heading">Tables ({baseTables.length})</h2>
-        <div className="section-filters"><Select value={selectedDataset} onChange={(v: any) => onDatasetChange(v)} options={datasetOptions} /></div>
+        <div className="section-filters">
+          {onExportCsv && <Button variant="outline" onClick={onExportCsv} disabled={csvExporting}><Download size={14} /> {csvExporting ? 'Exporting...' : 'Export CSV'}</Button>}
+          <Select value={selectedDataset} onChange={(v: any) => onDatasetChange(v)} options={datasetOptions} />
+        </div>
       </div>
       {baseTables.length === 0 ? (
         <div className="empty-state"><TableIcon size={48} /><p>No tables found</p></div>
@@ -405,7 +483,7 @@ const TablesSection: React.FC<{
 
 
 // ============ Views Section ============
-const ViewsSection: React.FC<{ views: AssessmentReportView[] }> = ({ views }) => {
+const ViewsSection: React.FC<{ views: AssessmentReportView[]; onExportCsv?: () => void; csvExporting?: boolean }> = ({ views, onExportCsv, csvExporting }) => {
   const [expandedView, setExpandedView] = useState<number | null>(null);
   const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
   const [selectedViewType, setSelectedViewType] = useState<string | number>('all');
@@ -430,6 +508,7 @@ const ViewsSection: React.FC<{ views: AssessmentReportView[] }> = ({ views }) =>
       <div className="section-header-row">
         <h2 className="section-heading">Views ({filteredViews.length})</h2>
         <div className="section-filters">
+          {onExportCsv && <Button variant="outline" onClick={onExportCsv} disabled={csvExporting}><Download size={14} /> {csvExporting ? 'Exporting...' : 'Export CSV'}</Button>}
           <Select value={selectedDataset} onChange={setSelectedDataset} options={datasetOptions} />
           <Select value={selectedViewType} onChange={setSelectedViewType} options={viewTypeOptions} />
         </div>
@@ -496,7 +575,7 @@ const ViewsSection: React.FC<{ views: AssessmentReportView[] }> = ({ views }) =>
 };
 
 // ============ Routines Section ============
-const RoutinesSection: React.FC<{ routines: AssessmentReportRoutine[]; title: string }> = ({ routines, title }) => {
+const RoutinesSection: React.FC<{ routines: AssessmentReportRoutine[]; title: string; onExportCsv?: () => void }> = ({ routines, title, onExportCsv }) => {
   const [expandedRoutine, setExpandedRoutine] = useState<number | null>(null);
   const [selectedDataset, setSelectedDataset] = useState<string | number>('all');
 
@@ -511,7 +590,10 @@ const RoutinesSection: React.FC<{ routines: AssessmentReportRoutine[]; title: st
     <div className="section-content">
       <div className="section-header-row">
         <h2 className="section-heading">{title} ({filteredRoutines.length})</h2>
-        <div className="section-filters"><Select value={selectedDataset} onChange={setSelectedDataset} options={datasetOptions} /></div>
+        <div className="section-filters">
+          {onExportCsv && <Button variant="outline" onClick={onExportCsv}><Download size={14} /> Export CSV</Button>}
+          <Select value={selectedDataset} onChange={setSelectedDataset} options={datasetOptions} />
+        </div>
       </div>
       {filteredRoutines.length === 0 ? (
         <div className="empty-state"><Code size={48} /><p>No {title.toLowerCase()} found</p></div>
@@ -578,9 +660,14 @@ const RoutinesSection: React.FC<{ routines: AssessmentReportRoutine[]; title: st
 
 
 // ============ ML Models Section ============
-const MLModelsSection: React.FC<{ mlModels: any[]; sparkModels: any[] }> = ({ mlModels, sparkModels }) => (
+const MLModelsSection: React.FC<{ mlModels: any[]; sparkModels: any[]; onExportCsv?: () => void }> = ({ mlModels, sparkModels, onExportCsv }) => (
   <div className="section-content">
-    <h2 className="section-heading">ML & Spark Models</h2>
+    <div className="section-header-row">
+      <h2 className="section-heading">ML & Spark Models</h2>
+      {onExportCsv && (mlModels.length > 0 || sparkModels.length > 0) && (
+        <div className="section-filters"><Button variant="outline" onClick={onExportCsv}><Download size={14} /> Export CSV</Button></div>
+      )}
+    </div>
     <div className="subsection">
       <h3 className="subsection-heading">BigQuery ML Models ({mlModels.length})</h3>
       {mlModels.length === 0 ? <div className="empty-state-small"><p>No ML models found</p></div> : (
