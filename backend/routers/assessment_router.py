@@ -1432,6 +1432,7 @@ async def get_query_insights(
                                   'CREATE_VIEW', 'DROP_VIEW', 'CREATE_FUNCTION', 'DROP_FUNCTION',
                                   'CREATE_PROCEDURE', 'DROP_PROCEDURE', 'CREATE_MODEL', 'EXPORT_DATA'}
         total_bytes_scanned = 0
+        total_bytes_billed = 0
         total_slot_ms = 0
         select_queries = 0
         cache_hits = 0
