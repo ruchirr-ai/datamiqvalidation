@@ -1082,7 +1082,8 @@ async def get_assessment_report_routines(assessment_id: int, db: Session = Depen
                     "dependent_views": r.dependent_views or [],
                     "dependent_functions": r.dependent_functions or [],
                     "calls_procedures": r.calls_procedures or [],
-                    "dependency_depth": r.dependency_depth
+                    "dependency_depth": r.dependency_depth,
+                    "routine_metadata": r.routine_metadata or {}
                 }
                 for r in routines
             ]
