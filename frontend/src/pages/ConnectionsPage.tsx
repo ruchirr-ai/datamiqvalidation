@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { SiMongodb, SiAmazondocumentdb, SiPostgresql, SiMysql, SiOracle, SiGooglecloud, SiAmazonredshift, SiSap } from 'react-icons/si';
 import { Cable, Database, MoreVertical, Clock, Pencil, Trash2 } from 'lucide-react';
 import { Button, Badge, Dropdown, DropdownItem, Select, Avatar } from '../components/ui';
+import { Db2Icon } from '../components/icons/Db2Icon';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/DropdownMenu';
 import { CreateConnectionModal, ConnectionFormData } from '../components/connections/CreateConnectionModal';
 import { listConnections, createConnection, Connection, testConnection, api } from '../services/api';
@@ -178,7 +179,7 @@ export const ConnectionsPage: React.FC = () => {
       case 'sybase':
         return <SiSap className="db-icon sybase" />;
       case 'db2':
-        return <Database className="db-icon db2" size={16} />;
+        return <Db2Icon className="db-icon db2" size={16} />;
       default:
         return <Database className="db-icon" size={16} />;
     }

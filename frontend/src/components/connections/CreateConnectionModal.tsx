@@ -9,6 +9,7 @@ import { DynamicField } from '../fieldConfig/DynamicField';
 import { fieldConfigApi } from '../../services/fieldConfigApi';
 import { testConnection } from '../../services/api';
 import { FieldConfiguration, DatabaseType } from '../../types/fieldConfig';
+import { Db2Icon } from '../icons/Db2Icon';
 import './CreateConnectionModal.css';
 
 interface CreateConnectionModalProps {
@@ -63,7 +64,7 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
     { value: 'sqlserver', label: 'SQL Server', icon: <Database size={16} /> },
     { value: 'bigquery', label: 'BigQuery', icon: <SiGooglecloud size={16} /> },
     { value: 'sybase', label: 'SAP Sybase', icon: <SiSap size={16} /> },
-    { value: 'db2', label: 'IBM Db2', icon: <Database size={16} /> },
+    { value: 'db2', label: 'IBM Db2', icon: <Db2Icon size={16} /> },
   ];
 
   const targetDatabaseOptions = [
@@ -75,7 +76,7 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
     { value: 'sqlserver', label: 'SQL Server', icon: <Database size={16} /> },
     { value: 'redshift', label: 'Amazon Redshift', icon: <SiAmazonredshift size={16} /> },
     { value: 'sybase', label: 'SAP Sybase', icon: <SiSap size={16} /> },
-    { value: 'db2', label: 'IBM Db2', icon: <Database size={16} /> },
+    { value: 'db2', label: 'IBM Db2', icon: <Db2Icon size={16} /> },
   ];
 
   const databaseOptions = connectionType === 'source' ? sourceDatabaseOptions : targetDatabaseOptions;
