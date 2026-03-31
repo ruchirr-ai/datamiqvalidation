@@ -24,9 +24,16 @@ def _fmt(n: float) -> str:
     return f'${n:,.2f}'
 
 
+# RI discount ratios derived from confirmed AWS Calculator Mumbai pricing:
+#   On-Demand: $1.235/hr, 1-Year RI: $0.8645/hr (~0.70), 3-Year RI: $0.5373/hr (~0.435)
+_RI_1YR_RATIO = 0.70   # 1-Year No Upfront RI ~ 30% discount
+_RI_3YR_RATIO = 0.435  # 3-Year All Upfront RI ~ 56.5% discount
+
+
 # Fallback AWS Redshift pricing by region (USD/hour per node for Provisioned,
 # USD/RPU-hour for Serverless). Prices as of early 2026.
 # Used when AWS Pricing API is unavailable.
+# ri_1yr / ri_3yr: per-node hourly RI rates. Mumbai confirmed via AWS Calculator.
 REDSHIFT_PRICING = {
     'us-east-1': {
         'label': 'US East (N. Virginia)',
@@ -34,6 +41,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.086, 'ra3.4xlarge': 3.26, 'ra3.16xlarge': 13.04,
             'dc2.large': 0.25, 'dc2.8xlarge': 4.80,
         },
+        'ri_1yr': {'ra3.xlplus': 0.7602, 'ra3.4xlarge': 2.282, 'ra3.16xlarge': 9.128},
+        'ri_3yr': {'ra3.xlplus': 0.4724, 'ra3.4xlarge': 1.4181, 'ra3.16xlarge': 5.6724},
         'serverless_per_rpu_hour': 0.375,
         'managed_storage_per_gb_month': 0.024,
     },
@@ -43,6 +52,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.086, 'ra3.4xlarge': 3.26, 'ra3.16xlarge': 13.04,
             'dc2.large': 0.25, 'dc2.8xlarge': 4.80,
         },
+        'ri_1yr': {'ra3.xlplus': 0.7602, 'ra3.4xlarge': 2.282, 'ra3.16xlarge': 9.128},
+        'ri_3yr': {'ra3.xlplus': 0.4724, 'ra3.4xlarge': 1.4181, 'ra3.16xlarge': 5.6724},
         'serverless_per_rpu_hour': 0.375,
         'managed_storage_per_gb_month': 0.024,
     },
@@ -52,6 +63,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.221, 'ra3.4xlarge': 3.67, 'ra3.16xlarge': 14.672,
             'dc2.large': 0.28, 'dc2.8xlarge': 5.40,
         },
+        'ri_1yr': {'ra3.xlplus': 0.8547, 'ra3.4xlarge': 2.569, 'ra3.16xlarge': 10.2704},
+        'ri_3yr': {'ra3.xlplus': 0.5311, 'ra3.4xlarge': 1.5964, 'ra3.16xlarge': 6.3823},
         'serverless_per_rpu_hour': 0.42,
         'managed_storage_per_gb_month': 0.027,
     },
@@ -61,6 +74,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.086, 'ra3.4xlarge': 3.26, 'ra3.16xlarge': 13.04,
             'dc2.large': 0.25, 'dc2.8xlarge': 4.80,
         },
+        'ri_1yr': {'ra3.xlplus': 0.7602, 'ra3.4xlarge': 2.282, 'ra3.16xlarge': 9.128},
+        'ri_3yr': {'ra3.xlplus': 0.4724, 'ra3.4xlarge': 1.4181, 'ra3.16xlarge': 5.6724},
         'serverless_per_rpu_hour': 0.375,
         'managed_storage_per_gb_month': 0.024,
     },
@@ -70,6 +85,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.196, 'ra3.4xlarge': 3.586, 'ra3.16xlarge': 14.344,
             'dc2.large': 0.275, 'dc2.8xlarge': 5.28,
         },
+        'ri_1yr': {'ra3.xlplus': 0.8372, 'ra3.4xlarge': 2.5102, 'ra3.16xlarge': 10.0408},
+        'ri_3yr': {'ra3.xlplus': 0.5203, 'ra3.4xlarge': 1.5599, 'ra3.16xlarge': 6.2396},
         'serverless_per_rpu_hour': 0.413,
         'managed_storage_per_gb_month': 0.026,
     },
@@ -79,6 +96,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.196, 'ra3.4xlarge': 3.586, 'ra3.16xlarge': 14.344,
             'dc2.large': 0.275, 'dc2.8xlarge': 5.28,
         },
+        'ri_1yr': {'ra3.xlplus': 0.8372, 'ra3.4xlarge': 2.5102, 'ra3.16xlarge': 10.0408},
+        'ri_3yr': {'ra3.xlplus': 0.5203, 'ra3.4xlarge': 1.5599, 'ra3.16xlarge': 6.2396},
         'serverless_per_rpu_hour': 0.413,
         'managed_storage_per_gb_month': 0.026,
     },
@@ -88,6 +107,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.253, 'ra3.4xlarge': 3.76, 'ra3.16xlarge': 15.04,
             'dc2.large': 0.289, 'dc2.8xlarge': 5.544,
         },
+        'ri_1yr': {'ra3.xlplus': 0.8771, 'ra3.4xlarge': 2.632, 'ra3.16xlarge': 10.528},
+        'ri_3yr': {'ra3.xlplus': 0.5451, 'ra3.4xlarge': 1.6356, 'ra3.16xlarge': 6.5424},
         'serverless_per_rpu_hour': 0.433,
         'managed_storage_per_gb_month': 0.028,
     },
@@ -97,6 +118,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.253, 'ra3.4xlarge': 3.76, 'ra3.16xlarge': 15.04,
             'dc2.large': 0.289, 'dc2.8xlarge': 5.544,
         },
+        'ri_1yr': {'ra3.xlplus': 0.8771, 'ra3.4xlarge': 2.632, 'ra3.16xlarge': 10.528},
+        'ri_3yr': {'ra3.xlplus': 0.5451, 'ra3.4xlarge': 1.6356, 'ra3.16xlarge': 6.5424},
         'serverless_per_rpu_hour': 0.433,
         'managed_storage_per_gb_month': 0.028,
     },
@@ -106,6 +129,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.253, 'ra3.4xlarge': 3.76, 'ra3.16xlarge': 15.04,
             'dc2.large': 0.289, 'dc2.8xlarge': 5.544,
         },
+        'ri_1yr': {'ra3.xlplus': 0.8771, 'ra3.4xlarge': 2.632, 'ra3.16xlarge': 10.528},
+        'ri_3yr': {'ra3.xlplus': 0.5451, 'ra3.4xlarge': 1.6356, 'ra3.16xlarge': 6.5424},
         'serverless_per_rpu_hour': 0.433,
         'managed_storage_per_gb_month': 0.028,
     },
@@ -115,6 +140,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.164, 'ra3.4xlarge': 3.49, 'ra3.16xlarge': 13.96,
             'dc2.large': 0.268, 'dc2.8xlarge': 5.136,
         },
+        'ri_1yr': {'ra3.xlplus': 0.8148, 'ra3.4xlarge': 2.443, 'ra3.16xlarge': 9.772},
+        'ri_3yr': {'ra3.xlplus': 0.5063, 'ra3.4xlarge': 1.5182, 'ra3.16xlarge': 6.0726},
         'serverless_per_rpu_hour': 0.401,
         'managed_storage_per_gb_month': 0.026,
     },
@@ -124,16 +151,21 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.296, 'ra3.4xlarge': 3.888, 'ra3.16xlarge': 15.552,
             'dc2.large': 0.299, 'dc2.8xlarge': 5.736,
         },
+        'ri_1yr': {'ra3.xlplus': 0.9072, 'ra3.4xlarge': 2.7216, 'ra3.16xlarge': 10.8864},
+        'ri_3yr': {'ra3.xlplus': 0.5638, 'ra3.4xlarge': 1.6913, 'ra3.16xlarge': 6.7651},
         'serverless_per_rpu_hour': 0.448,
         'managed_storage_per_gb_month': 0.029,
     },
     'ap-south-1': {
         'label': 'Asia Pacific (Mumbai)',
         'provisioned': {
-            'ra3.xlplus': 1.086, 'ra3.4xlarge': 3.26, 'ra3.16xlarge': 13.04,
+            'ra3.xlplus': 1.235, 'ra3.4xlarge': 3.706, 'ra3.16xlarge': 14.824,
             'dc2.large': 0.25, 'dc2.8xlarge': 4.80,
         },
-        'serverless_per_rpu_hour': 0.360,
+        # Mumbai RI rates confirmed from AWS Calculator (ra3.xlplus verified)
+        'ri_1yr': {'ra3.xlplus': 0.8645, 'ra3.4xlarge': 2.5942, 'ra3.16xlarge': 10.3768},
+        'ri_3yr': {'ra3.xlplus': 0.5373, 'ra3.4xlarge': 1.6121, 'ra3.16xlarge': 6.4484},
+        'serverless_per_rpu_hour': 0.4275,
         'managed_storage_per_gb_month': 0.024,
     },
     'ap-northeast-1': {
@@ -142,6 +174,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.32, 'ra3.4xlarge': 3.96, 'ra3.16xlarge': 15.84,
             'dc2.large': 0.304, 'dc2.8xlarge': 5.832,
         },
+        'ri_1yr': {'ra3.xlplus': 0.924, 'ra3.4xlarge': 2.772, 'ra3.16xlarge': 11.088},
+        'ri_3yr': {'ra3.xlplus': 0.5742, 'ra3.4xlarge': 1.7226, 'ra3.16xlarge': 6.8904},
         'serverless_per_rpu_hour': 0.455,
         'managed_storage_per_gb_month': 0.029,
     },
@@ -151,6 +185,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.253, 'ra3.4xlarge': 3.76, 'ra3.16xlarge': 15.04,
             'dc2.large': 0.289, 'dc2.8xlarge': 5.544,
         },
+        'ri_1yr': {'ra3.xlplus': 0.8771, 'ra3.4xlarge': 2.632, 'ra3.16xlarge': 10.528},
+        'ri_3yr': {'ra3.xlplus': 0.5451, 'ra3.4xlarge': 1.6356, 'ra3.16xlarge': 6.5424},
         'serverless_per_rpu_hour': 0.433,
         'managed_storage_per_gb_month': 0.028,
     },
@@ -160,6 +196,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.32, 'ra3.4xlarge': 3.96, 'ra3.16xlarge': 15.84,
             'dc2.large': 0.304, 'dc2.8xlarge': 5.832,
         },
+        'ri_1yr': {'ra3.xlplus': 0.924, 'ra3.4xlarge': 2.772, 'ra3.16xlarge': 11.088},
+        'ri_3yr': {'ra3.xlplus': 0.5742, 'ra3.4xlarge': 1.7226, 'ra3.16xlarge': 6.8904},
         'serverless_per_rpu_hour': 0.455,
         'managed_storage_per_gb_month': 0.029,
     },
@@ -169,6 +207,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.253, 'ra3.4xlarge': 3.76, 'ra3.16xlarge': 15.04,
             'dc2.large': 0.289, 'dc2.8xlarge': 5.544,
         },
+        'ri_1yr': {'ra3.xlplus': 0.8771, 'ra3.4xlarge': 2.632, 'ra3.16xlarge': 10.528},
+        'ri_3yr': {'ra3.xlplus': 0.5451, 'ra3.4xlarge': 1.6356, 'ra3.16xlarge': 6.5424},
         'serverless_per_rpu_hour': 0.433,
         'managed_storage_per_gb_month': 0.028,
     },
@@ -178,6 +218,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.32, 'ra3.4xlarge': 3.96, 'ra3.16xlarge': 15.84,
             'dc2.large': 0.304, 'dc2.8xlarge': 5.832,
         },
+        'ri_1yr': {'ra3.xlplus': 0.924, 'ra3.4xlarge': 2.772, 'ra3.16xlarge': 11.088},
+        'ri_3yr': {'ra3.xlplus': 0.5742, 'ra3.4xlarge': 1.7226, 'ra3.16xlarge': 6.8904},
         'serverless_per_rpu_hour': 0.455,
         'managed_storage_per_gb_month': 0.029,
     },
@@ -187,6 +229,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.253, 'ra3.4xlarge': 3.76, 'ra3.16xlarge': 15.04,
             'dc2.large': 0.289, 'dc2.8xlarge': 5.544,
         },
+        'ri_1yr': {'ra3.xlplus': 0.8771, 'ra3.4xlarge': 2.632, 'ra3.16xlarge': 10.528},
+        'ri_3yr': {'ra3.xlplus': 0.5451, 'ra3.4xlarge': 1.6356, 'ra3.16xlarge': 6.5424},
         'serverless_per_rpu_hour': 0.433,
         'managed_storage_per_gb_month': 0.028,
     },
@@ -196,6 +240,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.386, 'ra3.4xlarge': 4.158, 'ra3.16xlarge': 16.632,
             'dc2.large': 0.319, 'dc2.8xlarge': 6.12,
         },
+        'ri_1yr': {'ra3.xlplus': 0.9702, 'ra3.4xlarge': 2.9106, 'ra3.16xlarge': 11.6424},
+        'ri_3yr': {'ra3.xlplus': 0.6029, 'ra3.4xlarge': 1.8087, 'ra3.16xlarge': 7.2349},
         'serverless_per_rpu_hour': 0.478,
         'managed_storage_per_gb_month': 0.031,
     },
@@ -205,6 +251,8 @@ REDSHIFT_PRICING = {
             'ra3.xlplus': 1.58, 'ra3.4xlarge': 4.74, 'ra3.16xlarge': 18.96,
             'dc2.large': 0.364, 'dc2.8xlarge': 6.984,
         },
+        'ri_1yr': {'ra3.xlplus': 1.106, 'ra3.4xlarge': 3.318, 'ra3.16xlarge': 13.272},
+        'ri_3yr': {'ra3.xlplus': 0.6873, 'ra3.4xlarge': 2.0619, 'ra3.16xlarge': 8.2476},
         'serverless_per_rpu_hour': 0.545,
         'managed_storage_per_gb_month': 0.035,
     },
@@ -273,6 +321,8 @@ class TCOEngine:
             live_pricing = {
                 'label': fallback_pricing['label'],
                 'provisioned': fallback_pricing['provisioned'].copy(),
+                'ri_1yr': fallback_pricing.get('ri_1yr', {}).copy(),
+                'ri_3yr': fallback_pricing.get('ri_3yr', {}).copy(),
                 'serverless_per_rpu_hour': fallback_pricing['serverless_per_rpu_hour'],
                 'managed_storage_per_gb_month': fallback_pricing['managed_storage_per_gb_month'],
             }
@@ -503,7 +553,7 @@ class TCOEngine:
         }
 
     def _calculate_provisioned_costs(self, config: Dict, size_gb: float, pricing: Dict) -> Dict:
-        """Calculate Redshift Provisioned cluster costs (24/7 on-demand)."""
+        """Calculate Redshift Provisioned cluster costs (24/7 on-demand + RI options)."""
         node_type = config.get('node_type', 'ra3.xlplus')
         num_nodes = config.get('num_nodes', 2)
 
@@ -519,11 +569,16 @@ class TCOEngine:
         total_monthly = compute_monthly + storage_monthly
         total_annual = total_monthly * 12
 
-        # Also show RI pricing (1-year no upfront = ~40% discount)
-        ri_1yr_monthly = compute_monthly * 0.6 + storage_monthly
+        # RI pricing using per-region hourly rates (not flat discount percentages)
+        ri_1yr_rates = pricing.get('ri_1yr', {})
+        ri_3yr_rates = pricing.get('ri_3yr', {})
+        ri_1yr_hourly = ri_1yr_rates.get(node_type, hourly_per_node * _RI_1YR_RATIO)
+        ri_3yr_hourly = ri_3yr_rates.get(node_type, hourly_per_node * _RI_3YR_RATIO)
+        ri_1yr_compute = ri_1yr_hourly * num_nodes * 730
+        ri_3yr_compute = ri_3yr_hourly * num_nodes * 730
+        ri_1yr_monthly = ri_1yr_compute + storage_monthly
         ri_1yr_annual = ri_1yr_monthly * 12
-        # 3-year all upfront = ~75% discount
-        ri_3yr_monthly = compute_monthly * 0.25 + storage_monthly
+        ri_3yr_monthly = ri_3yr_compute + storage_monthly
         ri_3yr_annual = ri_3yr_monthly * 12
 
         result = {
@@ -620,7 +675,7 @@ class TCOEngine:
             f'BigQuery costs extrapolated from {query_span_days:.0f} days of captured query data to monthly estimates.',
             f'BQ query cost uses the higher of On-Demand (${BQ_QUERY_ON_DEMAND_PER_TB}/TB) or Editions (${BQ_EDITIONS_STANDARD_PER_SLOT_HOUR}/slot-hour) pricing.',
             f'BQ monthly compute: {monthly_slot_hours:.1f} slot-hours/month estimated from INFORMATION_SCHEMA.JOBS.',
-            f'Redshift Provisioned shows On-Demand, 1-Year RI (40% discount), and 3-Year RI (75% discount) pricing.',
+            f'Redshift Provisioned shows On-Demand, 1-Year RI (~30% discount), and 3-Year RI (~56.5% discount) pricing.',
             f'Redshift Serverless RPU-hours account for 60-second minimum billing per activation, query concurrency, and a 1.5× overhead factor vs BQ slot-hours.',
             f'Redshift Serverless: {svls.get("est_rpu_hours_monthly", 0):.1f} RPU-hours/month estimated from BQ workload analysis.',
             f'Data transfer cost (${migration["total"]:.2f}) is a one-time GCP egress expense included in Redshift 3-year TCO.',
@@ -719,7 +774,7 @@ class TCOEngine:
                 reasons.append(f'High compute usage ({monthly_slot_hours:.1f} slot-hours/month) justifies dedicated cluster.')
             if size_gb >= 500:
                 reasons.append(f'Large dataset ({size_gb:.1f} GB) benefits from dedicated compute and managed storage.')
-            reasons.append('Reserved Instance pricing offers up to 75% savings over on-demand.')
+            reasons.append('Reserved Instance pricing offers significant savings over on-demand.')
             reasons.append('Full control over concurrency scaling and WLM queues.')
 
         # Cost comparison summary

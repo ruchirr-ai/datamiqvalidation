@@ -875,7 +875,11 @@ class BigQueryAssessmentService:
         SELECT
             job_id,
             creation_time as execution_time,
-            SUBSTR(query, 1, 2000) as query_text,
+            CASE
+                WHEN creation_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)
+                THEN SUBSTR(query, 1, 2000)
+                ELSE NULL
+            END as query_text,
             total_bytes_processed as bytes_scanned,
             total_bytes_billed as bytes_billed,
             total_slot_ms as slot_milliseconds,
@@ -889,7 +893,6 @@ class BigQueryAssessmentService:
             AND job_type = 'QUERY'
             AND state = 'DONE'
         ORDER BY creation_time DESC
-        LIMIT 100000
         """
 
         try:

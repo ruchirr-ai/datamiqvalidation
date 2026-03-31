@@ -43,6 +43,14 @@ interface QueryInsightsSummary {
   avg_query_runtime_seconds: number;
   peak_slot_utilization: number;
   avg_slot_utilization: number;
+  peak_hour?: number;
+  peak_hour_queries?: number;
+  peak_day_of_week?: string;
+  peak_day_queries?: number;
+  repeat_query_rate?: number;
+  unique_query_count?: number;
+  active_hours_per_day?: number;
+  query_time_span_days?: number;
 }
 
 interface ConcurrentQueryData {
@@ -699,6 +707,48 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
           <div className="summary-content">
             <div className="summary-value">{formatNumber(data.summary.read_queries)}/{formatNumber(data.summary.write_queries)}</div>
             <div className="summary-label">Read / Write Queries</div>
+          </div>
+        </div>
+      </div>
+
+      {/* New KPIs Row: Peak Hour, Repeat Query Rate, Active Hours/Day */}
+      <div className="query-insights-summary" style={{ marginTop: '12px' }}>
+        <div className="summary-card">
+          <div className="summary-icon">
+            <TrendingUp size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.peak_hour !== undefined ? `${data.summary.peak_hour}:00` : 'N/A'}</div>
+            <div className="summary-label">Peak Hour of Day</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              {data.summary.peak_hour_queries ?? 0} queries · Peak day: {data.summary.peak_day_of_week ?? 'N/A'} ({data.summary.peak_day_queries ?? 0})
+            </div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <BarChart3 size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.repeat_query_rate ?? 0}%</div>
+            <div className="summary-label">Repeat Query Rate</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              {data.summary.unique_query_count ?? 0} unique queries · High rate = caching candidate
+            </div>
+          </div>
+        </div>
+
+        <div className="summary-card">
+          <div className="summary-icon">
+            <Clock size={24} />
+          </div>
+          <div className="summary-content">
+            <div className="summary-value">{data.summary.active_hours_per_day ?? 0}h</div>
+            <div className="summary-label">Active Hours / Day</div>
+            <div className="summary-sub" style={{ fontSize: '11px', color: '#888', marginTop: '2px' }}>
+              Avg {isSQLServer ? 'CPU' : 'slot'} utilization: {data.summary.avg_slot_utilization ?? 0} · Span: {data.summary.query_time_span_days ?? 0} days
+            </div>
           </div>
         </div>
       </div>

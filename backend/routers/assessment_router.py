@@ -817,6 +817,403 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{assessment_id}/report/summary")
+async def get_assessment_report_summary(assessment_id: int, db: Session = Depends(get_db)):
+    """Get lightweight assessment summary (metadata + datasets only) for fast initial load."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        datasets = assessment_repo.get_datasets(assessment_id)
+
+        source_db_type = 'bigquery'
+        try:
+            from models.connection import Connection
+            source_conn = db.query(Connection).filter(Connection.id == assessment.source_connection_id).first()
+            if source_conn:
+                source_db_type = getattr(source_conn, 'database', 'bigquery').lower()
+        except Exception:
+            pass
+
+        # For SQL Server, compute extra summary counts
+        trigger_count = 0
+        schemas_count = 0
+        security_items_count = 0
+        security_policies_preview = []
+        if source_db_type == 'sqlserver':
+            try:
+                routines = assessment_repo.get_routines(assessment_id)
+                trigger_count = len([r for r in routines if r.routine_type == 'TRIGGER'])
+            except Exception:
+                pass
+            try:
+                security_policies = assessment_repo.get_security_policies(assessment_id)
+                security_items_count = len(security_policies)
+                schemas_count = len([s for s in security_policies if s.security_type == 'SCHEMA'])
+                # Include security policies preview for schemas tab
+                security_policies_preview = [
+                    {
+                        "security_type": s.security_type,
+                        "table_name": s.table_name,
+                        "policy_name": s.policy_name,
+                        "filter_predicate": s.filter_predicate,
+                        "grantees": s.grantees or [],
+                        "security_metadata": s.security_metadata or {}
+                    }
+                    for s in security_policies
+                ]
+            except Exception:
+                pass
+
+        return {
+            "assessment": {
+                "id": assessment.id,
+                "name": assessment.name,
+                "project_id": assessment.project_id,
+                "status": assessment.status,
+                "started_at": assessment.started_at.isoformat() if assessment.started_at else None,
+                "completed_at": assessment.completed_at.isoformat() if assessment.completed_at else None,
+                "total_datasets": assessment.total_datasets,
+                "total_tables": assessment.total_tables,
+                "total_views": assessment.total_views,
+                "total_routines": assessment.total_routines,
+                "total_ml_models": assessment.total_ml_models,
+                "total_size_mb": assessment.total_size_mb,
+                "source_db_type": source_db_type,
+                "trigger_count": trigger_count,
+                "schemas_count": schemas_count,
+                "security_items_count": security_items_count
+            },
+            "datasets": [
+                {
+                    "dataset_name": d.dataset_name,
+                    "location": d.location,
+                    "creation_time": d.creation_time.isoformat() if d.creation_time else None,
+                    "table_count": d.table_count,
+                    "total_size_mb": d.total_size_mb,
+                    "dataset_metadata": d.dataset_metadata or {}
+                }
+                for d in datasets
+            ],
+            "security_policies_preview": security_policies_preview
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/tables")
+async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_size: int = 50, dataset: str = None, export: str = None, db: Session = Depends(get_db)):
+    """Get paginated tables with their columns for an assessment. Use export=csv to get all tables."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        all_tables = assessment_repo.get_tables(assessment_id)
+        all_columns = assessment_repo.get_columns(assessment_id)
+        all_indexes = assessment_repo.get_indexes(assessment_id)
+
+        # Collect all distinct dataset names (from ALL tables, before filtering/pagination)
+        all_datasets = sorted(set(t.dataset_name for t in all_tables if t.dataset_name))
+
+        # Apply dataset filter if specified
+        if dataset and dataset != 'all':
+            all_tables = [t for t in all_tables if t.dataset_name == dataset]
+
+        # If export=all, return ALL tables without pagination (for CSV export)
+        if export == 'all':
+            return {
+                "tables": [
+                    {
+                        "id": t.id, "project_id": t.project_id, "dataset_name": t.dataset_name,
+                        "table_name": t.table_name, "table_type": t.table_type,
+                        "creation_time": t.creation_time.isoformat() if t.creation_time else None,
+                        "row_count": t.row_count, "size_mb": t.size_mb,
+                        "partitioning_columns": t.partitioning_columns or [],
+                        "clustering_columns": t.clustering_columns or [],
+                    }
+                    for t in all_tables
+                ],
+                "total": len(all_tables),
+            }
+
+        total = len(all_tables)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_tables = all_tables[start:end]
+        table_ids = {t.id for t in paginated_tables}
+
+        return {
+            "tables": [
+                {
+                    "id": t.id, "project_id": t.project_id, "dataset_name": t.dataset_name,
+                    "table_name": t.table_name, "table_type": t.table_type,
+                    "creation_time": t.creation_time.isoformat() if t.creation_time else None,
+                    "row_count": t.row_count, "size_mb": t.size_mb,
+                    "partitioning_columns": t.partitioning_columns or [],
+                    "clustering_columns": t.clustering_columns or [],
+                    "has_column_security": t.has_column_security, "has_row_security": t.has_row_security,
+                    "is_sharded": t.is_sharded, "update_frequency": t.update_frequency,
+                    "table_metadata": t.table_metadata or {}
+                }
+                for t in paginated_tables
+            ],
+            "columns": [
+                {
+                    "table_id": c.table_id, "column_name": c.column_name, "data_type": c.data_type,
+                    "is_nullable": c.is_nullable, "ordinal_position": c.ordinal_position,
+                    "is_partitioning_column": c.is_partitioning_column,
+                    "clustering_ordinal_position": c.clustering_ordinal_position,
+                    "policy_tags": c.policy_tags or [], "max_length": c.max_length
+                }
+                for c in all_columns if c.table_id in table_ids
+            ],
+            "indexes": [
+                {
+                    "id": idx.id, "table_id": idx.table_id, "schema_name": idx.schema_name,
+                    "table_name": idx.table_name,
+                    "object_type": idx.object_type if hasattr(idx, 'object_type') else 'TABLE',
+                    "index_name": idx.index_name, "index_type": idx.index_type,
+                    "is_unique": idx.is_unique, "is_primary_key": idx.is_primary_key,
+                    "is_clustered": idx.is_clustered, "key_columns": idx.key_columns,
+                    "included_columns": idx.included_columns, "filter_definition": idx.filter_definition,
+                    "size_mb": idx.size_mb, "row_count": idx.row_count,
+                    "index_metadata": idx.index_metadata or {}
+                }
+                for idx in all_indexes if idx.table_id in table_ids
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size,
+            "datasets": all_datasets
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report tables: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/views")
+async def get_assessment_report_views(assessment_id: int, page: int = 1, page_size: int = 50, export: str = None, db: Session = Depends(get_db)):
+    """Get paginated views for an assessment. Use export=all to get all views."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        all_views = assessment_repo.get_views(assessment_id)
+
+        # If export=all, return ALL views without pagination (for CSV export)
+        if export == 'all':
+            return {
+                "views": [
+                    {
+                        "view_name": v.view_name, "view_type": v.view_type,
+                        "creation_time": v.creation_time.isoformat() if v.creation_time else None,
+                        "dependent_tables": v.dependent_tables or [],
+                        "dependent_views": v.dependent_views or [],
+                        "dependent_functions": v.dependent_functions or [],
+                        "dependency_depth": v.dependency_depth
+                    }
+                    for v in all_views
+                ],
+                "total": len(all_views),
+            }
+
+        total = len(all_views)
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_views = all_views[start:end]
+
+        return {
+            "views": [
+                {
+                    "view_name": v.view_name, "view_type": v.view_type,
+                    "view_definition": v.view_definition,
+                    "creation_time": v.creation_time.isoformat() if v.creation_time else None,
+                    "dependencies": v.dependencies or [],
+                    "dependent_tables": v.dependent_tables or [],
+                    "dependent_views": v.dependent_views or [],
+                    "dependent_functions": v.dependent_functions or [],
+                    "dependency_depth": v.dependency_depth
+                }
+                for v in paginated_views
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report views: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/routines")
+async def get_assessment_report_routines(assessment_id: int, db: Session = Depends(get_db)):
+    """Get all routines (stored procedures, functions, triggers) for an assessment."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        routines = assessment_repo.get_routines(assessment_id)
+        return {
+            "routines": [
+                {
+                    "routine_name": r.routine_name, "routine_type": r.routine_type,
+                    "return_type": r.return_type, "definition": r.definition,
+                    "external_language": r.external_language,
+                    "creation_time": r.creation_time.isoformat() if r.creation_time else None,
+                    "call_frequency": r.call_frequency,
+                    "dependent_tables": r.dependent_tables or [],
+                    "dependent_views": r.dependent_views or [],
+                    "dependent_functions": r.dependent_functions or [],
+                    "calls_procedures": r.calls_procedures or [],
+                    "dependency_depth": r.dependency_depth,
+                    "routine_metadata": r.routine_metadata or {}
+                }
+                for r in routines
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report routines: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/security")
+async def get_assessment_report_security(assessment_id: int, db: Session = Depends(get_db)):
+    """Get security policies and column-level security data for an assessment."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        security_policies = assessment_repo.get_security_policies(assessment_id)
+        columns = assessment_repo.get_columns(assessment_id)
+        tables = assessment_repo.get_tables(assessment_id)
+
+        return {
+            "security_policies": [
+                {
+                    "security_type": s.security_type, "table_name": s.table_name,
+                    "policy_name": s.policy_name, "filter_predicate": s.filter_predicate,
+                    "grantees": s.grantees or [], "security_metadata": s.security_metadata or {}
+                }
+                for s in security_policies
+            ],
+            "columns": [
+                {
+                    "table_id": c.table_id, "column_name": c.column_name, "data_type": c.data_type,
+                    "is_nullable": c.is_nullable, "ordinal_position": c.ordinal_position,
+                    "is_partitioning_column": c.is_partitioning_column,
+                    "clustering_ordinal_position": c.clustering_ordinal_position,
+                    "policy_tags": c.policy_tags or [], "max_length": c.max_length
+                }
+                for c in columns
+            ],
+            "tables": [
+                {
+                    "id": t.id, "dataset_name": t.dataset_name, "table_name": t.table_name
+                }
+                for t in tables
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report security: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/ml-models")
+async def get_assessment_report_ml_models(assessment_id: int, db: Session = Depends(get_db)):
+    """Get ML models and Spark models for an assessment."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        ml_models = assessment_repo.get_ml_models(assessment_id)
+        routines = assessment_repo.get_routines(assessment_id)
+
+        spark_models = [
+            {
+                "routine_name": r.routine_name, "routine_type": r.routine_type,
+                "return_type": r.return_type, "definition": r.definition,
+                "external_language": r.external_language,
+                "creation_time": r.creation_time.isoformat() if r.creation_time else None,
+                "call_frequency": r.call_frequency
+            }
+            for r in routines
+            if r.external_language == 'PYTHON' and r.definition and ('pyspark' in r.definition or 'spark.' in r.definition)
+        ]
+
+        return {
+            "ml_models": [
+                {
+                    "model_name": m.model_name, "model_type": m.model_type,
+                    "dataset_name": m.dataset_name,
+                    "creation_time": m.creation_time.isoformat() if m.creation_time else None,
+                    "last_modified_time": m.last_modified_time.isoformat() if m.last_modified_time else None
+                }
+                for m in ml_models
+            ],
+            "spark_models": spark_models
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report ML models: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{assessment_id}/report/user-insights")
+async def get_assessment_report_user_insights(assessment_id: int, db: Session = Depends(get_db)):
+    """Get query stats for user insights tab."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        query_stats = assessment_repo.get_query_stats(assessment_id)
+        return {
+            "query_stats": [
+                {
+                    "job_id": q.job_id,
+                    "execution_time": q.execution_time.isoformat() if q.execution_time else None,
+                    "bytes_scanned": q.bytes_scanned,
+                    "slot_milliseconds": q.slot_milliseconds,
+                    "cache_hit": q.cache_hit,
+                    "user_email": q.user_email
+                }
+                for q in query_stats
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting report user insights: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{assessment_id}/recommendations")
 async def get_assessment_recommendations(assessment_id: int, db: Session = Depends(get_db)):
     """
@@ -997,266 +1394,228 @@ async def get_query_insights(
     db: Session = Depends(get_db)
 ):
     """
-    Get query insights with aggregated statistics and filtering
-    
-    Timeframe options:
-    - all: All time
-    - 24h: Last 24 hours
-    - 7d: Last 7 days
-    - 30d: Last 30 days
+    Get query insights with aggregated statistics and filtering.
+    Optimized: single-pass aggregation, deferred query_text loading.
     """
     try:
+        from datetime import datetime, timedelta, timedelta as _td
+        import re
+        from sqlalchemy.orm import defer
+        from models.assessment import AssessmentQueryStat
+
         assessment_repo = AssessmentRepository(db)
-        
-        # Get assessment
         assessment = assessment_repo.get_by_id(assessment_id)
         if not assessment:
             raise HTTPException(status_code=404, detail="Assessment not found")
-        
-        # Get all query stats
-        all_query_stats = assessment_repo.get_query_stats(assessment_id)
-        
-        # Filter by timeframe
-        from datetime import datetime, timedelta
-        import re
-        now = datetime.utcnow()
-        
-        if timeframe == "24h":
-            cutoff = now - timedelta(hours=24)
-            query_stats = [q for q in all_query_stats if q.execution_time and q.execution_time >= cutoff]
-        elif timeframe == "7d":
-            cutoff = now - timedelta(days=7)
-            query_stats = [q for q in all_query_stats if q.execution_time and q.execution_time >= cutoff]
-        elif timeframe == "30d":
-            cutoff = now - timedelta(days=30)
-            query_stats = [q for q in all_query_stats if q.execution_time and q.execution_time >= cutoff]
-        else:  # all
-            query_stats = all_query_stats
-        
-        # Calculate aggregated metrics
-        total_queries = len(query_stats)
-        total_bytes_scanned = sum(q.bytes_scanned or 0 for q in query_stats)
-        total_bytes_billed = 0
-        total_slot_ms = sum(q.slot_milliseconds or 0 for q in query_stats)
 
-        # Cache hit ratio: only count SELECT queries (cache_hit is meaningless for DML/DDL)
-        # Also handle None cache_hit properly (don't count as miss)
+        # ── Phase 1: Load lightweight rows (no query_text) for summary metrics ──
+        base_q = db.query(AssessmentQueryStat).filter(
+            AssessmentQueryStat.assessment_id == assessment_id
+        ).options(defer(AssessmentQueryStat.query_text))
+
+        now = datetime.utcnow()
+        if timeframe == "24h":
+            base_q = base_q.filter(AssessmentQueryStat.execution_time >= now - timedelta(hours=24))
+        elif timeframe == "7d":
+            base_q = base_q.filter(AssessmentQueryStat.execution_time >= now - timedelta(days=7))
+        elif timeframe == "30d":
+            base_q = base_q.filter(AssessmentQueryStat.execution_time >= now - timedelta(days=30))
+
+        query_stats = base_q.order_by(AssessmentQueryStat.execution_time.desc()).all()
+        
+        total_queries = len(query_stats)
+        if total_queries == 0:
+            return _empty_query_insights_response(assessment_id, timeframe, page, page_size)
+
+        # ── Phase 2: Single-pass aggregation ──
         WRITE_STATEMENT_TYPES = {'INSERT', 'UPDATE', 'DELETE', 'MERGE', 'CREATE_TABLE_AS_SELECT',
                                   'CREATE_TABLE', 'DROP_TABLE', 'ALTER_TABLE', 'TRUNCATE_TABLE',
                                   'CREATE_VIEW', 'DROP_VIEW', 'CREATE_FUNCTION', 'DROP_FUNCTION',
                                   'CREATE_PROCEDURE', 'DROP_PROCEDURE', 'CREATE_MODEL', 'EXPORT_DATA'}
-        
+        total_bytes_scanned = 0
+        total_bytes_billed = 0
+        total_slot_ms = 0
         select_queries = 0
         cache_hits = 0
         read_count = 0
         write_count = 0
+        unique_users = set()
+        minute_buckets = {}
+        hour_query_counts = {}
+        dow_query_counts = {}
+        hourly_slots = {}
+        hourly_query_counts_map = {}
+        hourly_users = {}
+        hourly_peak_concurrent = {}
+        stmt_type_breakdown = {}
+        per_query_concurrent_slots = []
+        slot_values = []
+        exec_times = []
+        duration_buckets = {}
+        concurrent_queries_hourly = {}
+        concurrent_queries_daily = {}
+        concurrent_queries_weekly = {}
+
         for q in query_stats:
             meta = q.query_metadata if isinstance(q.query_metadata, dict) else {}
             stmt_type = (meta.get('statement_type') or '').upper()
-            bytes_billed_q = meta.get('bytes_billed', 0) or 0
-            total_bytes_billed += bytes_billed_q
-            
-            # Read vs write classification using BQ statement_type (accurate)
+            q_bytes = q.bytes_scanned or 0
+            q_slot_ms = q.slot_milliseconds or 0
+            q_bytes_billed = meta.get('bytes_billed', 0) or 0
+            q_runtime_ms = meta.get('total_elapsed_time_ms', 0) or 0
+
+            total_bytes_scanned += q_bytes
+            total_bytes_billed += q_bytes_billed
+            total_slot_ms += q_slot_ms
+
             if stmt_type and stmt_type != 'UNKNOWN':
                 if stmt_type in WRITE_STATEMENT_TYPES:
                     write_count += 1
                 else:
                     read_count += 1
-                # Cache hit only meaningful for SELECT
                 if stmt_type == 'SELECT':
                     select_queries += 1
                     if q.cache_hit is True:
                         cache_hits += 1
             else:
-                # Fallback to regex if statement_type not available (old data)
-                if q.query_text:
-                    query_upper = q.query_text.strip().upper()
-                    if re.match(r'^\s*(INSERT|UPDATE|DELETE|MERGE|CREATE|DROP|ALTER|TRUNCATE)', query_upper):
-                        write_count += 1
-                    else:
-                        read_count += 1
-                        select_queries += 1
-                        if q.cache_hit is True:
-                            cache_hits += 1
-                else:
-                    read_count += 1
-        
-        cache_hit_rate = (cache_hits / select_queries * 100) if select_queries > 0 else 0
-        
-        avg_execution_time_ms = (total_slot_ms / total_queries) if total_queries > 0 else 0
-        avg_slot_ms_raw = avg_execution_time_ms  # Save for later use
-        
-        unique_users = set(q.user_email for q in query_stats if q.user_email)
-        active_users_count = len(unique_users)
-        
-        concurrent_queries_hourly = {}
-        concurrent_queries_daily = {}
-        concurrent_queries_weekly = {}
-        
-        for q in query_stats:
-            if q.execution_time:
-                hour_key = q.execution_time.strftime('%Y-%m-%d %H:00')
-                concurrent_queries_hourly[hour_key] = concurrent_queries_hourly.get(hour_key, 0) + 1
-                day_key = q.execution_time.strftime('%Y-%m-%d')
-                concurrent_queries_daily[day_key] = concurrent_queries_daily.get(day_key, 0) + 1
-                week_key = q.execution_time.strftime('%Y-W%W')
-                concurrent_queries_weekly[week_key] = concurrent_queries_weekly.get(week_key, 0) + 1
-        
-        hourly_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_hourly.items())]
-        daily_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_daily.items())]
-        weekly_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_weekly.items())]
-        
-        # Build query list with search filter
-        filtered_stats = query_stats
-        if search:
-            search_lower = search.lower()
-            filtered_stats = [q for q in query_stats if (
-                (q.query_text and search_lower in q.query_text.lower()) or
-                (q.user_email and search_lower in q.user_email.lower()) or
-                (q.job_id and search_lower in q.job_id.lower())
-            )]
-        
-        # Sort
-        if sort_by == "slot_milliseconds":
-            filtered_stats.sort(key=lambda q: q.slot_milliseconds or 0, reverse=True)
-        elif sort_by == "execution_time":
-            filtered_stats.sort(key=lambda q: q.execution_time or datetime.min, reverse=True)
-        elif sort_by == "est_runtime":
-            # Sort by estimated wall-clock runtime (slot_ms / concurrent_slots)
-            # Higher slot_ms with lower concurrency = longer runtime
-            filtered_stats.sort(key=lambda q: q.slot_milliseconds or 0, reverse=True)
-        else:  # bytes_scanned (default)
-            filtered_stats.sort(key=lambda q: q.bytes_scanned or 0, reverse=True)
-        
-        total_filtered = len(filtered_stats)
-        
-        # Paginate
-        start = (page - 1) * page_size
-        end = start + page_size
-        page_stats = filtered_stats[start:end]
-        
-        # --- New metrics: concurrent queries, slot utilization, query runtime ---
-        # Estimate max concurrent queries using 1-minute windows
-        minute_buckets = {}
-        for q in query_stats:
-            if q.execution_time:
-                minute_key = q.execution_time.strftime('%Y-%m-%d %H:%M')
-                minute_buckets[minute_key] = minute_buckets.get(minute_key, 0) + 1
-        max_concurrent_queries = max(minute_buckets.values()) if minute_buckets else 0
-        avg_concurrent_queries = round(sum(minute_buckets.values()) / len(minute_buckets), 1) if minute_buckets else 0
+                read_count += 1
 
-        # Slot utilization per query (slot_ms as proxy for slot usage)
-        slot_values = [q.slot_milliseconds or 0 for q in query_stats]
+            if q.user_email:
+                unique_users.add(q.user_email)
+
+            if q_slot_ms > 0:
+                slot_values.append(q_slot_ms)
+                if q_runtime_ms and q_runtime_ms > 0:
+                    per_query_concurrent_slots.append(max(1, q_slot_ms / q_runtime_ms))
+                else:
+                    per_query_concurrent_slots.append(max(1, q_slot_ms / 30000))
+
+            if q.execution_time:
+                et = q.execution_time
+                exec_times.append(et)
+                hod = et.hour
+                dow = et.strftime('%A')
+                minute_key = et.strftime('%Y-%m-%d %H:%M')
+                hour_key = et.strftime('%Y-%m-%d %H:00')
+                day_key = et.strftime('%Y-%m-%d')
+                week_key = et.strftime('%Y-W%W')
+
+                minute_buckets[minute_key] = minute_buckets.get(minute_key, 0) + 1
+                hour_query_counts[hod] = hour_query_counts.get(hod, 0) + 1
+                dow_query_counts[dow] = dow_query_counts.get(dow, 0) + 1
+                hourly_slots[hod] = hourly_slots.get(hod, 0) + q_slot_ms
+                hourly_query_counts_map[hod] = hourly_query_counts_map.get(hod, 0) + 1
+                concurrent_queries_hourly[hour_key] = concurrent_queries_hourly.get(hour_key, 0) + 1
+                concurrent_queries_daily[day_key] = concurrent_queries_daily.get(day_key, 0) + 1
+                concurrent_queries_weekly[week_key] = concurrent_queries_weekly.get(week_key, 0) + 1
+
+                if q.user_email:
+                    if hod not in hourly_users:
+                        hourly_users[hod] = {"users": set(), "queries": 0}
+                    hourly_users[hod]["users"].add(q.user_email)
+                    hourly_users[hod]["queries"] += 1
+
+                if hod not in hourly_peak_concurrent:
+                    hourly_peak_concurrent[hod] = {}
+                hourly_peak_concurrent[hod][minute_key] = hourly_peak_concurrent[hod].get(minute_key, 0) + 1
+
+            st_key = stmt_type if stmt_type else 'UNKNOWN'
+            if st_key not in stmt_type_breakdown:
+                stmt_type_breakdown[st_key] = {"count": 0, "total_bytes_processed": 0, "total_duration_ms": 0, "max_duration_ms": 0}
+            entry = stmt_type_breakdown[st_key]
+            entry["count"] += 1
+            entry["total_bytes_processed"] += q_bytes
+            entry["total_duration_ms"] += q_runtime_ms
+            if q_runtime_ms > entry["max_duration_ms"]:
+                entry["max_duration_ms"] = q_runtime_ms
+
+            eff_runtime = q_runtime_ms
+            if not eff_runtime and q_slot_ms:
+                est_s = per_query_concurrent_slots[-1] if per_query_concurrent_slots else 1
+                eff_runtime = q_slot_ms / max(est_s, 1)
+            bucket_mins = round((eff_runtime or 0) / 60000)
+            duration_buckets[bucket_mins] = duration_buckets.get(bucket_mins, 0) + 1
+
+        # ── Phase 3: Derived metrics ──
+        cache_hit_rate = (cache_hits / select_queries * 100) if select_queries > 0 else 0
+        active_users_count = len(unique_users)
+        avg_slot_ms_per_query = round(total_slot_ms / total_queries, 0) if total_queries > 0 else 0
+        est_concurrent_slots = (sum(per_query_concurrent_slots) / len(per_query_concurrent_slots)) if per_query_concurrent_slots else 1
+
         non_zero_slots = [s for s in slot_values if s > 0]
         max_slot_ms = max(slot_values) if slot_values else 0
         min_slot_ms = min(non_zero_slots) if non_zero_slots else 0
-        avg_slot_ms_per_query = round(total_slot_ms / total_queries, 0) if total_queries > 0 else 0
 
-        # Compute per-query concurrent slots using actual runtime when available
-        per_query_concurrent_slots = []
-        for q in query_stats:
-            q_slot_ms = q.slot_milliseconds or 0
-            if q_slot_ms <= 0:
-                continue
-            # Try to get actual runtime from query_metadata
-            q_runtime_ms = 0
-            if q.query_metadata and isinstance(q.query_metadata, dict):
-                q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
-            if q_runtime_ms and q_runtime_ms > 0:
-                per_query_concurrent_slots.append(max(1, q_slot_ms / q_runtime_ms))
-            else:
-                per_query_concurrent_slots.append(max(1, q_slot_ms / 30000))
-
-        est_concurrent_slots = (sum(per_query_concurrent_slots) / len(per_query_concurrent_slots)) if per_query_concurrent_slots else 1
-
-        # Estimate query runtime
         avg_wall_clock_s = (avg_slot_ms_per_query / max(est_concurrent_slots, 1)) / 1000 if avg_slot_ms_per_query > 0 else 0
         max_query_runtime_seconds = round((max_slot_ms / max(est_concurrent_slots, 1)) / 1000, 2) if max_slot_ms > 0 else 0
         min_query_runtime_seconds = round((min_slot_ms / max(est_concurrent_slots, 1)) / 1000, 4) if min_slot_ms > 0 else 0
         avg_query_runtime_seconds = round(avg_wall_clock_s, 2)
+        avg_execution_time_seconds = (avg_slot_ms_per_query / 1000) if avg_slot_ms_per_query > 0 else 0
 
-        # Peak slot utilization using sweep-line algorithm for true overlap.
-        # For each query, compute [start, end) interval and its concurrent slots.
-        # At every start/end event, track the running total of slots.
-        # The maximum running total = true peak slots at any point in time.
-        from datetime import timedelta as _td
-        events = []  # list of (timestamp, +slots or -slots)
-        total_query_slots_sum = 0.0
-        query_interval_count = 0
-        for q in query_stats:
-            if not q.execution_time:
-                continue
-            q_slot_ms = q.slot_milliseconds or 0
-            if q_slot_ms <= 0:
-                continue
-            # Compute this query's concurrent slot usage
-            q_runtime_ms = 0
-            if q.query_metadata and isinstance(q.query_metadata, dict):
-                q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
-            if q_runtime_ms and q_runtime_ms > 0:
-                q_slots = max(1, q_slot_ms / q_runtime_ms)
-                q_duration_ms = q_runtime_ms
-            else:
-                q_slots = max(1, q_slot_ms / 30000)
-                q_duration_ms = 30000  # assume 30s
-            start_t = q.execution_time
-            end_t = start_t + _td(milliseconds=q_duration_ms)
-            events.append((start_t, q_slots))
-            events.append((end_t, -q_slots))
-            total_query_slots_sum += q_slots
-            query_interval_count += 1
+        max_concurrent_queries = max(minute_buckets.values()) if minute_buckets else 0
+        avg_concurrent_queries = round(sum(minute_buckets.values()) / len(minute_buckets), 1) if minute_buckets else 0
 
-        if events:
-            # Sort by time; ties broken by ends (-) before starts (+)
-            events.sort(key=lambda e: (e[0], e[1]))
-            running_slots = 0.0
-            peak_slot_utilization = 0.0
-            for _, delta in events:
-                running_slots += delta
-                if running_slots > peak_slot_utilization:
-                    peak_slot_utilization = running_slots
-            peak_slot_utilization = round(peak_slot_utilization, 1)
-            avg_slot_utilization = round(total_query_slots_sum / query_interval_count, 1) if query_interval_count else 0
-        else:
-            peak_slot_utilization = 0
-            avg_slot_utilization = round(est_concurrent_slots, 1)
-
-        # Override with JOBS_TIMELINE data if available (most accurate source)
+        # Slot utilization — prefer JOBS_TIMELINE data
         assessment_data = assessment.assessment_data or {}
         slot_timeline = assessment_data.get('slot_timeline') or {}
-        p50_slot_utilization = 0
-        p90_slot_utilization = 0
-        p95_slot_utilization = 0
-        p99_slot_utilization = 0
+        p50_slot_utilization = p90_slot_utilization = p95_slot_utilization = p99_slot_utilization = 0
+
         if slot_timeline.get('peak_concurrent_slots', 0) > 0:
             peak_slot_utilization = round(slot_timeline['peak_concurrent_slots'], 1)
-            avg_slot_utilization = round(slot_timeline.get('avg_concurrent_slots', avg_slot_utilization), 1)
+            avg_slot_utilization = round(slot_timeline.get('avg_concurrent_slots', est_concurrent_slots), 1)
             p50_slot_utilization = round(slot_timeline.get('p50_concurrent_slots', 0), 1)
             p90_slot_utilization = round(slot_timeline.get('p90_concurrent_slots', 0), 1)
             p95_slot_utilization = round(slot_timeline.get('p95_concurrent_slots', 0), 1)
             p99_slot_utilization = round(slot_timeline.get('p99_concurrent_slots', 0), 1)
+        else:
+            from datetime import timedelta as _td
+            events = []
+            total_query_slots_sum = 0.0
+            query_interval_count = 0
+            for q in query_stats:
+                if not q.execution_time:
+                    continue
+                q_slot_ms_v = q.slot_milliseconds or 0
+                if q_slot_ms_v <= 0:
+                    continue
+                q_meta = q.query_metadata if isinstance(q.query_metadata, dict) else {}
+                q_rt = q_meta.get('total_elapsed_time_ms', 0) or 0
+                if q_rt and q_rt > 0:
+                    q_slots = max(1, q_slot_ms_v / q_rt)
+                    q_dur = q_rt
+                else:
+                    q_slots = max(1, q_slot_ms_v / 30000)
+                    q_dur = 30000
+                events.append((q.execution_time, q_slots))
+                events.append((q.execution_time + _td(milliseconds=q_dur), -q_slots))
+                total_query_slots_sum += q_slots
+                query_interval_count += 1
+            if events:
+                events.sort(key=lambda e: (e[0], e[1]))
+                running = 0.0
+                peak_slot_utilization = 0.0
+                for _, delta in events:
+                    running += delta
+                    if running > peak_slot_utilization:
+                        peak_slot_utilization = running
+                peak_slot_utilization = round(peak_slot_utilization, 1)
+                avg_slot_utilization = round(total_query_slots_sum / query_interval_count, 1) if query_interval_count else 0
+            else:
+                peak_slot_utilization = 0
+                avg_slot_utilization = round(est_concurrent_slots, 1)
 
-        # Avg execution time = average slot-time per query (total CPU time / queries)
-        # This differs from avg_query_runtime_seconds which is estimated wall-clock time.
-        # slot-time = concurrent_slots × wall_clock, so slot-time > wall-clock for parallel queries.
-        avg_execution_time_seconds = (avg_slot_ms_per_query / 1000) if avg_slot_ms_per_query > 0 else 0
+        peak_hour = max(hour_query_counts, key=hour_query_counts.get) if hour_query_counts else 0
+        peak_hour_queries = hour_query_counts.get(peak_hour, 0)
+        peak_day_of_week = max(dow_query_counts, key=dow_query_counts.get) if dow_query_counts else 'N/A'
+        peak_day_queries = dow_query_counts.get(peak_day_of_week, 0)
 
-        # ── Q3: Duration distribution histogram (bucket by minutes) ──
-        duration_buckets = {}
-        for q in query_stats:
-            q_runtime_ms = 0
-            if q.query_metadata and isinstance(q.query_metadata, dict):
-                q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
-            if not q_runtime_ms and q.slot_milliseconds:
-                q_runtime_ms = (q.slot_milliseconds or 0) / max(est_concurrent_slots, 1)
-            bucket_mins = round((q_runtime_ms or 0) / 60000)
-            duration_buckets[bucket_mins] = duration_buckets.get(bucket_mins, 0) + 1
-        duration_distribution = sorted(
-            [{"duration_mins": k, "query_count": v} for k, v in duration_buckets.items()],
-            key=lambda x: x["duration_mins"]
-        )
+        if len(exec_times) >= 2:
+            kpi_span_days = max((max(exec_times) - min(exec_times)).total_seconds() / 86400, 1)
+        else:
+            kpi_span_days = 30
+        total_slot_hours_kpi = total_slot_ms / (1000 * 3600)
+        active_hours_per_day = min(round(total_slot_hours_kpi / (kpi_span_days * 24), 2), 24) if kpi_span_days > 0 else 0
 
-        # ── Q4: Concurrent query percentiles (per-minute windows) ──
         minute_counts = sorted(minute_buckets.values()) if minute_buckets else []
         n_min = len(minute_counts)
         concurrent_query_percentiles = {}
@@ -1270,87 +1629,83 @@ async def get_query_insights(
                 "avg": round(sum(minute_counts) / n_min, 1),
             }
 
-        # ── Q5: Hourly slot usage by hour-of-day (0-23) ──
-        hourly_slots = {}
-        hourly_query_counts = {}
-        for q in query_stats:
-            if q.execution_time:
-                hod = q.execution_time.hour
-                hourly_slots[hod] = hourly_slots.get(hod, 0) + (q.slot_milliseconds or 0)
-                hourly_query_counts[hod] = hourly_query_counts.get(hod, 0) + 1
-        hourly_slot_usage = sorted(
-            [{
-                "hour": h,
-                "query_count": hourly_query_counts.get(h, 0),
-                "total_slot_seconds": round(hourly_slots.get(h, 0) / 1000, 1),
-                "avg_slot_seconds_per_query": round(
-                    (hourly_slots.get(h, 0) / 1000) / hourly_query_counts[h], 1
-                ) if hourly_query_counts.get(h, 0) > 0 else 0,
-                "avg_slots_used": round(hourly_slots.get(h, 0) / (3600 * 1000), 1),
-            } for h in range(24)],
-            key=lambda x: x["hour"]
-        )
+        hourly_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_hourly.items())]
+        daily_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_daily.items())]
+        weekly_data = [{"time": k, "count": v} for k, v in sorted(concurrent_queries_weekly.items())]
+        duration_distribution = sorted([{"duration_mins": k, "query_count": v} for k, v in duration_buckets.items()], key=lambda x: x["duration_mins"])
 
-        # ── Q7: Write pattern breakdown by statement_type ──
-        stmt_type_breakdown = {}
-        for q in query_stats:
-            meta = q.query_metadata if isinstance(q.query_metadata, dict) else {}
-            st = (meta.get('statement_type') or 'UNKNOWN').upper()
-            if st not in stmt_type_breakdown:
-                stmt_type_breakdown[st] = {
-                    "count": 0, "total_bytes_processed": 0,
-                    "total_duration_ms": 0, "max_duration_ms": 0,
-                }
-            entry = stmt_type_breakdown[st]
-            entry["count"] += 1
-            entry["total_bytes_processed"] += (q.bytes_scanned or 0)
-            q_dur = meta.get('total_elapsed_time_ms', 0) or 0
-            entry["total_duration_ms"] += q_dur
-            if q_dur > entry["max_duration_ms"]:
-                entry["max_duration_ms"] = q_dur
-        write_pattern_breakdown = sorted(
-            [{
-                "statement_type": st,
-                "job_count": v["count"],
-                "tib_processed": round(v["total_bytes_processed"] / (1024**4), 6),
-                "avg_duration_sec": round((v["total_duration_ms"] / v["count"]) / 1000, 2) if v["count"] > 0 else 0,
-                "max_duration_sec": round(v["max_duration_ms"] / 1000, 2),
-            } for st, v in stmt_type_breakdown.items()],
-            key=lambda x: x["job_count"], reverse=True
-        )
+        hourly_slot_usage = sorted([{
+            "hour": h,
+            "query_count": hourly_query_counts_map.get(h, 0),
+            "total_slot_seconds": round(hourly_slots.get(h, 0) / 1000, 1),
+            "avg_slot_seconds_per_query": round((hourly_slots.get(h, 0) / 1000) / hourly_query_counts_map[h], 1) if hourly_query_counts_map.get(h, 0) > 0 else 0,
+            "avg_slots_used": round(hourly_slots.get(h, 0) / (3600 * 1000), 1),
+        } for h in range(24)], key=lambda x: x["hour"])
 
-        # ── Q8: User & connection patterns by hour-of-day ──
-        hourly_users = {}
-        for q in query_stats:
-            if q.execution_time and q.user_email:
-                hod = q.execution_time.hour
-                if hod not in hourly_users:
-                    hourly_users[hod] = {"users": set(), "queries": 0, "peak_concurrent": 0}
-                hourly_users[hod]["users"].add(q.user_email)
-                hourly_users[hod]["queries"] += 1
-        # Compute peak concurrent per hour from minute buckets
-        hourly_peak_concurrent = {}
-        for q in query_stats:
-            if q.execution_time:
-                hod = q.execution_time.hour
-                min_key = q.execution_time.strftime('%Y-%m-%d %H:%M')
-                if hod not in hourly_peak_concurrent:
-                    hourly_peak_concurrent[hod] = {}
-                hourly_peak_concurrent[hod][min_key] = hourly_peak_concurrent[hod].get(min_key, 0) + 1
-        user_patterns_by_hour = sorted(
-            [{
-                "hour": h,
-                "distinct_users": len(hourly_users.get(h, {}).get("users", set())),
-                "total_queries": hourly_users.get(h, {}).get("queries", 0),
-                "peak_concurrent_in_hour": max(hourly_peak_concurrent.get(h, {}).values()) if hourly_peak_concurrent.get(h) else 0,
-            } for h in range(24)],
-            key=lambda x: x["hour"]
-        )
+        write_pattern_breakdown = sorted([{
+            "statement_type": st, "job_count": v["count"],
+            "tib_processed": round(v["total_bytes_processed"] / (1024**4), 6),
+            "avg_duration_sec": round((v["total_duration_ms"] / v["count"]) / 1000, 2) if v["count"] > 0 else 0,
+            "max_duration_sec": round(v["max_duration_ms"] / 1000, 2),
+        } for st, v in stmt_type_breakdown.items()], key=lambda x: x["job_count"], reverse=True)
+
+        user_patterns_by_hour = sorted([{
+            "hour": h,
+            "distinct_users": len(hourly_users.get(h, {}).get("users", set())),
+            "total_queries": hourly_users.get(h, {}).get("queries", 0),
+            "peak_concurrent_in_hour": max(hourly_peak_concurrent.get(h, {}).values()) if hourly_peak_concurrent.get(h) else 0,
+        } for h in range(24)], key=lambda x: x["hour"])
+
+        # ── Phase 4: Repeat query rate (DB-level for speed) ──
+        try:
+            repeat_result = db.execute(text("""
+                WITH hashes AS (
+                    SELECT md5(lower(regexp_replace(query_text, '\\s+', ' ', 'g'))) as qhash
+                    FROM assessment_query_stats
+                    WHERE assessment_id = :aid AND query_text IS NOT NULL
+                )
+                SELECT count(*) as total, count(DISTINCT qhash) as unique_count,
+                       (SELECT sum(cnt) FROM (SELECT count(*) as cnt FROM hashes GROUP BY qhash HAVING count(*) > 1) sub) as repeated_count
+                FROM hashes
+            """), {"aid": assessment_id}).fetchone()
+            total_with_text = repeat_result[0] or 0
+            unique_query_count = repeat_result[1] or 0
+            repeated_count = repeat_result[2] or 0
+            repeat_query_rate = round((repeated_count / total_with_text * 100), 1) if total_with_text > 0 else 0
+        except Exception:
+            repeat_query_rate = 0
+            unique_query_count = 0
+
+        # ── Phase 5: Paginated query list (load query_text only for top results) ──
+        sort_col = AssessmentQueryStat.bytes_scanned
+        if sort_by == "slot_milliseconds":
+            sort_col = AssessmentQueryStat.slot_milliseconds
+        elif sort_by in ("execution_time", "est_runtime"):
+            sort_col = AssessmentQueryStat.execution_time
+
+        page_query = db.query(AssessmentQueryStat).filter(AssessmentQueryStat.assessment_id == assessment_id)
+        if timeframe == "24h":
+            page_query = page_query.filter(AssessmentQueryStat.execution_time >= now - timedelta(hours=24))
+        elif timeframe == "7d":
+            page_query = page_query.filter(AssessmentQueryStat.execution_time >= now - timedelta(days=7))
+        elif timeframe == "30d":
+            page_query = page_query.filter(AssessmentQueryStat.execution_time >= now - timedelta(days=30))
+
+        if search:
+            search_pattern = f"%{search}%"
+            page_query = page_query.filter(
+                (AssessmentQueryStat.query_text.ilike(search_pattern)) |
+                (AssessmentQueryStat.user_email.ilike(search_pattern)) |
+                (AssessmentQueryStat.job_id.ilike(search_pattern))
+            )
+
+        total_filtered = min(page_query.count(), 100)
+        offset = (page - 1) * page_size
+        page_stats = page_query.order_by(sort_col.desc().nullslast()).offset(offset).limit(page_size).all()
 
         queries = []
         for q in page_stats:
             q_slot_ms = q.slot_milliseconds or 0
-            # Compute per-query slot utilization using actual runtime when available
             q_runtime_ms = 0
             if q.query_metadata and isinstance(q.query_metadata, dict):
                 q_runtime_ms = q.query_metadata.get('total_elapsed_time_ms', 0)
@@ -1363,7 +1718,6 @@ async def get_query_insights(
             else:
                 q_slot_util = 0
                 q_est_runtime = 0
-
             queries.append({
                 "job_id": q.job_id,
                 "execution_time": q.execution_time.isoformat() if q.execution_time else None,
@@ -1379,48 +1733,35 @@ async def get_query_insights(
                 "referenced_tables": q.referenced_tables or [],
                 "user_email": q.user_email or "Unknown"
             })
-        
+
         return {
-            "assessment_id": assessment_id,
-            "timeframe": timeframe,
+            "assessment_id": assessment_id, "timeframe": timeframe,
             "summary": {
-                "total_query_count": total_queries,
-                "active_users_count": active_users_count,
+                "total_query_count": total_queries, "active_users_count": active_users_count,
                 "avg_execution_time_seconds": round(avg_execution_time_seconds, 3),
                 "total_bytes_scanned": total_bytes_scanned,
                 "total_bytes_billed": total_bytes_billed if total_bytes_billed > 0 else total_bytes_scanned,
                 "total_slot_milliseconds": total_slot_ms,
-                "cache_hit_rate": round(cache_hit_rate, 2),
-                "cache_hits": cache_hits,
-                "cache_misses": select_queries - cache_hits,
-                "select_queries": select_queries,
-                "read_queries": read_count,
-                "write_queries": write_count,
-                "max_concurrent_queries": max_concurrent_queries,
-                "avg_concurrent_queries": avg_concurrent_queries,
-                "max_slot_milliseconds": max_slot_ms,
-                "min_slot_milliseconds": min_slot_ms,
+                "cache_hit_rate": round(cache_hit_rate, 2), "cache_hits": cache_hits,
+                "cache_misses": select_queries - cache_hits, "select_queries": select_queries,
+                "read_queries": read_count, "write_queries": write_count,
+                "max_concurrent_queries": max_concurrent_queries, "avg_concurrent_queries": avg_concurrent_queries,
+                "max_slot_milliseconds": max_slot_ms, "min_slot_milliseconds": min_slot_ms,
                 "avg_slot_ms_per_query": avg_slot_ms_per_query,
                 "max_query_runtime_seconds": max_query_runtime_seconds,
                 "min_query_runtime_seconds": min_query_runtime_seconds,
                 "avg_query_runtime_seconds": avg_query_runtime_seconds,
-                "peak_slot_utilization": peak_slot_utilization,
-                "avg_slot_utilization": avg_slot_utilization,
-                "p50_slot_utilization": p50_slot_utilization,
-                "p90_slot_utilization": p90_slot_utilization,
-                "p95_slot_utilization": p95_slot_utilization,
-                "p99_slot_utilization": p99_slot_utilization
+                "peak_slot_utilization": peak_slot_utilization, "avg_slot_utilization": avg_slot_utilization,
+                "p50_slot_utilization": p50_slot_utilization, "p90_slot_utilization": p90_slot_utilization,
+                "p95_slot_utilization": p95_slot_utilization, "p99_slot_utilization": p99_slot_utilization,
+                "peak_hour": peak_hour, "peak_hour_queries": peak_hour_queries,
+                "peak_day_of_week": peak_day_of_week, "peak_day_queries": peak_day_queries,
+                "repeat_query_rate": repeat_query_rate, "unique_query_count": unique_query_count,
+                "active_hours_per_day": active_hours_per_day, "query_time_span_days": round(kpi_span_days, 1)
             },
             "charts": {
-                "read_write_distribution": {
-                    "read": read_count,
-                    "write": write_count
-                },
-                "concurrent_queries": {
-                    "hourly": hourly_data,
-                    "daily": daily_data,
-                    "weekly": weekly_data
-                },
+                "read_write_distribution": {"read": read_count, "write": write_count},
+                "concurrent_queries": {"hourly": hourly_data, "daily": daily_data, "weekly": weekly_data},
                 "duration_distribution": duration_distribution,
                 "concurrent_query_percentiles": concurrent_query_percentiles,
                 "hourly_slot_usage": hourly_slot_usage,
@@ -1429,10 +1770,9 @@ async def get_query_insights(
             },
             "queries": queries,
             "pagination": {
-                "page": page,
-                "page_size": page_size,
+                "page": page, "page_size": page_size,
                 "total_filtered": total_filtered,
-                "total_pages": (total_filtered + page_size - 1) // page_size
+                "total_pages": min((total_filtered + page_size - 1) // page_size, (100 + page_size - 1) // page_size)
             }
         }
     except HTTPException:
@@ -1442,3 +1782,32 @@ async def get_query_insights(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _empty_query_insights_response(assessment_id, timeframe, page, page_size):
+    """Return empty response when no query stats exist."""
+    return {
+        "assessment_id": assessment_id, "timeframe": timeframe,
+        "summary": {
+            "total_query_count": 0, "active_users_count": 0, "avg_execution_time_seconds": 0,
+            "total_bytes_scanned": 0, "total_bytes_billed": 0, "total_slot_milliseconds": 0,
+            "cache_hit_rate": 0, "cache_hits": 0, "cache_misses": 0, "select_queries": 0,
+            "read_queries": 0, "write_queries": 0, "max_concurrent_queries": 0,
+            "avg_concurrent_queries": 0, "max_slot_milliseconds": 0, "min_slot_milliseconds": 0,
+            "avg_slot_ms_per_query": 0, "max_query_runtime_seconds": 0, "min_query_runtime_seconds": 0,
+            "avg_query_runtime_seconds": 0, "peak_slot_utilization": 0, "avg_slot_utilization": 0,
+            "p50_slot_utilization": 0, "p90_slot_utilization": 0, "p95_slot_utilization": 0,
+            "p99_slot_utilization": 0, "peak_hour": 0, "peak_hour_queries": 0,
+            "peak_day_of_week": "N/A", "peak_day_queries": 0, "repeat_query_rate": 0,
+            "unique_query_count": 0, "active_hours_per_day": 0, "query_time_span_days": 0
+        },
+        "charts": {
+            "read_write_distribution": {"read": 0, "write": 0},
+            "concurrent_queries": {"hourly": [], "daily": [], "weekly": []},
+            "duration_distribution": [], "concurrent_query_percentiles": {},
+            "hourly_slot_usage": [], "write_pattern_breakdown": [],
+            "user_patterns_by_hour": []
+        },
+        "queries": [],
+        "pagination": {"page": page, "page_size": page_size, "total_filtered": 0, "total_pages": 0}
+    }

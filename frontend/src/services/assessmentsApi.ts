@@ -48,6 +48,7 @@ export interface DatasetSummary {
   location: string | null;
   table_count: number;
   total_size_mb: number;
+  dataset_metadata?: Record<string, any>;
 }
 
 export interface AssessmentDetailResponse {
@@ -247,10 +248,102 @@ export interface AssessmentReportIndex {
 }
 
 /**
- * Get comprehensive assessment report
+ * Get comprehensive assessment report (full — used for PDF download)
  */
 export const getAssessmentReport = async (assessmentId: number): Promise<AssessmentFullReport> => {
   return api.get(`/api/assessments/${assessmentId}/report`);
+};
+
+// ---- Lazy-load per-section endpoints ----
+
+export interface ReportSummary {
+  assessment: AssessmentFullReport['assessment'] & {
+    trigger_count?: number;
+    schemas_count?: number;
+    security_items_count?: number;
+  };
+  datasets: DatasetSummary[];
+  security_policies_preview?: any[];
+}
+
+export interface PaginatedTablesResponse {
+  tables: AssessmentReportTable[];
+  columns: AssessmentReportColumn[];
+  indexes: AssessmentReportIndex[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  datasets: string[];
+}
+
+export interface PaginatedViewsResponse {
+  views: AssessmentReportView[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface RoutinesResponse {
+  routines: AssessmentReportRoutine[];
+}
+
+export interface SecurityResponse {
+  security_policies: AssessmentReportSecurity[];
+  columns: AssessmentReportColumn[];
+  tables: { id: number; dataset_name: string; table_name: string }[];
+}
+
+export interface MLModelsResponse {
+  ml_models: AssessmentReportMLModel[];
+  spark_models: AssessmentReportRoutine[];
+}
+
+export interface UserInsightsResponse {
+  query_stats: AssessmentReportQueryStat[];
+}
+
+export const getReportSummary = async (assessmentId: number): Promise<ReportSummary> => {
+  return api.get(`/api/assessments/${assessmentId}/report/summary`);
+};
+
+export const getReportTables = async (assessmentId: number, page: number = 1, pageSize: number = 50, dataset?: string): Promise<PaginatedTablesResponse> => {
+  let url = `/api/assessments/${assessmentId}/report/tables?page=${page}&page_size=${pageSize}`;
+  if (dataset && dataset !== 'all') url += `&dataset=${encodeURIComponent(dataset)}`;
+  return api.get(url);
+};
+
+export const getReportViews = async (assessmentId: number, page: number = 1, pageSize: number = 50): Promise<PaginatedViewsResponse> => {
+  return api.get(`/api/assessments/${assessmentId}/report/views?page=${page}&page_size=${pageSize}`);
+};
+
+export const getReportRoutines = async (assessmentId: number): Promise<RoutinesResponse> => {
+  return api.get(`/api/assessments/${assessmentId}/report/routines`);
+};
+
+export const getReportSecurity = async (assessmentId: number): Promise<SecurityResponse> => {
+  return api.get(`/api/assessments/${assessmentId}/report/security`);
+};
+
+export const getReportMLModels = async (assessmentId: number): Promise<MLModelsResponse> => {
+  return api.get(`/api/assessments/${assessmentId}/report/ml-models`);
+};
+
+export const getReportUserInsights = async (assessmentId: number): Promise<UserInsightsResponse> => {
+  return api.get(`/api/assessments/${assessmentId}/report/user-insights`);
+};
+
+/** Fetch ALL tables (no pagination) for CSV export */
+export const getAllReportTables = async (assessmentId: number, dataset?: string): Promise<{ tables: AssessmentReportTable[]; total: number }> => {
+  let url = `/api/assessments/${assessmentId}/report/tables?export=all`;
+  if (dataset && dataset !== 'all') url += `&dataset=${encodeURIComponent(dataset)}`;
+  return api.get(url);
+};
+
+/** Fetch ALL views (no pagination) for CSV export */
+export const getAllReportViews = async (assessmentId: number): Promise<{ views: AssessmentReportView[]; total: number }> => {
+  return api.get(`/api/assessments/${assessmentId}/report/views?export=all`);
 };
 
 

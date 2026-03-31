@@ -1,8 +1,9 @@
 import React from 'react';
 import { Database } from 'lucide-react';
-import { SiMongodb, SiAmazondocumentdb, SiPostgresql, SiMysql, SiOracle, SiGooglecloud, SiAmazonredshift } from 'react-icons/si';
+import { SiMongodb, SiAmazondocumentdb, SiPostgresql, SiMysql, SiOracle, SiGooglecloud, SiAmazonredshift, SiSap } from 'react-icons/si';
 import { DatabaseType, DatabaseTypeInfo } from '../../types/fieldConfig';
 import { DATABASE_TYPES } from '../../constants/defaultFieldConfigs';
+import { Db2Icon } from '../icons/Db2Icon';
 import './DatabaseTypeList.css';
 
 interface DatabaseTypeListProps {
@@ -42,6 +43,10 @@ export const DatabaseTypeList: React.FC<DatabaseTypeListProps> = ({
         return <SiGooglecloud size={iconSize} />;
       case 'redshift':
         return <SiAmazonredshift size={iconSize} />;
+      case 'sybase':
+        return <SiSap size={iconSize} />;
+      case 'db2':
+        return <Db2Icon size={iconSize} />;
       default:
         return <Database size={iconSize} strokeWidth={1.5} />;
     }

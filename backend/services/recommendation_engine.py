@@ -294,46 +294,21 @@ class RecommendationEngine:
         billed_seconds_per_hour = min(billed_seconds_per_hour, 3600)
 
         # Step 3: Convert BQ slots to RPUs for sizing
-        # 1 RPU = 16 GB RAM + ~2 vCPUs. BQ slot ≈ 1 vCPU.
-        # Base RPU should handle the average concurrent slot usage.
-        # Peak slots are handled by auto-scaling (up to max_rpu).
-        # Use avg concurrent slots converted to RPUs (slots / 2).
-        rpus_from_avg = max(8, math.ceil(estimated_avg_concurrent_slots / 2))
-        # Round up to valid RPU values: 8, 16, 32, 48, 64, ...
-        valid_rpus = [8, 16, 32, 48, 64, 96, 128, 192, 256, 512]
-        estimated_base_rpu = 8
-        for rpu in valid_rpus:
-            if rpu >= rpus_from_avg:
-                estimated_base_rpu = rpu
-                break
+        # 1 RPU = 16 GiB memory ≈ 2 BQ slots. So RPU needed = avg_slots / 2.
+        # Valid RPU values: 4, 8, 16, 24, 32, ..., 1024 (4 is minimum, then multiples of 8).
+        rpus_from_avg = max(1, math.ceil(estimated_avg_concurrent_slots / 2))
+        if rpus_from_avg <= 4:
+            estimated_base_rpu = 4
         else:
-            estimated_base_rpu = valid_rpus[-1]
+            estimated_base_rpu = math.floor(rpus_from_avg / 8) * 8
 
         # Step 4: Calculate monthly RPU-hours
-        # RPU-hours = (billed_seconds_per_hour / 3600) × RPUs × active_hours_per_day × 30
-        # Active hours per day: estimate from query distribution
-        if daily_queries <= 0:
-            active_hours_per_day = 0
-        elif daily_queries < 10:
-            active_hours_per_day = 1  # Sporadic
-        elif daily_queries < 100:
-            active_hours_per_day = min(daily_queries * billed_seconds_per_query / 3600, 8)
-        else:
-            active_hours_per_day = min(daily_queries * billed_seconds_per_query / 3600, 16)
-        # Cap: can't exceed 24 hours
+        # active_hours_per_day = total_slot_hours / (time_span_days × 24)
+        # RPU-hours/month = base_rpu × active_hours_per_day × 30
+        active_hours_per_day = total_slot_hours / (time_span_days * 24) if time_span_days > 0 else 0
         active_hours_per_day = min(active_hours_per_day, 24)
 
-        # RPU-hours/month = base_rpu × active_hours_per_day × 30
-        # This represents the minimum billing (base RPU always allocated during active time)
         estimated_rpu_hours_monthly = estimated_base_rpu * active_hours_per_day * 30
-
-        # Cross-check: RPU-hours should be at least proportional to BQ slot-hours
-        # but accounting for the RPU/slot ratio and Redshift's different execution model.
-        # Redshift typically needs 1.5-3x the wall-clock time of BQ for equivalent queries
-        # (BQ has more aggressive parallelism with 100s-1000s of slots).
-        # Minimum: slot_hours / slots_per_rpu × overhead_factor
-        slot_based_rpu_hours = (monthly_slot_hours / 2) * 1.5  # 1.5x overhead
-        estimated_rpu_hours_monthly = max(estimated_rpu_hours_monthly, slot_based_rpu_hours)
 
         # --- Per-query concurrent slot stats (already computed above) ---
         if per_query_slots:
@@ -504,7 +479,7 @@ class RecommendationEngine:
         # --- Serverless Recommendation ---
         serverless = self._recommend_serverless(
             total_size_gb, total_queries, monthly_slot_hours,
-            rpu_hours_monthly, peak_slots
+            rpu_hours_monthly, peak_slots, avg_slots
         )
 
         # --- Decision: Which is recommended? ---
@@ -619,8 +594,8 @@ class RecommendationEngine:
         # If peak is much higher than avg (>3x), size for a middle ground with concurrency scaling
         # Otherwise, size closer to peak for consistent performance
         if peak_to_avg_ratio > 3:
-            # High variance workload - size for sustained + use concurrency scaling for peaks
-            target_memory_gib = max(32, math.ceil(avg_slots * 1.5))
+            # High variance workload - size for avg (1 BQ slot ≈ 1 GiB), concurrency scaling handles peaks
+            target_memory_gib = max(32, math.ceil(avg_slots))
             use_concurrency_scaling = True
         else:
             # Steady workload - size for peak with some headroom
@@ -644,12 +619,15 @@ class RecommendationEngine:
         best_cost = float('inf')
         
         for node_type, mem_per_node, hourly_cost, max_nodes in ra3_options:
+            # Minimum nodes: ra3.xlplus supports single-node clusters, others need 2
+            min_nodes = 1 if node_type == 'ra3.xlplus' else 2
+            
             # Calculate nodes needed for compute
-            nodes_for_compute = max(2, math.ceil(target_memory_gib / mem_per_node))
+            nodes_for_compute = max(min_nodes, math.ceil(target_memory_gib / mem_per_node))
             
             # Calculate nodes needed for storage using actual node storage capacity
             node_storage_gb = self.NODE_TYPES[node_type]['storage_gb']
-            nodes_for_storage = max(2, math.ceil(size_gb / node_storage_gb)) if node_storage_gb > 0 else 2
+            nodes_for_storage = max(min_nodes, math.ceil(size_gb / node_storage_gb)) if node_storage_gb > 0 else min_nodes
             
             nodes_needed = max(nodes_for_compute, nodes_for_storage)
             
@@ -750,28 +728,29 @@ class RecommendationEngine:
     def _recommend_serverless(
         self, size_gb: float, query_count: int,
         monthly_slot_hours: float, rpu_hours_monthly: float,
-        peak_slots: float
+        peak_slots: float, avg_slots: float = 0
     ) -> Dict:
         """
         Recommend serverless configuration using actual BQ workload data.
 
-        Mapping: 1 BQ slot = 1 GiB memory, 1 RPU = 16 GiB memory.
-        So RPU needed = ceil(peak_slots / 16), rounded up to nearest 8.
-
-        Base RPU: minimum RPUs always available.
-        Max RPU: upper limit for auto-scaling (up to 1024).
+        Mapping: 1 BQ slot ≈ 1 GiB memory, 1 RPU ≈ 2 BQ slots.
+        Base RPU = floor(avg_slots / 2) rounded down to nearest 8.
+        Max RPU = based on peak_slots for auto-scaling headroom.
         """
-        # Peak BQ slots → memory → RPU
-        # 1 BQ slot = 1 GiB, 1 RPU = 16 GiB
-        memory_needed_gib = max(16, math.ceil(peak_slots))
-        raw_rpu = math.ceil(memory_needed_gib / 16)
-        # Round up to nearest 8 (valid RPU increments)
-        base_rpu = max(8, math.ceil(raw_rpu / 8) * 8)
+        # Base RPU from avg slots (not peak) — same logic as _analyze_workload
+        # 1 RPU ≈ 2 BQ slots → avg_slots / 2 = RPUs needed
+        # Valid RPU values: 4, 8, 16, 24, 32, ..., 1024 (4 is minimum, then multiples of 8).
+        base_avg = avg_slots if avg_slots > 0 else peak_slots
+        rpus_from_avg = max(1, math.ceil(base_avg / 2))
+        if rpus_from_avg <= 4:
+            base_rpu = 4
+        else:
+            base_rpu = math.floor(rpus_from_avg / 8) * 8
 
-        # Max RPU: allow headroom for burst (2x base, min 32)
-        max_rpu = max(base_rpu * 2, 32)
+        # Max RPU from peak slots for auto-scaling headroom
+        rpus_from_peak = max(1, math.ceil(peak_slots / 2))
+        max_rpu = max(base_rpu, math.ceil(rpus_from_peak / 8) * 8)
         max_rpu = min(max_rpu, 1024)
-        max_rpu = math.ceil(max_rpu / 8) * 8
 
         # Actual RPU-hours from workload analysis
         actual_rpu_hours = rpu_hours_monthly
