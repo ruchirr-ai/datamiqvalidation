@@ -200,5 +200,5 @@ class BulkDeleteRequest(BaseModel):
 # Dialect validation constants
 # ---------------------------------------------------------------------------
 
-ALLOWED_SOURCE_DIALECTS: set[str] = {"BigQuery", "Bigquery", "bigquery", "SQL Server", "sql server", "Redshift", "redshift"}
+ALLOWED_SOURCE_DIALECTS: set[str] = {"BigQuery", "Bigquery", "bigquery", "SQL Server", "sql server", "Redshift", "redshift", "Sybase", "sybase", "IBM Db2", "ibm db2", "DB2", "db2"}
 ALLOWED_TARGET_DIALECTS: set[str] = {"Redshift", "redshift", "SQL Server", "sql server", "BigQuery", "Bigquery", "bigquery"}
