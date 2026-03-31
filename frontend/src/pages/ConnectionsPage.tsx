@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SiMongodb, SiAmazondocumentdb, SiPostgresql, SiMysql, SiOracle, SiGooglecloud, SiAmazonredshift } from 'react-icons/si';
+import { SiMongodb, SiAmazondocumentdb, SiPostgresql, SiMysql, SiOracle, SiGooglecloud, SiAmazonredshift, SiSap } from 'react-icons/si';
 import { Cable, Database, MoreVertical, Clock, Pencil, Trash2 } from 'lucide-react';
 import { Button, Badge, Dropdown, DropdownItem, Select, Avatar } from '../components/ui';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/DropdownMenu';
@@ -175,6 +175,10 @@ export const ConnectionsPage: React.FC = () => {
         return <SiAmazonredshift className="db-icon redshift" />;
       case 'sqlserver':
         return <Database className="db-icon sqlserver" size={16} />;
+      case 'sybase':
+        return <SiSap className="db-icon sybase" />;
+      case 'db2':
+        return <Database className="db-icon db2" size={16} />;
       default:
         return <Database className="db-icon" size={16} />;
     }
@@ -189,7 +193,9 @@ export const ConnectionsPage: React.FC = () => {
       'oracle': 'Oracle',
       'bigquery': 'BigQuery',
       'redshift': 'Redshift',
-      'sqlserver': 'SQL Server'
+      'sqlserver': 'SQL Server',
+      'sybase': 'SAP Sybase',
+      'db2': 'IBM Db2'
     };
     return labels[database.toLowerCase()] || database;
   };

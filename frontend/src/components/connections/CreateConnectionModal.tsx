@@ -4,7 +4,7 @@ import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
 import { Database, Check, X, AlertCircle, ExternalLink } from 'lucide-react';
-import { SiMongodb, SiAmazondocumentdb, SiPostgresql, SiMysql, SiOracle, SiGooglecloud, SiAmazonredshift } from 'react-icons/si';
+import { SiMongodb, SiAmazondocumentdb, SiPostgresql, SiMysql, SiOracle, SiGooglecloud, SiAmazonredshift, SiSap } from 'react-icons/si';
 import { DynamicField } from '../fieldConfig/DynamicField';
 import { fieldConfigApi } from '../../services/fieldConfigApi';
 import { testConnection } from '../../services/api';
@@ -62,6 +62,8 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
     { value: 'oracle', label: 'Oracle', icon: <SiOracle size={16} /> },
     { value: 'sqlserver', label: 'SQL Server', icon: <Database size={16} /> },
     { value: 'bigquery', label: 'BigQuery', icon: <SiGooglecloud size={16} /> },
+    { value: 'sybase', label: 'SAP Sybase', icon: <SiSap size={16} /> },
+    { value: 'db2', label: 'IBM Db2', icon: <Database size={16} /> },
   ];
 
   const targetDatabaseOptions = [
@@ -72,6 +74,8 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
     { value: 'oracle', label: 'Oracle', icon: <SiOracle size={16} /> },
     { value: 'sqlserver', label: 'SQL Server', icon: <Database size={16} /> },
     { value: 'redshift', label: 'Amazon Redshift', icon: <SiAmazonredshift size={16} /> },
+    { value: 'sybase', label: 'SAP Sybase', icon: <SiSap size={16} /> },
+    { value: 'db2', label: 'IBM Db2', icon: <Database size={16} /> },
   ];
 
   const databaseOptions = connectionType === 'source' ? sourceDatabaseOptions : targetDatabaseOptions;
