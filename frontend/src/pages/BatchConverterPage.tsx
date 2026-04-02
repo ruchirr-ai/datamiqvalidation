@@ -45,7 +45,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 // ---------------------------------------------------------------------------
 
 /** Restricted source dialect options (Req 3.3) */
-const SOURCE_DIALECT_OPTIONS = ['BigQuery', 'SQL Server', 'Redshift'];
+const SOURCE_DIALECT_OPTIONS = ['BigQuery', 'SQL Server', 'Redshift', 'Sybase', 'IBM Db2'];
 
 /** Restricted target dialect options (Req 3.4) */
 const TARGET_DIALECT_OPTIONS = ['Redshift', 'SQL Server', 'BigQuery'];

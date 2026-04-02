@@ -15,6 +15,8 @@ export const DATABASE_TYPES: DatabaseTypeInfo[] = [
   { id: 'sqlserver', name: 'SQL Server', icon: '🔷' },
   { id: 'bigquery', name: 'BigQuery', icon: '☁️' },
   { id: 'redshift', name: 'Amazon Redshift', icon: '🔺' },
+  { id: 'sybase', name: 'SAP Sybase', icon: '🔶' },
+  { id: 'db2', name: 'IBM Db2', icon: '🔵' },
 ];
 
 export const MONGODB_DEFAULT_FIELDS: FieldConfiguration[] = [
@@ -581,6 +583,26 @@ export const REDSHIFT_DEFAULT_FIELDS: FieldConfiguration[] = [
   },
 ];
 
+export const SYBASE_DEFAULT_FIELDS: FieldConfiguration[] = [
+  { id: 'sybase-host', name: 'host', label: 'Host', type: 'text', enabled: true, required: true, placeholder: 'localhost', displayOrder: 1, databaseType: 'sybase' },
+  { id: 'sybase-port', name: 'port', label: 'Port', type: 'number', enabled: true, required: true, defaultValue: '5000', displayOrder: 2, databaseType: 'sybase' },
+  { id: 'sybase-database', name: 'database', label: 'Database', type: 'text', enabled: true, required: true, displayOrder: 3, databaseType: 'sybase' },
+  { id: 'sybase-server-name', name: 'server_name', label: 'Server Name', type: 'text', enabled: true, required: false, helpText: 'Adaptive Server name (DSQUERY)', displayOrder: 4, databaseType: 'sybase' },
+  { id: 'sybase-username', name: 'username', label: 'Username', type: 'text', enabled: true, required: true, displayOrder: 5, databaseType: 'sybase' },
+  { id: 'sybase-password', name: 'password', label: 'Password', type: 'password', enabled: true, required: true, displayOrder: 6, databaseType: 'sybase' },
+  { id: 'sybase-charset', name: 'charset', label: 'Character Set', type: 'text', enabled: true, required: false, defaultValue: 'utf8', displayOrder: 7, databaseType: 'sybase' },
+];
+
+export const DB2_DEFAULT_FIELDS: FieldConfiguration[] = [
+  { id: 'db2-host', name: 'host', label: 'Host', type: 'text', enabled: true, required: true, placeholder: 'localhost', displayOrder: 1, databaseType: 'db2' },
+  { id: 'db2-port', name: 'port', label: 'Port', type: 'number', enabled: true, required: true, defaultValue: '50000', displayOrder: 2, databaseType: 'db2' },
+  { id: 'db2-database', name: 'database', label: 'Database', type: 'text', enabled: true, required: true, displayOrder: 3, databaseType: 'db2' },
+  { id: 'db2-schema', name: 'schema', label: 'Schema', type: 'text', enabled: true, required: false, helpText: 'Default schema name', displayOrder: 4, databaseType: 'db2' },
+  { id: 'db2-username', name: 'username', label: 'Username', type: 'text', enabled: true, required: true, displayOrder: 5, databaseType: 'db2' },
+  { id: 'db2-password', name: 'password', label: 'Password', type: 'password', enabled: true, required: true, displayOrder: 6, databaseType: 'db2' },
+  { id: 'db2-ssl', name: 'ssl', label: 'Enable SSL', type: 'checkbox', enabled: true, required: false, defaultValue: 'false', displayOrder: 7, databaseType: 'db2' },
+];
+
 export const DEFAULT_FIELD_CONFIGS: Record<string, FieldConfiguration[]> = {
   mongodb: MONGODB_DEFAULT_FIELDS,
   documentdb: DOCUMENTDB_DEFAULT_FIELDS,
@@ -590,4 +612,6 @@ export const DEFAULT_FIELD_CONFIGS: Record<string, FieldConfiguration[]> = {
   sqlserver: SQLSERVER_DEFAULT_FIELDS,
   bigquery: BIGQUERY_DEFAULT_FIELDS,
   redshift: REDSHIFT_DEFAULT_FIELDS,
+  sybase: SYBASE_DEFAULT_FIELDS,
+  db2: DB2_DEFAULT_FIELDS,
 };

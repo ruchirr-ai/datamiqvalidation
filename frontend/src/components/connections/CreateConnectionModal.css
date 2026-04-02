@@ -151,10 +151,18 @@
   position: relative;
 }
 
+.password-field .input-container {
+  width: 100%;
+}
+
+.password-field .input {
+  padding-right: 44px;
+}
+
 .password-toggle {
   position: absolute;
-  right: 12px;
-  top: 38px;
+  right: 8px;
+  bottom: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -166,6 +174,7 @@
   cursor: pointer;
   border-radius: var(--radius-sm);
   transition: all var(--transition-fast);
+  z-index: 1;
 }
 
 .password-toggle:hover {
