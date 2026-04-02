@@ -52,7 +52,12 @@ class SQLServerAssessmentService:
         self.username = connection_params.get('username')
         self.password = connection_params.get('password')
         self.driver = connection_params.get('driver', 'ODBC Driver 17 for SQL Server')
-        self.windows_auth = connection_params.get('windows_auth', False)
+        # Handle windows_auth as string "true"/"false" or boolean
+        windows_auth_value = connection_params.get('windows_auth', False)
+        if isinstance(windows_auth_value, str):
+            self.windows_auth = windows_auth_value.lower() in ('true', '1', 'yes')
+        else:
+            self.windows_auth = bool(windows_auth_value)
         
         # Build connection string
         self.connection_string = self._build_connection_string()
