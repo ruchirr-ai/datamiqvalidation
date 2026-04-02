@@ -25,7 +25,8 @@ import {
   getReportRoutines, RoutinesResponse,
   getReportSecurity, SecurityResponse,
   getReportUserInsights, UserInsightsResponse,
-  ReportSummary, DatasetSummary
+  ReportSummary, DatasetSummary,
+  getReportAdditionalMetadata, AdditionalMetadata
 } from '../services/assessmentsApi';
 import QueryInsightsSection from '../components/assessments/QueryInsightsSection';
 import { SQLServerTablesSection } from '../components/assessments/SQLServerTablesSection';
@@ -95,6 +96,9 @@ export const SQLServerReportPage: React.FC<SQLServerReportPageProps> = ({ summar
   const [userInsightsLoading, setUserInsightsLoading] = useState(false);
   const [userInsightsError, setUserInsightsError] = useState<string | null>(null);
 
+  const [additionalMeta, setAdditionalMeta] = useState<AdditionalMetadata | null>(null);
+  const [additionalMetaLoading, setAdditionalMetaLoading] = useState(false);
+
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const loadedTabsRef = useRef<Set<string>>(new Set(['summary']));
@@ -131,11 +135,26 @@ export const SQLServerReportPage: React.FC<SQLServerReportPageProps> = ({ summar
           setSecurityLoading(true);
           getReportSecurity(id).then(d => { setSecurityData(d); loadedTabsRef.current.add('security'); }).catch((e: any) => setSecurityError(e.detail || e.message || 'Failed')).finally(() => setSecurityLoading(false));
         }
+        // Also fetch tables for Custom Data Types in schemas tab
+        if (tab === 'schemas' && !loadedTabsRef.current.has('tables')) {
+          fetchTables(tablesPage, tablesPageSize);
+        }
+        // Also fetch additional metadata for security tab (certs, encryption, assemblies, policies)
+        if (tab === 'security' && !loadedTabsRef.current.has('additional-meta')) {
+          setAdditionalMetaLoading(true);
+          getReportAdditionalMetadata(id).then(d => { setAdditionalMeta(d); loadedTabsRef.current.add('additional-meta'); }).catch(() => {}).finally(() => setAdditionalMetaLoading(false));
+        }
         break;
       case 'user-insights':
         if (!loadedTabsRef.current.has('user-insights')) {
           setUserInsightsLoading(true);
           getReportUserInsights(id).then(d => { setUserInsightsData(d); loadedTabsRef.current.add('user-insights'); }).catch((e: any) => setUserInsightsError(e.detail || e.message || 'Failed')).finally(() => setUserInsightsLoading(false));
+        }
+        break;
+      case 'agent-jobs':
+        if (!loadedTabsRef.current.has('additional-meta')) {
+          setAdditionalMetaLoading(true);
+          getReportAdditionalMetadata(id).then(d => { setAdditionalMeta(d); loadedTabsRef.current.add('additional-meta'); }).catch(() => {}).finally(() => setAdditionalMetaLoading(false));
         }
         break;
     }
@@ -170,6 +189,7 @@ export const SQLServerReportPage: React.FC<SQLServerReportPageProps> = ({ summar
     { id: 'procedures', label: 'Stored Procedures', icon: Code },
     { id: 'functions', label: 'Functions', icon: Code },
     { id: 'triggers', label: 'Triggers', icon: Zap },
+    { id: 'agent-jobs', label: 'Agent Jobs', icon: Server },
     { id: 'query-insights', label: 'Query Insights', icon: Activity },
     { id: 'user-insights', label: 'Query Summary', icon: Users },
     { id: 'security', label: 'Security', icon: Shield },
@@ -201,7 +221,7 @@ export const SQLServerReportPage: React.FC<SQLServerReportPageProps> = ({ summar
         {activeTab === 'datasets' && <SQLServerDatasetsSection datasets={summary.datasets} tables={tablesData?.tables} />}
         {activeTab === 'schemas' && (
           securityLoading ? <TabSpinner message="Loading schemas..." /> :
-          <SchemasSection schemas={transformSecurityDataForSQLServer(securityData?.security_policies || summary.security_policies_preview || []).schemas} />
+          <SchemasSection schemas={transformSecurityDataForSQLServer(securityData?.security_policies || summary.security_policies_preview || []).schemas} columns={tablesData?.columns} tables={tablesData?.tables} />
         )}
         {activeTab === 'tables' && (
           tablesLoading ? <TabSpinner message="Loading tables..." /> :
@@ -240,6 +260,11 @@ export const SQLServerReportPage: React.FC<SQLServerReportPageProps> = ({ summar
           routinesData ? <SQLServerRoutinesSection routines={getTriggers()} title="Triggers" formatDate={formatDate} /> :
           <TabSpinner message="Loading triggers..." />
         )}
+        {activeTab === 'agent-jobs' && (
+          additionalMetaLoading ? <TabSpinner message="Loading agent jobs..." /> :
+          additionalMeta ? <AgentJobsSection jobs={additionalMeta.agent_jobs || []} formatDate={formatDate} /> :
+          <TabSpinner message="Loading agent jobs..." />
+        )}
         {activeTab === 'query-insights' && <QueryInsightsSection assessmentId={id} isSQLServer={true} />}
         {activeTab === 'user-insights' && (
           userInsightsLoading ? <TabSpinner message="Loading query summary..." /> :
@@ -250,7 +275,7 @@ export const SQLServerReportPage: React.FC<SQLServerReportPageProps> = ({ summar
         {activeTab === 'security' && (
           securityLoading ? <TabSpinner message="Loading security data..." /> :
           securityError ? <TabError message={securityError} /> :
-          securityData ? <SQLServerSecuritySection security={transformSecurityDataForSQLServer(securityData.security_policies)} formatDate={formatDate} /> :
+          securityData ? <SQLServerSecuritySection security={transformSecurityDataForSQLServer(securityData.security_policies)} formatDate={formatDate} additionalMeta={additionalMeta} /> :
           <TabSpinner message="Loading security data..." />
         )}
         {activeTab === 'recommendations' && <RecommendationsPlaceholder assessmentId={id} />}
@@ -346,7 +371,21 @@ const SQLServerSummarySection: React.FC<{ assessment: ReportSummary['assessment'
 };
 
 // ============ Schemas Section ============
-const SchemasSection: React.FC<{ schemas: any[] }> = ({ schemas }) => (
+const SchemasSection: React.FC<{ schemas: any[]; columns?: any[]; tables?: any[] }> = ({ schemas, columns, tables }) => {
+  // Extract custom data types from columns
+  const udtColumns = (columns || []).filter((c: any) => c.column_metadata?.is_user_defined_type);
+  const udtMap: Record<string, { udt_name: string; base_type: string; usages: { table_name: string; column_name: string }[] }> = {};
+  udtColumns.forEach((c: any) => {
+    const udtName = c.column_metadata.udt_name;
+    if (!udtMap[udtName]) {
+      udtMap[udtName] = { udt_name: udtName, base_type: c.column_metadata.base_type_name || c.data_type, usages: [] };
+    }
+    const table = (tables || []).find((t: any) => t.id === c.table_id);
+    udtMap[udtName].usages.push({ table_name: table ? `${table.dataset_name}.${table.table_name}` : `table_id:${c.table_id}`, column_name: c.column_name });
+  });
+  const udts = Object.values(udtMap);
+
+  return (
   <div className="section-content">
     <h2 className="section-heading">Schemas ({schemas.length})</h2>
     {schemas.length === 0 ? (
@@ -368,8 +407,46 @@ const SchemasSection: React.FC<{ schemas: any[] }> = ({ schemas }) => (
         </table>
       </div>
     )}
+
+    {/* Custom Data Types Section */}
+    {udts.length > 0 && (
+      <>
+        <h2 className="section-heading" style={{ marginTop: '32px' }}>Custom Data Types ({udts.length})</h2>
+        <div className="table-container">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left' }}>Type Name</th>
+                <th style={{ textAlign: 'left' }}>Base Type</th>
+                <th style={{ textAlign: 'left' }}>Used In</th>
+              </tr>
+            </thead>
+            <tbody>
+              {udts.map((udt, idx) => (
+                <tr key={idx}>
+                  <td style={{ textAlign: 'left' }}><span style={{ fontWeight: 500 }}>{udt.udt_name}</span></td>
+                  <td style={{ textAlign: 'left' }}><code style={{ background: '#F3F4F6', padding: '2px 6px', borderRadius: '4px', fontSize: '12px' }}>{udt.base_type}</code></td>
+                  <td style={{ textAlign: 'left' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {udt.usages.map((u, i) => (
+                        <span key={i} style={{ fontSize: '13px' }}>
+                          <span style={{ color: 'var(--color-text-secondary)' }}>{u.table_name}</span>
+                          <span style={{ margin: '0 4px' }}>→</span>
+                          <span style={{ fontWeight: 500 }}>{u.column_name}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>
+    )}
   </div>
-);
+  );
+};
 
 // ============ SQL Server Datasets Section ============
 const SQLServerDatasetsSection: React.FC<{ datasets: DatasetSummary[]; tables?: any[] }> = ({ datasets, tables }) => {
@@ -450,6 +527,58 @@ const SQLServerUserInsightsSection: React.FC<{ queryStats: any[] }> = ({ querySt
                 <td style={{ textAlign: 'right' }}><Badge variant={parseFloat(u.cacheHitRate) > 50 ? 'success' : parseFloat(u.cacheHitRate) > 20 ? 'warning' : 'default'}>{u.cacheHitRate}%</Badge></td>
               </tr>
             ))}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============ Agent Jobs Section ============
+const AgentJobsSection: React.FC<{ jobs: any[]; formatDate: (d: string | null) => string }> = ({ jobs, formatDate }) => {
+  const [expandedJob, setExpandedJob] = useState<number | null>(null);
+  return (
+    <div className="section-content">
+      <h2 className="section-heading">SQL Agent Jobs ({jobs.length})</h2>
+      {jobs.length === 0 ? (
+        <div className="empty-state"><Server size={48} /><p>No SQL Agent jobs found</p></div>
+      ) : (
+        <div className="table-container">
+          <table className="data-table">
+            <thead><tr><th style={{ textAlign: 'left' }}>Job Name</th><th style={{ textAlign: 'left' }}>Status</th><th style={{ textAlign: 'left' }}>Steps</th><th style={{ textAlign: 'left' }}>Created</th><th style={{ textAlign: 'left' }}>Modified</th></tr></thead>
+            <tbody>
+              {jobs.map((job: any, idx: number) => (
+                <React.Fragment key={idx}>
+                  <tr>
+                    <td style={{ textAlign: 'left' }}>
+                      <button className="table-name-link" onClick={() => setExpandedJob(expandedJob === idx ? null : idx)} style={{ textAlign: 'left' }}>{job.job_name}</button>
+                    </td>
+                    <td style={{ textAlign: 'left' }}><Badge variant={job.enabled ? 'success' : 'default'}>{job.enabled ? 'Enabled' : 'Disabled'}</Badge></td>
+                    <td style={{ textAlign: 'left' }}>{job.step_count}</td>
+                    <td style={{ textAlign: 'left' }} className="timestamp-value">{formatDate(job.date_created)}</td>
+                    <td style={{ textAlign: 'left' }} className="timestamp-value">{formatDate(job.date_modified)}</td>
+                  </tr>
+                  {expandedJob === idx && job.steps && (
+                    <tr className="expanded-row"><td colSpan={5}>
+                      <div style={{ padding: '12px' }}>
+                        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>{job.description || 'No description'}</p>
+                        <table className="data-table compact" style={{ marginTop: '8px' }}>
+                          <thead><tr><th>Step</th><th>Subsystem</th><th>Database</th><th>Command</th></tr></thead>
+                          <tbody>
+                            {job.steps.map((s: any, si: number) => (
+                              <tr key={si}>
+                                <td>{s.step_name}</td><td><Badge variant="info">{s.subsystem}</Badge></td><td>{s.database_name}</td>
+                                <td><pre style={{ fontSize: '11px', maxWidth: '400px', overflow: 'auto', whiteSpace: 'pre-wrap', margin: 0 }}>{s.command}</pre></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td></tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
           </table>
         </div>
       )}

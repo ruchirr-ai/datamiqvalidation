@@ -704,7 +704,8 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                     "is_partitioning_column": c.is_partitioning_column,
                     "clustering_ordinal_position": c.clustering_ordinal_position,
                     "policy_tags": c.policy_tags or [],
-                    "max_length": c.max_length
+                    "max_length": c.max_length,
+                    "column_metadata": c.column_metadata or {}
                 }
                 for c in columns
             ],
@@ -970,7 +971,8 @@ async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_s
                     "is_nullable": c.is_nullable, "ordinal_position": c.ordinal_position,
                     "is_partitioning_column": c.is_partitioning_column,
                     "clustering_ordinal_position": c.clustering_ordinal_position,
-                    "policy_tags": c.policy_tags or [], "max_length": c.max_length
+                    "policy_tags": c.policy_tags or [], "max_length": c.max_length,
+                    "column_metadata": c.column_metadata or {}
                 }
                 for c in all_columns if c.table_id in table_ids
             ],
@@ -1095,6 +1097,29 @@ async def get_assessment_report_routines(assessment_id: int, db: Session = Depen
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{assessment_id}/report/additional-metadata")
+async def get_assessment_additional_metadata(assessment_id: int, db: Session = Depends(get_db)):
+    """Get additional SQL Server metadata (Agent Jobs, Certificates, Encryption, Assemblies, Policies, Replication, Computed Columns, UDTs)."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        datasets = assessment_repo.get_datasets(assessment_id)
+        additional = {}
+        if datasets:
+            ds_meta = datasets[0].dataset_metadata or {}
+            additional = ds_meta.get('additional_metadata', {})
+
+        return additional
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting additional metadata: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{assessment_id}/report/security")
 async def get_assessment_report_security(assessment_id: int, db: Session = Depends(get_db)):
     """Get security policies and column-level security data for an assessment."""
@@ -1123,7 +1148,8 @@ async def get_assessment_report_security(assessment_id: int, db: Session = Depen
                     "is_nullable": c.is_nullable, "ordinal_position": c.ordinal_position,
                     "is_partitioning_column": c.is_partitioning_column,
                     "clustering_ordinal_position": c.clustering_ordinal_position,
-                    "policy_tags": c.policy_tags or [], "max_length": c.max_length
+                    "policy_tags": c.policy_tags or [], "max_length": c.max_length,
+                    "column_metadata": c.column_metadata or {}
                 }
                 for c in columns
             ],

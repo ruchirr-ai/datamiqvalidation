@@ -232,11 +232,27 @@ export const SQLServerTablesSection: React.FC<SQLServerTablesSectionProps> = ({
                     <tbody>
                       {getColumnsForTable(selectedTable.id).map((column: any, idx: number) => {
                         const compatibility = getRedshiftCompatibility(column.data_type);
+                        const isUDT = column.column_metadata?.is_user_defined_type;
                         
                         return (
                           <tr key={idx}>
-                            <td className="font-medium">{column.column_name}</td>
-                            <td className="font-mono text-sm">{column.data_type}</td>
+                            <td className="font-medium">
+                              {column.column_name}
+                              {column.column_metadata?.is_computed && (
+                                <Badge variant="info" style={{ marginLeft: '6px', fontSize: '10px' }} title={column.column_metadata.computed_definition || ''}>Computed</Badge>
+                              )}
+                            </td>
+                            <td className="font-mono text-sm">
+                              <span>{column.data_type}</span>
+                              {isUDT && (
+                                <Badge variant="warning" style={{ marginLeft: '6px', fontSize: '10px' }}>UDT: {column.column_metadata.udt_name}</Badge>
+                              )}
+                              {isUDT && column.column_metadata.base_type_name && (
+                                <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginLeft: '4px' }}>
+                                  (base: {column.column_metadata.base_type_name})
+                                </span>
+                              )}
+                            </td>
                             <td>
                               {column.is_nullable ? (
                                 <Badge variant="default">Yes</Badge>
