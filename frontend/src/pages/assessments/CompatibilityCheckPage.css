@@ -614,3 +614,41 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Analyze Tabs */
+.analyze-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #E5E7EB;
+  margin-bottom: 20px;
+}
+
+.analyze-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6B7280;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.analyze-tab:hover {
+  color: #374151;
+}
+
+.analyze-tab.active {
+  color: #2A6BDB;
+  border-bottom-color: #2A6BDB;
+  font-weight: 600;
+}
+
+.analyze-tab-content {
+  min-height: 200px;
+}

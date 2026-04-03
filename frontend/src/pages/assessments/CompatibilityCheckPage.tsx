@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   CheckCircle, XCircle, Info, Zap, Database,
   Shield, Code, Brain, ArrowRight, ChevronDown, ChevronUp,
-  Loader
+  Loader, DollarSign, TrendingUp
 } from 'lucide-react';
 import { Button, Select } from '../../components/ui';
 import { SearchableSelect } from '../../components/ui/SearchableSelect';
@@ -16,7 +17,29 @@ import { RecommendationsSection, TCOAnalysisSection } from '../BigQueryReportPag
 import './AssessmentsPage.css';
 import './CompatibilityCheckPage.css';
 
+type AnalyzeTab = 'tco' | 'recommendations' | 'compatibility';
+
 export const CompatibilityCheckPage: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  
+  // Derive active tab from URL
+  const getTabFromPath = (): AnalyzeTab => {
+    if (location.pathname.includes('/tco')) return 'tco';
+    if (location.pathname.includes('/recommendations')) return 'recommendations';
+    return 'compatibility';
+  };
+  const [activeTab, setActiveTab] = useState<AnalyzeTab>(getTabFromPath());
+  
+  useEffect(() => {
+    setActiveTab(getTabFromPath());
+  }, [location.pathname]);
+
+  const handleTabChange = (tab: AnalyzeTab) => {
+    setActiveTab(tab);
+    navigate(`/analyze/${tab}`);
+  };
+
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<number | ''>('');
   const [selectedTarget, setSelectedTarget] = useState<string>('redshift');
@@ -307,8 +330,36 @@ export const CompatibilityCheckPage: React.FC = () => {
           )}
         </div>
 
-        {/* Results */}
-        {report && (
+        {/* Tab Navigation */}
+        {selectedAssessmentId && (
+          <div className="analyze-tabs">
+            <button className={`analyze-tab ${activeTab === 'tco' ? 'active' : ''}`} onClick={() => handleTabChange('tco')}>
+              <DollarSign size={16} /> TCO Analysis
+            </button>
+            <button className={`analyze-tab ${activeTab === 'recommendations' ? 'active' : ''}`} onClick={() => handleTabChange('recommendations')}>
+              <TrendingUp size={16} /> Recommendations
+            </button>
+            <button className={`analyze-tab ${activeTab === 'compatibility' ? 'active' : ''}`} onClick={() => handleTabChange('compatibility')}>
+              <Zap size={16} /> Compatibility Check
+            </button>
+          </div>
+        )}
+
+        {/* Tab Content */}
+        {selectedAssessmentId && activeTab === 'tco' && (
+          <div className="analyze-tab-content">
+            <TCOAnalysisSection assessmentId={selectedAssessmentId as number} />
+          </div>
+        )}
+
+        {selectedAssessmentId && activeTab === 'recommendations' && (
+          <div className="analyze-tab-content">
+            <RecommendationsSection assessmentId={selectedAssessmentId as number} />
+          </div>
+        )}
+
+        {/* Results - Compatibility Check tab */}
+        {activeTab === 'compatibility' && report && (
           <div className="compat-results">
             {/* Score Overview */}
             <div className="compat-score-overview">
@@ -614,21 +665,11 @@ export const CompatibilityCheckPage: React.FC = () => {
                 </div>
               )}
             </div>
-
-            {/* Recommendations */}
-            <div className="compat-section" style={{ marginTop: 16 }}>
-              <RecommendationsSection assessmentId={selectedAssessmentId as number} />
-            </div>
-
-            {/* TCO Analysis */}
-            <div className="compat-section" style={{ marginTop: 16 }}>
-              <TCOAnalysisSection assessmentId={selectedAssessmentId as number} />
-            </div>
           </div>
         )}
 
         {/* Empty state */}
-        {!report && !loading && !error && (
+        {activeTab === 'compatibility' && !report && !loading && !error && (
           <div className="empty-state">
             <div className="empty-state-icon">
               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="2">

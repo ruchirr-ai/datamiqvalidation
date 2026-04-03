@@ -180,8 +180,11 @@ const AppContent: React.FC = () => {
                   <Route path="/connections" element={<ConnectionsPage />} />
                   <Route path="/assessments" element={<AssessmentsPage />} />
                   <Route path="/assessments/:assessmentId/report" element={<AssessmentReportPage />} />
-                  <Route path="/assessments/compatibility" element={<Navigate to="/analyze" replace />} />
-                  <Route path="/analyze" element={<CompatibilityCheckPage />} />
+                  <Route path="/assessments/compatibility" element={<Navigate to="/analyze/compatibility" replace />} />
+                  <Route path="/analyze" element={<Navigate to="/analyze/tco" replace />} />
+                  <Route path="/analyze/tco" element={<CompatibilityCheckPage />} />
+                  <Route path="/analyze/recommendations" element={<CompatibilityCheckPage />} />
+                  <Route path="/analyze/compatibility" element={<CompatibilityCheckPage />} />
                   <Route path="/assessments/reports" element={<AssessmentReportsPage />} />
                   <Route path="/migrations" element={<MigrationsPage />} />
                   <Route path="/migrations/bq-redshift" element={<BQRedshiftMigrationsPage />} />
