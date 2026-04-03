@@ -229,6 +229,8 @@ export const CompatibilityCheckPage: React.FC = () => {
   ];
 
   const selectedSourceName = connections.find(c => c.id === selectedSourceId)?.name || '';
+  const selectedSourceDb = connections.find(c => c.id === selectedSourceId)?.database?.toLowerCase() || '';
+  const isBigQuery = selectedSourceDb === 'bigquery';
 
   return (
     <div className="page-container">
@@ -302,13 +304,33 @@ export const CompatibilityCheckPage: React.FC = () => {
         {/* Tab Content */}
         {selectedAssessmentId && activeTab === 'tco' && (
           <div className="analyze-tab-content">
-            <TCOAnalysisSection assessmentId={selectedAssessmentId as number} />
+            {isBigQuery ? (
+              <TCOAnalysisSection assessmentId={selectedAssessmentId as number} />
+            ) : (
+              <div className="analyze-coming-soon">
+                <Info size={20} />
+                <div>
+                  <strong>TCO Analysis for {selectedSourceDb.charAt(0).toUpperCase() + selectedSourceDb.slice(1)}</strong>
+                  <p>TCO analysis is currently available for BigQuery → Redshift migrations. Support for {selectedSourceDb.charAt(0).toUpperCase() + selectedSourceDb.slice(1)} → Redshift is coming soon.</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {selectedAssessmentId && activeTab === 'recommendations' && (
           <div className="analyze-tab-content">
-            <RecommendationsSection assessmentId={selectedAssessmentId as number} />
+            {isBigQuery ? (
+              <RecommendationsSection assessmentId={selectedAssessmentId as number} />
+            ) : (
+              <div className="analyze-coming-soon">
+                <Info size={20} />
+                <div>
+                  <strong>Recommendations for {selectedSourceDb.charAt(0).toUpperCase() + selectedSourceDb.slice(1)}</strong>
+                  <p>Migration recommendations are currently available for BigQuery → Redshift. Support for {selectedSourceDb.charAt(0).toUpperCase() + selectedSourceDb.slice(1)} → Redshift is coming soon.</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

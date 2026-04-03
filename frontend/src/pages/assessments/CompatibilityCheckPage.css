@@ -659,3 +659,27 @@
   gap: 12px;
   margin-bottom: 16px;
 }
+
+.analyze-coming-soon {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 24px;
+  background: #FFF7ED;
+  border: 1px solid #FDE68A;
+  border-radius: 8px;
+  color: #92400E;
+}
+
+.analyze-coming-soon strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.analyze-coming-soon p {
+  margin: 0;
+  font-size: 13px;
+  color: #A16207;
+  line-height: 1.5;
+}
