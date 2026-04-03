@@ -721,13 +721,12 @@
 /* Clickable connection name */
 .name-cell-clickable {
   cursor: pointer;
-  color: #2A6BDB;
+  color: #000000;
   transition: color var(--transition-fast);
 }
 
 .name-cell-clickable:hover {
-  color: #1E4FA0;
-  text-decoration: underline;
+  color: #2A6BDB;
 }
 
 .name-cell-clickable:focus-visible {
