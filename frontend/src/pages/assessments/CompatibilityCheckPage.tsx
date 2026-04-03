@@ -58,6 +58,7 @@ export const CompatibilityCheckPage: React.FC = () => {
   useEffect(() => {
     if (selectedSourceId) {
       setSelectedAssessmentId('');
+      setSelectedAssessmentName('');
       setReport(null);
       setSaveStatus('idle');
       fetchAssessmentsForConnection(selectedSourceId as number);
@@ -76,10 +77,13 @@ export const CompatibilityCheckPage: React.FC = () => {
         a => a.source_connection_id === connectionId && a.status === 'completed'
       );
       setAssessments(filtered);
-      // Auto-select if only one assessment
-      if (filtered.length === 1) {
-        setSelectedAssessmentId(filtered[0].id);
-        setSelectedAssessmentName(filtered[0].name);
+      // Auto-select if only one unique assessment name
+      const uniqueNames = new Set(filtered.map(a => a.name));
+      if (uniqueNames.size === 1) {
+        const name = Array.from(uniqueNames)[0];
+        setSelectedAssessmentName(name);
+        const latest = filtered.sort((a, b) => (b.version || 1) - (a.version || 1))[0];
+        if (latest) setSelectedAssessmentId(latest.id);
       }
     } catch (err: any) {
       // silently fail
