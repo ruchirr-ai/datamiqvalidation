@@ -235,7 +235,7 @@ export const CompatibilityCheckPage: React.FC = () => {
       <div className="page-header">
         <h1>Analyze</h1>
         <p className="page-description">
-          Select an assessment and target system to run compatibility checks, get migration recommendations, and TCO analysis
+          Select source and target to get TCO analysis, migration recommendations, and compatibility checks
         </p>
       </div>
 
@@ -267,44 +267,13 @@ export const CompatibilityCheckPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Assessment info - auto-selected, with option to change */}
-          {selectedSourceId && (
-            <div className="compat-selection-row" style={{ marginTop: 12 }}>
-              {loadingAssessments ? (
-                <div className="compat-loading-inline"><Loader size={16} className="spin" /> Loading assessments...</div>
-              ) : assessmentNames.length === 0 ? (
-                <div className="compat-no-assessments">
-                  <Info size={14} /> No completed assessments found for this connection. Please run an Assessment first from the Assessments page.
-                </div>
-              ) : (
-                <>
-                  <div className="compat-select-group">
-                    <label>Assessment</label>
-                    <SearchableSelect
-                      value={selectedAssessmentName}
-                      onChange={(val) => {
-                        const name = val as string;
-                        setSelectedAssessmentName(name);
-                        const latest = assessments.filter(a => a.name === name).sort((a, b) => (b.version || 1) - (a.version || 1))[0];
-                        if (latest) setSelectedAssessmentId(latest.id);
-                      }}
-                      options={assessmentNameOptions}
-                      placeholder="Select assessment"
-                    />
-                  </div>
-                  {selectedAssessmentName && versionsForSelected.length > 1 && (
-                    <div className="compat-select-group" style={{ maxWidth: 160 }}>
-                      <label>Version</label>
-                      <SearchableSelect
-                        value={selectedAssessmentId}
-                        onChange={(val) => setSelectedAssessmentId(val as number)}
-                        options={versionOptions}
-                        placeholder="Version"
-                      />
-                    </div>
-                  )}
-                </>
-              )}
+          {/* Status message */}
+          {selectedSourceId && loadingAssessments && (
+            <div className="compat-loading-inline" style={{ marginTop: 12 }}><Loader size={16} className="spin" /> Loading analysis data...</div>
+          )}
+          {selectedSourceId && !loadingAssessments && assessments.length === 0 && (
+            <div className="compat-no-assessments" style={{ marginTop: 12 }}>
+              <Info size={14} /> No assessment data found for this connection. Please run an Assessment first from the Assessments page.
             </div>
           )}
 
