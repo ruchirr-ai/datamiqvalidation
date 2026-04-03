@@ -444,6 +444,42 @@ const SchemasSection: React.FC<{ schemas: any[]; columns?: any[]; tables?: any[]
         </div>
       </>
     )}
+
+    {/* Computed Columns Section */}
+    {(() => {
+      const computedCols = (columns || []).filter((c: any) => c.column_metadata?.is_computed);
+      if (computedCols.length === 0) return null;
+      return (
+        <>
+          <h2 className="section-heading" style={{ marginTop: '32px' }}>Computed Columns ({computedCols.length})</h2>
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Table</th>
+                  <th style={{ textAlign: 'left' }}>Column Name</th>
+                  <th style={{ textAlign: 'left' }}>Definition</th>
+                  <th style={{ textAlign: 'left' }}>Data Type</th>
+                </tr>
+              </thead>
+              <tbody>
+                {computedCols.map((c: any, idx: number) => {
+                  const table = (tables || []).find((t: any) => t.id === c.table_id);
+                  return (
+                    <tr key={idx}>
+                      <td style={{ textAlign: 'left', color: 'var(--color-text-secondary)' }}>{table ? `${table.dataset_name}.${table.table_name}` : '-'}</td>
+                      <td style={{ textAlign: 'left', fontWeight: 500 }}>{c.column_name}</td>
+                      <td style={{ textAlign: 'left' }}><code style={{ background: '#F3F4F6', padding: '2px 6px', borderRadius: '4px', fontSize: '12px' }}>{c.column_metadata?.computed_definition || '-'}</code></td>
+                      <td style={{ textAlign: 'left' }}>{c.data_type}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      );
+    })()}
   </div>
   );
 };
