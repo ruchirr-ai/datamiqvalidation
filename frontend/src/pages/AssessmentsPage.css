@@ -478,27 +478,26 @@
   border-radius: 4px;
 }
 
-/* Version select dropdown */
-.version-select {
-  appearance: none;
-  -webkit-appearance: none;
-  padding: 2px 22px 2px 8px;
+/* Version dropdown trigger */
+.version-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
   font-size: 11px;
   font-weight: 600;
   color: #059669;
-  background: #ECFDF5 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M3 4l2 2 2-2' stroke='%23059669' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 6px center;
+  background: #ECFDF5;
   border: 1px solid #D1FAE5;
   border-radius: 4px;
   cursor: pointer;
-  outline: none;
   transition: all 0.15s;
 }
 
-.version-select:hover {
+.version-dropdown-trigger:hover {
   border-color: #059669;
 }
 
-.version-select:focus {
-  border-color: #059669;
-  box-shadow: 0 0 0 2px rgba(5, 150, 105, 0.15);
+.version-dropdown-trigger svg {
+  color: #059669;
 }

@@ -338,17 +338,28 @@ export const AssessmentsPage: React.FC = () => {
                   </td>
                   <td>
                     {hasMultipleVersions ? (
-                      <select
-                        className="version-select"
-                        value={assessment.id}
-                        onChange={(e) => setSelectedVersions(prev => ({ ...prev, [group.name]: Number(e.target.value) }))}
-                      >
-                        {group.versions.map(v => (
-                          <option key={v.id} value={v.id}>
-                            v{v.version || 1}{v.id === group.versions[0].id ? ' (latest)' : ''}
-                          </option>
-                        ))}
-                      </select>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="version-dropdown-trigger">
+                            v{assessment.version || 1}{assessment.id === group.versions[0].id ? ' (latest)' : ''}
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                              <path d="M3 4l2 2 2-2" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start">
+                          {group.versions.map(v => (
+                            <DropdownMenuItem
+                              key={v.id}
+                              onSelect={() => setSelectedVersions(prev => ({ ...prev, [group.name]: v.id }))}
+                            >
+                              <span style={{ fontWeight: v.id === assessment.id ? 600 : 400 }}>
+                                v{v.version || 1}{v.id === group.versions[0].id ? ' (latest)' : ''}
+                              </span>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     ) : (
                       <span className="report-version-badge">v{assessment.version || 1}</span>
                     )}
