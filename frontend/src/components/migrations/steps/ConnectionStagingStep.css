@@ -186,7 +186,11 @@
 .db-type-selection {
   display: flex;
   align-items: flex-end;
-  gap: 12px;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--color-bg-surface);
+  border: 1px solid #E5E7EB;
+  border-radius: 10px;
 }
 
 .db-type-group {
@@ -195,7 +199,7 @@
 
 .db-type-label {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: #6B7280;
   margin-bottom: 6px;
@@ -207,7 +211,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding-bottom: 8px;
+  padding-bottom: 4px;
   flex-shrink: 0;
 }
 
