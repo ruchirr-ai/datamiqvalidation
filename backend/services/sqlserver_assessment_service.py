@@ -587,7 +587,8 @@ class SQLServerAssessmentService:
             db.commit()
             
             assessment = repo.get_by_id(assessment_id)
-            total_size_mb = sum(t.get('size_mb', 0) for t in tables_data)
+            # Use database-level data size for consistency with dataset tab
+            total_size_mb = database_data.get('dataset_metadata', {}).get('data_size_mb', 0) or sum(t.get('size_mb', 0) for t in tables_data)
             total_routines = len(procedures_data) + len(functions_data) + len(triggers_data)
             
             repo.update_totals(
@@ -708,7 +709,7 @@ class SQLServerAssessmentService:
             'location': f"{self.host}\\{self.instance_name}" if self.instance_name else self.host,
             'creation_time': row.create_date,
             'table_count': 0,  # Will be updated later
-            'total_size_mb': data_size_mb + log_size_mb,
+            'total_size_mb': data_size_mb,
             'dataset_metadata': {
                 'collation': row.collation,
                 'status': row.status,
