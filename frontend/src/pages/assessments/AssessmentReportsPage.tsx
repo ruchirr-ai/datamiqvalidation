@@ -85,7 +85,7 @@ export const AssessmentReportsPage: React.FC = () => {
       <div className="page-content">
         {loading ? (
           <div className="reports-loading">
-            <Loader size={20} className="spin" /> Loading reports...
+            Loading reports...
           </div>
         ) : assessments.length === 0 ? (
           <div className="empty-state">

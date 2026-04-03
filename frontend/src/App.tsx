@@ -191,6 +191,7 @@ const AppContent: React.FC = () => {
                   <Route path="/converter/batch" element={<BatchConverterPage />} />
                   <Route path="/validations" element={<ValidationDashboardPage />} />
                   <Route path="/validations/:runId" element={<ValidationDetailPage />} />
+                  <Route path="/monitoring" element={<Navigate to="/monitoring/query-history" replace />} />
                   <Route path="/monitoring/copy-history" element={<CopyHistoryPage />} />
                   <Route path="/monitoring/task-history" element={<TaskHistoryPage />} />
                   <Route path="/monitoring/query-history" element={<QueryHistoryPage />} />
