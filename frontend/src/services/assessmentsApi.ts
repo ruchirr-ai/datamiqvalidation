@@ -334,6 +334,21 @@ export const getReportUserInsights = async (assessmentId: number): Promise<UserI
   return api.get(`/api/assessments/${assessmentId}/report/user-insights`);
 };
 
+export interface AdditionalMetadata {
+  agent_jobs?: any[];
+  certificates?: any[];
+  encryption?: { symmetric_keys?: any[]; asymmetric_keys?: any[]; tde_enabled?: boolean; tde_databases?: any[] };
+  assemblies?: any[];
+  policies?: any[];
+  replication?: { is_published?: boolean; is_subscribed?: boolean; is_merge_published?: boolean };
+  computed_columns?: any[];
+  user_defined_types?: any[];
+}
+
+export const getReportAdditionalMetadata = async (assessmentId: number): Promise<AdditionalMetadata> => {
+  return api.get(`/api/assessments/${assessmentId}/report/additional-metadata`);
+};
+
 /** Fetch ALL tables (no pagination) for CSV export */
 export const getAllReportTables = async (assessmentId: number, dataset?: string): Promise<{ tables: AssessmentReportTable[]; total: number }> => {
   let url = `/api/assessments/${assessmentId}/report/tables?export=all`;

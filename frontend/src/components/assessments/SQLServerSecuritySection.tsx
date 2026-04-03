@@ -9,7 +9,7 @@
  */
 
 import React, { useState } from 'react';
-import { Shield, Users, Lock, Key, UserCheck, FileText, Link2 } from 'lucide-react';
+import { Shield, Users, Lock, Key, UserCheck, FileText, Link2, Code } from 'lucide-react';
 import { Badge } from '../ui';
 
 interface SecurityUser {
@@ -109,10 +109,11 @@ interface SecurityMetadata {
 interface SQLServerSecuritySectionProps {
   security?: SecurityMetadata;
   formatDate: (date: string | null) => string;
+  additionalMeta?: any;
 }
 
-export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> = ({ security, formatDate }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'users' | 'permissions' | 'roles' | 'policies' | 'logins' | 'encryption' | 'linkedServers'>('users');
+export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> = ({ security, formatDate, additionalMeta }) => {
+  const [activeSubTab, setActiveSubTab] = useState<'users' | 'permissions' | 'roles' | 'policies' | 'logins' | 'encryption' | 'linkedServers' | 'certificates' | 'assemblies'>('users');
 
   if (!security || (!security.users && !security.permissions && !security.roles && !security.schemas && !security.policies && !security.logins && !security.encryption && !security.linkedServers)) {
     return (
@@ -243,7 +244,7 @@ export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> =
           }}
         >
           <FileText size={16} />
-          Policies ({policies.length})
+          Security Policies ({policies.length})
         </button>
 
         <button
@@ -287,6 +288,34 @@ export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> =
         >
           <Link2 size={16} />
           Linked Servers ({linkedServers.length})
+        </button>
+        {(additionalMeta?.certificates || []).length >= 0 && (
+          <button
+            onClick={() => setActiveSubTab('certificates')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px',
+              border: 'none', background: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: 500,
+              color: activeSubTab === 'certificates' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+              borderBottom: activeSubTab === 'certificates' ? '2px solid var(--color-primary)' : '2px solid transparent',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <Shield size={16} />
+            Certificates ({(additionalMeta?.certificates || []).length})
+          </button>
+        )}
+        <button
+          onClick={() => setActiveSubTab('assemblies')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px',
+            border: 'none', background: 'none', cursor: 'pointer', fontSize: '14px', fontWeight: 500,
+            color: activeSubTab === 'assemblies' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+            borderBottom: activeSubTab === 'assemblies' ? '2px solid var(--color-primary)' : '2px solid transparent',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Code size={16} />
+          CLR Assemblies ({(additionalMeta?.assemblies || []).length})
         </button>
       </div>
 
@@ -669,6 +698,48 @@ export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> =
                       {formatDate(ls.modified_date)}
                     </td>
                   </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Certificates Tab */}
+      {activeSubTab === 'certificates' && (
+        <div className="table-container">
+          {(additionalMeta?.certificates || []).length === 0 ? (
+            <div className="empty-state">
+              <Shield size={48} />
+              <p>No certificates found</p>
+            </div>
+          ) : (
+            <table className="data-table">
+              <thead><tr><th style={{ textAlign: 'left' }}>Name</th><th style={{ textAlign: 'left' }}>Subject</th><th style={{ textAlign: 'left' }}>Encryption Type</th><th style={{ textAlign: 'left' }}>Start Date</th><th style={{ textAlign: 'left' }}>Expiry Date</th></tr></thead>
+              <tbody>
+                {(additionalMeta?.certificates || []).map((c: any, i: number) => (
+                  <tr key={i}><td style={{ textAlign: 'left', fontWeight: 500 }}>{c.name}</td><td style={{ textAlign: 'left' }}>{c.subject}</td><td style={{ textAlign: 'left' }}><Badge variant="info">{c.encryption_type}</Badge></td><td style={{ textAlign: 'left' }} className="timestamp-value">{formatDate(c.start_date)}</td><td style={{ textAlign: 'left' }} className="timestamp-value">{formatDate(c.expiry_date)}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* CLR Assemblies Tab */}
+      {activeSubTab === 'assemblies' && (
+        <div className="table-container">
+          {(additionalMeta?.assemblies || []).length === 0 ? (
+            <div className="empty-state">
+              <Code size={48} />
+              <p>No CLR assemblies found</p>
+            </div>
+          ) : (
+            <table className="data-table">
+              <thead><tr><th style={{ textAlign: 'left' }}>Name</th><th style={{ textAlign: 'left' }}>Permission Set</th><th style={{ textAlign: 'left' }}>Created</th></tr></thead>
+              <tbody>
+                {(additionalMeta?.assemblies || []).map((a: any, i: number) => (
+                  <tr key={i}><td style={{ textAlign: 'left', fontWeight: 500 }}>{a.name}</td><td style={{ textAlign: 'left' }}><Badge variant="warning">{a.permission_set}</Badge></td><td style={{ textAlign: 'left' }} className="timestamp-value">{formatDate(a.create_date)}</td></tr>
                 ))}
               </tbody>
             </table>
