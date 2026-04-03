@@ -78,7 +78,7 @@ export const CompatibilityCheckPage: React.FC = () => {
     }
   };
 
-  // When source connection changes, find matching assessments
+  // When source connection changes, auto-select latest assessment
   useEffect(() => {
     if (selectedSourceId) {
       setSelectedAssessmentId('');
@@ -89,6 +89,7 @@ export const CompatibilityCheckPage: React.FC = () => {
     } else {
       setAssessments([]);
       setSelectedAssessmentId('');
+      setSelectedAssessmentName('');
       setReport(null);
     }
   }, [selectedSourceId]);
@@ -101,13 +102,12 @@ export const CompatibilityCheckPage: React.FC = () => {
         a => a.source_connection_id === connectionId && a.status === 'completed'
       );
       setAssessments(filtered);
-      // Auto-select if only one unique assessment name
-      const uniqueNames = new Set(filtered.map(a => a.name));
-      if (uniqueNames.size === 1) {
-        const name = Array.from(uniqueNames)[0];
-        setSelectedAssessmentName(name);
-        const latest = filtered.sort((a, b) => (b.version || 1) - (a.version || 1))[0];
-        if (latest) setSelectedAssessmentId(latest.id);
+      // Auto-select the latest assessment
+      if (filtered.length > 0) {
+        const sorted = [...filtered].sort((a, b) => (b.version || 1) - (a.version || 1));
+        const latest = sorted[0];
+        setSelectedAssessmentName(latest.name);
+        setSelectedAssessmentId(latest.id);
       }
     } catch (err: any) {
       // silently fail
@@ -267,41 +267,43 @@ export const CompatibilityCheckPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Assessment selection - shown when source is selected */}
+          {/* Assessment info - auto-selected, with option to change */}
           {selectedSourceId && (
             <div className="compat-selection-row" style={{ marginTop: 12 }}>
-              <div className="compat-select-group">
-                <label>Select Assessment</label>
-                {loadingAssessments ? (
-                  <div className="compat-loading-inline"><Loader size={16} className="spin" /> Loading assessments...</div>
-                ) : assessmentNames.length === 0 ? (
-                  <div className="compat-no-assessments">
-                    <Info size={14} /> No completed assessments found for this connection. Run an Assessment first.
-                  </div>
-                ) : (
-                  <SearchableSelect
-                    value={selectedAssessmentName}
-                    onChange={(val) => {
-                      const name = val as string;
-                      setSelectedAssessmentName(name);
-                      const latest = assessments.filter(a => a.name === name).sort((a, b) => (b.version || 1) - (a.version || 1))[0];
-                      if (latest) setSelectedAssessmentId(latest.id);
-                    }}
-                    options={assessmentNameOptions}
-                    placeholder="Select assessment"
-                  />
-                )}
-              </div>
-              {selectedAssessmentName && versionsForSelected.length > 1 && (
-                <div className="compat-select-group" style={{ maxWidth: 160 }}>
-                  <label>Version</label>
-                  <SearchableSelect
-                    value={selectedAssessmentId}
-                    onChange={(val) => setSelectedAssessmentId(val as number)}
-                    options={versionOptions}
-                    placeholder="Version"
-                  />
+              {loadingAssessments ? (
+                <div className="compat-loading-inline"><Loader size={16} className="spin" /> Loading assessments...</div>
+              ) : assessmentNames.length === 0 ? (
+                <div className="compat-no-assessments">
+                  <Info size={14} /> No completed assessments found for this connection. Please run an Assessment first from the Assessments page.
                 </div>
+              ) : (
+                <>
+                  <div className="compat-select-group">
+                    <label>Assessment</label>
+                    <SearchableSelect
+                      value={selectedAssessmentName}
+                      onChange={(val) => {
+                        const name = val as string;
+                        setSelectedAssessmentName(name);
+                        const latest = assessments.filter(a => a.name === name).sort((a, b) => (b.version || 1) - (a.version || 1))[0];
+                        if (latest) setSelectedAssessmentId(latest.id);
+                      }}
+                      options={assessmentNameOptions}
+                      placeholder="Select assessment"
+                    />
+                  </div>
+                  {selectedAssessmentName && versionsForSelected.length > 1 && (
+                    <div className="compat-select-group" style={{ maxWidth: 160 }}>
+                      <label>Version</label>
+                      <SearchableSelect
+                        value={selectedAssessmentId}
+                        onChange={(val) => setSelectedAssessmentId(val as number)}
+                        options={versionOptions}
+                        placeholder="Version"
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
