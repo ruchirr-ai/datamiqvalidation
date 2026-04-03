@@ -23,6 +23,7 @@ export interface Assessment {
   total_size_mb: number;
   created_by: string | null;
   workspace_id: number;
+  version: number;
 }
 
 export interface AssessmentListResponse {

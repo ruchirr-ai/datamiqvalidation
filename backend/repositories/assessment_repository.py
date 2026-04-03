@@ -36,7 +36,19 @@ class AssessmentRepository:
         status: str = 'pending',
         created_by: str = None
     ) -> Assessment:
-        """Create a new assessment record"""
+        """Create a new assessment record with auto-versioning.
+        
+        If an assessment with the same name and source_connection_id exists,
+        the new one gets the next version number.
+        """
+        # Calculate next version for this name + source connection combo
+        max_version = self.db.query(func.max(Assessment.version)).filter(
+            Assessment.name == name,
+            Assessment.source_connection_id == source_connection_id
+        ).scalar() or 0
+        
+        next_version = max_version + 1
+        
         assessment = Assessment(
             name=name,
             source_connection_id=source_connection_id,
@@ -46,6 +58,7 @@ class AssessmentRepository:
             started_at=datetime.utcnow(),
             created_by=created_by,
             workspace_id=1,  # TODO: Get from auth context
+            version=next_version,
             total_datasets=0,
             total_tables=0,
             total_views=0,

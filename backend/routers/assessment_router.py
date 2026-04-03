@@ -59,6 +59,7 @@ class AssessmentResponse(BaseModel):
     total_size_mb: float
     created_by: str | None
     workspace_id: int
+    version: int = 1
 
     class Config:
         from_attributes = True

@@ -274,6 +274,7 @@ export const AssessmentsPage: React.FC = () => {
             <thead>
               <tr>
                 <th>{t('assessments.name')}</th>
+                <th>VERSION</th>
                 <th>{t('assessments.status')}</th>
                 <th>{t('assessments.datasets')}</th>
                 <th>{t('assessments.tables')}</th>
@@ -302,6 +303,7 @@ export const AssessmentsPage: React.FC = () => {
                       )}
                     </div>
                   </td>
+                  <td><span className="report-version-badge">v{assessment.version || 1}</span></td>
                   <td>{getStatusBadge(assessment.status)}</td>
                   <td>{assessment.total_datasets}</td>
                   <td>{assessment.total_tables}</td>

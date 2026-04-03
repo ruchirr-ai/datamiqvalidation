@@ -104,6 +104,7 @@ export const AssessmentReportsPage: React.FC = () => {
               <thead>
                 <tr>
                   <th>REPORT NAME</th>
+                  <th>VERSION</th>
                   <th>DATABASE</th>
                   <th>TABLES</th>
                   <th>SIZE</th>
@@ -120,6 +121,9 @@ export const AssessmentReportsPage: React.FC = () => {
                         <FileText size={16} style={{ color: '#66748C', flexShrink: 0 }} />
                         <span className="report-name">{a.name}</span>
                       </div>
+                    </td>
+                    <td>
+                      <span className="report-version-badge">v{a.version || 1}</span>
                     </td>
                     <td>
                       <span className="report-db-badge">

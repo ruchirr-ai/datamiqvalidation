@@ -465,3 +465,15 @@
     justify-content: space-between;
   }
 }
+
+/* Version badge */
+.report-version-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6B7280;
+  background: #F3F4F6;
+  border-radius: 4px;
+}
