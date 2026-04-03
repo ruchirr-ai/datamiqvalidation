@@ -95,7 +95,8 @@ export const JobsPage: React.FC = () => {
 
   const formatTime = (iso: string | null) => {
     if (!iso) return '—';
-    const d = new Date(iso);
+    const normalized = iso.endsWith('Z') ? iso : iso + 'Z';
+    const d = new Date(normalized);
     const now = new Date();
     const diff = now.getTime() - d.getTime();
     const mins = Math.floor(diff / 60000);
@@ -105,7 +106,7 @@ export const JobsPage: React.FC = () => {
     if (hrs < 24) return `${hrs}h ago`;
     const days = Math.floor(hrs / 24);
     if (days < 7) return `${days}d ago`;
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric' });
   };
 
   const getDuration = (start: string | null, end: string | null) => {

@@ -1,0 +1,138 @@
+/* Assessment Reports Page */
+
+.reports-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 60px 0;
+  color: #6B7280;
+  font-size: 14px;
+}
+
+.reports-table-container {
+  background: var(--color-bg-surface);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.reports-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.reports-table thead {
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.reports-table th {
+  padding: 12px 20px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.reports-table tbody tr {
+  border-bottom: 1px solid #E5E7EB;
+  transition: background 0.15s;
+}
+
+.reports-table tbody tr:hover {
+  background: var(--color-hover-bg);
+}
+
+.reports-table td {
+  padding: 12px 20px;
+  font-size: 13px;
+  font-weight: 450;
+  color: #1F2937;
+  vertical-align: middle;
+}
+
+.report-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.report-name {
+  font-weight: 500;
+  color: #000;
+}
+
+.report-db-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #6B7280;
+}
+
+.report-time {
+  font-size: 12px;
+  color: #6B7280;
+  white-space: nowrap;
+}
+
+.report-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.report-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #374151;
+  background: #F9FAFB;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.report-action-btn:hover {
+  background: #EFF5FF;
+  border-color: #2A6BDB;
+  color: #2A6BDB;
+}
+
+.report-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.report-action-download {
+  color: #059669;
+}
+
+.report-action-download:hover {
+  background: #ECFDF5;
+  border-color: #059669;
+  color: #059669;
+}
+
+.reports-footer {
+  padding: 12px 20px;
+  font-size: 13px;
+  color: #6B7280;
+  border-top: 1px solid #E5E7EB;
+}
+
+@media (max-width: 767px) {
+  .reports-table-container {
+    overflow-x: auto;
+  }
+
+  .reports-table {
+    min-width: 700px;
+  }
+}
