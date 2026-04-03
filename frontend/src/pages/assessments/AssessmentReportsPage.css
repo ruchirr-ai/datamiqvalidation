@@ -148,3 +148,47 @@
   background: #F3F4F6;
   border-radius: 4px;
 }
+
+.report-version-latest {
+  color: #059669;
+  background: #ECFDF5;
+}
+
+.report-version-row td {
+  background: #FAFAFA;
+}
+
+.report-name-muted {
+  color: #9CA3AF;
+}
+
+.report-expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #6B7280;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.report-expand-btn:hover {
+  background: #EFF5FF;
+  color: #2A6BDB;
+}
+
+.report-versions-count {
+  font-size: 11px;
+  color: #9CA3AF;
+  cursor: pointer;
+  margin-left: 4px;
+}
+
+.report-versions-count:hover {
+  color: #2A6BDB;
+}
