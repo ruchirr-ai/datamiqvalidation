@@ -361,9 +361,24 @@ const SQLServerSummarySection: React.FC<{ assessment: ReportSummary['assessment'
     <div className="details-section">
       <h3 className="subsection-heading">Assessment Details</h3>
       <div className="details-grid">
+        <div className="detail-item"><span className="detail-label">Assessment Name:</span><span className="detail-value">{assessment.name}</span></div>
+        <div className="detail-item"><span className="detail-label">Version:</span><span className="detail-value">v{assessment.version || 1}</span></div>
         <div className="detail-item"><span className="detail-label">Project ID:</span><span className="detail-value">{assessment.project_id}</span></div>
+        <div className="detail-item"><span className="detail-label">Status:</span><span className="detail-value" style={{ textTransform: 'capitalize' }}>{assessment.status}</span></div>
         <div className="detail-item"><span className="detail-label">Started At:</span><span className="detail-value">{formatDate(assessment.started_at)}</span></div>
         <div className="detail-item"><span className="detail-label">Completed At:</span><span className="detail-value">{formatDate(assessment.completed_at)}</span></div>
+        <div className="detail-item"><span className="detail-label">Duration:</span><span className="detail-value">{(() => {
+          if (!assessment.started_at || !assessment.completed_at) return 'N/A';
+          const s = new Date(assessment.started_at).getTime();
+          const e = new Date(assessment.completed_at).getTime();
+          const sec = Math.floor((e - s) / 1000);
+          if (sec < 60) return `${sec}s`;
+          if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`;
+          return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
+        })()}</span></div>
+        <div className="detail-item"><span className="detail-label">Total Data Size:</span><span className="detail-value">{formatSize(assessment.total_size_mb)}</span></div>
+        <div className="detail-item"><span className="detail-label">Created By:</span><span className="detail-value">{assessment.created_by || 'System'}</span></div>
+        <div className="detail-item"><span className="detail-label">Workspace ID:</span><span className="detail-value">{assessment.workspace_id}</span></div>
       </div>
     </div>
   </div>
