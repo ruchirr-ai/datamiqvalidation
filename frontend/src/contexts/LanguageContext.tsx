@@ -31,7 +31,7 @@ const en: TranslationMap = {
   'nav.assessments': 'Assessments', 'nav.migrations': 'Migrations', 'nav.jobs': 'Jobs',
   'nav.converter': 'Code Converter', 'nav.validations': 'Data Validation', 'nav.monitoring': 'Monitoring',
   'nav.admin': 'Admin',
-  'nav.schemaAnalysis': 'Schema Analysis', 'nav.compatibilityCheck': 'Compatibility Check',
+  'nav.schemaAnalysis': 'Schema Analysis', 'nav.compatibilityCheck': 'Analyze',
   'nav.assessmentReports': 'Assessment Reports', 'nav.dataProfiling': 'Data Profiling',
   'nav.running': 'Running', 'nav.queued': 'Queued', 'nav.history': 'History',
   'nav.quickConvert': 'Quick Convert', 'nav.batch': 'Batch',

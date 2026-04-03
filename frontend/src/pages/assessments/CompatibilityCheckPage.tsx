@@ -205,9 +205,9 @@ export const CompatibilityCheckPage: React.FC = () => {
   return (
     <div className="page-container">
       <div className="page-header">
-        <h1>Compatibility Check</h1>
+        <h1>Analyze</h1>
         <p className="page-description">
-          Analyze source → target compatibility: data types, feature gaps, SQL syntax, and AI-powered insights
+          Select an assessment and target system to analyze compatibility: data types, feature gaps, SQL syntax, and AI-powered insights
         </p>
       </div>
 

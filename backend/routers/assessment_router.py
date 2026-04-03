@@ -172,7 +172,7 @@ async def create_assessment(
 def run_assessment_background(
     assessment_id: int,
     source_connection_id: int,
-    target_connection_id: int
+    target_connection_id: int = None
 ):
     """
     Background task to run the assessment.
@@ -217,7 +217,7 @@ def run_assessment_background(
 
         # Get source and target connections
         source_conn = connection_repo.get_by_id(source_connection_id)
-        target_conn = connection_repo.get_by_id(target_connection_id)
+        target_conn = connection_repo.get_by_id(target_connection_id) if target_connection_id else None
 
         assessment_repo.create_log(
             assessment_id=assessment_id,
@@ -228,14 +228,15 @@ def run_assessment_background(
         )
         db.commit()
 
-        assessment_repo.create_log(
-            assessment_id=assessment_id,
-            log_level='INFO',
-            message=f'Retrieved target connection: {target_conn.name}',
-            stage='initialization',
-            log_metadata={'connection_id': target_connection_id, 'connection_name': target_conn.name}
-        )
-        db.commit()
+        if target_conn:
+            assessment_repo.create_log(
+                assessment_id=assessment_id,
+                log_level='INFO',
+                message=f'Retrieved target connection: {target_conn.name}',
+                stage='initialization',
+                log_metadata={'connection_id': target_connection_id, 'connection_name': target_conn.name}
+            )
+            db.commit()
 
         # Determine source database type (the 'database' field holds the engine name,
         # e.g. 'bigquery', 'sqlserver'; the 'type' field is 'source'/'target')
