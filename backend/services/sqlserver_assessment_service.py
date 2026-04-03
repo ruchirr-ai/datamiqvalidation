@@ -2746,9 +2746,10 @@ class SQLServerAssessmentService:
                 'SECURITY' AS policy_type,
                 s.name AS table_schema,
                 t.name AS table_name,
-                sp.predicate_definition AS filter_predicate,
+                pred.predicate_definition AS filter_predicate,
                 sp.is_enabled,
-                sp.create_date
+                sp.create_date,
+                pred.predicate_type_desc
             FROM sys.security_policies sp
             LEFT JOIN sys.security_predicates pred ON sp.object_id = pred.object_id
             LEFT JOIN sys.tables t ON pred.target_object_id = t.object_id
@@ -2770,7 +2771,7 @@ class SQLServerAssessmentService:
                     'creation_time': row.create_date,
                     'security_metadata': {
                         'policy_name': row.policy_name,
-                        'policy_type': row.policy_type,
+                        'policy_type': row.predicate_type_desc or row.policy_type,
                         'table_schema': row.table_schema,
                         'table_name': row.table_name,
                         'filter_predicate': row.filter_predicate,

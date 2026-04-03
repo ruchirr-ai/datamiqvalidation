@@ -244,7 +244,7 @@ export const SQLServerSecuritySection: React.FC<SQLServerSecuritySectionProps> =
           }}
         >
           <FileText size={16} />
-          Policies ({policies.length})
+          Security Policies ({policies.length})
         </button>
 
         <button
