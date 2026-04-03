@@ -12,6 +12,7 @@ import {
   saveCompatibilityResult, getSavedCompatibility
 } from '../../services/assessmentsApi';
 import { listConnections, Connection } from '../../services/api';
+import { RecommendationsSection, TCOAnalysisSection } from '../BigQueryReportPage';
 import './AssessmentsPage.css';
 import './CompatibilityCheckPage.css';
 
@@ -612,6 +613,16 @@ export const CompatibilityCheckPage: React.FC = () => {
                   )}
                 </div>
               )}
+            </div>
+
+            {/* Recommendations */}
+            <div className="compat-section" style={{ marginTop: 16 }}>
+              <RecommendationsSection assessmentId={selectedAssessmentId as number} />
+            </div>
+
+            {/* TCO Analysis */}
+            <div className="compat-section" style={{ marginTop: 16 }}>
+              <TCOAnalysisSection assessmentId={selectedAssessmentId as number} />
             </div>
           </div>
         )}

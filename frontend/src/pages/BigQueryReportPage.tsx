@@ -842,7 +842,7 @@ const SecuritySection: React.FC<{ securityPolicies: any[]; columns: any[]; table
 
 
 // ============ Recommendations Section (self-fetching) ============
-const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessmentId }) => {
+export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessmentId }) => {
   const [data, setData] = useState<RecommendationsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -924,7 +924,7 @@ const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ assessment
 
 
 // ============ TCO Analysis Section (self-fetching) ============
-const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }) => {
+export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }) => {
   const [data, setData] = useState<TCOData | null>(null);
   const [regions, setRegions] = useState<AWSRegion[]>([]);
   const [selectedRegion, setSelectedRegion] = useState('us-east-1');
