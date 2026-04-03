@@ -559,11 +559,14 @@ class SQLServerAssessmentService:
             dataset = repo.get_datasets(assessment_id)
             if dataset:
                 ds = dataset[0]
-                existing_meta = ds.dataset_metadata or {}
+                existing_meta = dict(ds.dataset_metadata or {})
                 existing_meta['additional_metadata'] = additional_metadata
                 ds.dataset_metadata = existing_meta
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(ds, 'dataset_metadata')
                 db.add(ds)
                 db.commit()
+                print(f"[SQL Server Assessment] ✓ Stored additional metadata in dataset record", flush=True)
             
             repo.create_log(
                 assessment_id=assessment_id,
