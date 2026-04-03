@@ -193,8 +193,6 @@ export const SQLServerReportPage: React.FC<SQLServerReportPageProps> = ({ summar
     { id: 'query-insights', label: 'Query Insights', icon: Activity },
     { id: 'user-insights', label: 'Query Summary', icon: Users },
     { id: 'security', label: 'Security', icon: Shield },
-    { id: 'recommendations', label: 'Recommendations', icon: TrendingUp },
-    { id: 'tco', label: 'TCO Analysis', icon: DollarSign },
   ];
 
   return (
@@ -278,8 +276,6 @@ export const SQLServerReportPage: React.FC<SQLServerReportPageProps> = ({ summar
           securityData ? <SQLServerSecuritySection security={transformSecurityDataForSQLServer(securityData.security_policies)} formatDate={formatDate} additionalMeta={additionalMeta} /> :
           <TabSpinner message="Loading security data..." />
         )}
-        {activeTab === 'recommendations' && <RecommendationsPlaceholder assessmentId={id} />}
-        {activeTab === 'tco' && <TCOPlaceholder assessmentId={id} />}
       </div>
 
       <DownloadReportModal isOpen={showDownloadModal} onClose={() => setShowDownloadModal(false)} assessmentName={summary.assessment.name} onDownload={handleDownloadPDF} downloading={downloading} />

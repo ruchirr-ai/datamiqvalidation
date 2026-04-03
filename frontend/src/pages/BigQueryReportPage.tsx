@@ -232,8 +232,6 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
     { id: 'query-insights', label: 'Query Insights', icon: Activity },
     { id: 'user-insights', label: 'User Insights', icon: Users },
     { id: 'security', label: 'Security', icon: Shield },
-    { id: 'recommendations', label: 'Recommendations', icon: TrendingUp },
-    { id: 'tco', label: 'TCO Analysis', icon: DollarSign },
   ];
 
   return (
@@ -309,8 +307,6 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
           securityData ? <SecuritySection securityPolicies={securityData.security_policies} columns={securityData.columns} tables={securityData.tables} /> :
           <TabSpinner message="Loading security data..." />
         )}
-        {activeTab === 'recommendations' && <RecommendationsSection assessmentId={id} />}
-        {activeTab === 'tco' && <TCOAnalysisSection assessmentId={id} />}
       </div>
 
       <DownloadReportModal isOpen={showDownloadModal} onClose={() => setShowDownloadModal(false)} assessmentName={summary.assessment.name} onDownload={handleDownloadPDF} downloading={downloading} />
