@@ -20,7 +20,6 @@ import { AssessmentReportPage } from './pages/AssessmentReportPage';
 import { SchemaAnalysisPage } from './pages/assessments/SchemaAnalysisPage';
 import { CompatibilityCheckPage } from './pages/assessments/CompatibilityCheckPage';
 import { AssessmentReportsPage } from './pages/assessments/AssessmentReportsPage';
-import { DataProfilingPage } from './pages/assessments/DataProfilingPage';
 import { BQRedshiftMigrationsPage } from './pages/migrations/BQRedshiftMigrationsPage';
 import { CreateMigrationWizard } from './components/migrations/CreateMigrationWizard';
 import { PathwayATestPage } from './pages/PathwayATestPage';
@@ -185,7 +184,6 @@ const AppContent: React.FC = () => {
                   <Route path="/assessments/schema-analysis" element={<SchemaAnalysisPage />} />
                   <Route path="/assessments/compatibility" element={<CompatibilityCheckPage />} />
                   <Route path="/assessments/reports" element={<AssessmentReportsPage />} />
-                  <Route path="/assessments/data-profiling" element={<DataProfilingPage />} />
                   <Route path="/migrations" element={<MigrationsPage />} />
                   <Route path="/migrations/bq-redshift" element={<BQRedshiftMigrationsPage />} />
                   <Route path="/migrations/create" element={<CreateMigrationWizard />} />

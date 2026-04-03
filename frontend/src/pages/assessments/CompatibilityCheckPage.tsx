@@ -11,14 +11,19 @@ import {
   runCompatibilityCheck, CompatibilityReport,
   saveCompatibilityResult, getSavedCompatibility
 } from '../../services/assessmentsApi';
+import { listConnections, Connection } from '../../services/api';
 import './AssessmentsPage.css';
 import './CompatibilityCheckPage.css';
 
 export const CompatibilityCheckPage: React.FC = () => {
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [selectedSourceId, setSelectedSourceId] = useState<number | ''>('');
+  const [selectedTarget, setSelectedTarget] = useState<string>('redshift');
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<number | ''>('');
   const [loading, setLoading] = useState(false);
-  const [loadingAssessments, setLoadingAssessments] = useState(true);
+  const [loadingConnections, setLoadingConnections] = useState(true);
+  const [loadingAssessments, setLoadingAssessments] = useState(false);
   const [report, setReport] = useState<CompatibilityReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
@@ -32,16 +37,49 @@ export const CompatibilityCheckPage: React.FC = () => {
   useEffect(() => {
     if (!hasFetched.current) {
       hasFetched.current = true;
-      fetchAssessments();
+      fetchConnections();
     }
   }, []);
 
-  const fetchAssessments = async () => {
+  const fetchConnections = async () => {
+    try {
+      setLoadingConnections(true);
+      const data = await listConnections();
+      setConnections(data.filter(c => c.type === 'source'));
+    } catch (err: any) {
+      // silently fail
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  // When source connection changes, find matching assessments
+  useEffect(() => {
+    if (selectedSourceId) {
+      setSelectedAssessmentId('');
+      setReport(null);
+      setSaveStatus('idle');
+      fetchAssessmentsForConnection(selectedSourceId as number);
+    } else {
+      setAssessments([]);
+      setSelectedAssessmentId('');
+      setReport(null);
+    }
+  }, [selectedSourceId]);
+
+  const fetchAssessmentsForConnection = async (connectionId: number) => {
     try {
       setLoadingAssessments(true);
       const data = await listAssessments();
-      // Only show completed assessments
-      setAssessments(data.assessments.filter(a => a.status === 'completed'));
+      // Filter assessments that use this source connection and are completed
+      const filtered = data.assessments.filter(
+        a => a.source_connection_id === connectionId && a.status === 'completed'
+      );
+      setAssessments(filtered);
+      // Auto-select if only one assessment
+      if (filtered.length === 1) {
+        setSelectedAssessmentId(filtered[0].id);
+      }
     } catch (err: any) {
       // silently fail
     } finally {
@@ -56,13 +94,11 @@ export const CompatibilityCheckPage: React.FC = () => {
       setError(null);
       setReport(null);
       const result = await runCompatibilityCheck(selectedAssessmentId as number);
-      // Ensure all required fields exist with defaults
       if (result && result.summary) {
         result.summary.total_security_policies = result.summary.total_security_policies ?? 0;
         result.summary.total_sharded_tables = result.summary.total_sharded_tables ?? 0;
       }
       setReport(result);
-      // Auto-save the result
       try {
         await saveCompatibilityResult(selectedAssessmentId as number, result);
         setSaveStatus('saved');
@@ -88,7 +124,7 @@ export const CompatibilityCheckPage: React.FC = () => {
             setSaveStatus('saved');
           }
         } catch (err) {
-          // Silently fail — user can run a fresh check
+          // Silently fail
         }
       };
       loadSaved();
@@ -130,17 +166,28 @@ export const CompatibilityCheckPage: React.FC = () => {
     return <span className="compat-badge" style={{ background: m.bg }}>{m.label}</span>;
   };
 
+  const sourceOptions = connections.map(c => ({
+    value: c.id,
+    label: c.name,
+  }));
+
+  const targetOptions = [
+    { value: 'redshift', label: 'Amazon Redshift' },
+  ];
+
   const assessmentOptions = assessments.map(a => ({
     value: a.id,
     label: `${a.name} (${a.total_tables} tables, ${a.total_size_mb.toFixed(1)} MB)`,
   }));
+
+  const selectedSourceName = connections.find(c => c.id === selectedSourceId)?.name || '';
 
   return (
     <div className="page-container">
       <div className="page-header">
         <h1>Compatibility Check</h1>
         <p className="page-description">
-          Analyze BigQuery → Redshift compatibility: data types, feature gaps, SQL syntax, and AI-powered insights
+          Analyze source → target compatibility: data types, feature gaps, SQL syntax, and AI-powered insights
         </p>
       </div>
 
@@ -149,35 +196,68 @@ export const CompatibilityCheckPage: React.FC = () => {
         <div className="compat-selection-panel">
           <div className="compat-selection-row">
             <div className="compat-select-group">
-              <label>Select Completed Assessment</label>
-              {loadingAssessments ? (
-                <div className="compat-loading-inline"><Loader size={16} className="spin" /> Loading assessments...</div>
+              <label>Source Connection</label>
+              {loadingConnections ? (
+                <div className="compat-loading-inline"><Loader size={16} className="spin" /> Loading connections...</div>
               ) : (
-                <Select
-                  value={selectedAssessmentId}
-                  onChange={(val) => setSelectedAssessmentId(val as number)}
-                  options={assessmentOptions}
-                  disabled={loading}
+                <SearchableSelect
+                  value={selectedSourceId}
+                  onChange={(val) => setSelectedSourceId(val as number)}
+                  options={sourceOptions}
+                  placeholder="Select source connection"
                 />
               )}
             </div>
-            <Button
-              onClick={handleRunCheck}
-              disabled={!selectedAssessmentId || loading}
-              className="compat-run-btn"
-            >
-              {loading ? (
-                <><Loader size={16} className="spin" /> Analyzing...</>
-              ) : (
-                <><Zap size={16} /> Run Compatibility Check</>
-              )}
-            </Button>
-            {saveStatus === 'saved' && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#10b981', marginLeft: 12 }}>
-                <CheckCircle size={14} /> Saved
-              </span>
-            )}
+            <div className="compat-select-group">
+              <label>Target System</label>
+              <Select
+                value={selectedTarget}
+                onChange={(val) => setSelectedTarget(val as string)}
+                options={targetOptions}
+                disabled={true}
+              />
+            </div>
           </div>
+
+          {/* Assessment selection - shown when source is selected */}
+          {selectedSourceId && (
+            <div className="compat-selection-row" style={{ marginTop: 12 }}>
+              <div className="compat-select-group">
+                <label>Select Assessment</label>
+                {loadingAssessments ? (
+                  <div className="compat-loading-inline"><Loader size={16} className="spin" /> Loading assessments...</div>
+                ) : assessments.length === 0 ? (
+                  <div className="compat-no-assessments">
+                    <Info size={14} /> No completed assessments found for this connection. Run a Schema Analysis first.
+                  </div>
+                ) : (
+                  <SearchableSelect
+                    value={selectedAssessmentId}
+                    onChange={(val) => setSelectedAssessmentId(val as number)}
+                    options={assessmentOptions}
+                    placeholder="Select assessment"
+                  />
+                )}
+              </div>
+              <Button
+                onClick={handleRunCheck}
+                disabled={!selectedAssessmentId || loading}
+                className="compat-run-btn"
+              >
+                {loading ? (
+                  <><Loader size={16} className="spin" /> Analyzing...</>
+                ) : (
+                  <><Zap size={16} /> Run Compatibility Check</>
+                )}
+              </Button>
+              {saveStatus === 'saved' && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#10b981', marginLeft: 12 }}>
+                  <CheckCircle size={14} /> Saved
+                </span>
+              )}
+            </div>
+          )}
+
           {error && (
             <div className="compat-error">
               <XCircle size={16} /> {error}
@@ -199,7 +279,9 @@ export const CompatibilityCheckPage: React.FC = () => {
                 </div>
                 <div className="compat-score-info">
                   <h2>Overall Compatibility Score</h2>
-                  <p className="compat-assessment-name">{report.assessment_name || ''}</p>
+                  <p className="compat-assessment-name">
+                    {selectedSourceName} → Amazon Redshift
+                  </p>
                   <div className="compat-score-bars">
                     {[
                       { label: 'Data Types', score: report.score_breakdown?.data_types ?? 0, icon: <Database size={14} /> },
@@ -294,7 +376,7 @@ export const CompatibilityCheckPage: React.FC = () => {
                               <tr>
                                 <th>Table</th>
                                 <th>Column</th>
-                                <th>BigQuery Type</th>
+                                <th>Source Type</th>
                                 <th><ArrowRight size={14} /></th>
                                 <th>Redshift Type</th>
                                 <th>Status</th>
@@ -333,7 +415,7 @@ export const CompatibilityCheckPage: React.FC = () => {
               )}
             </div>
 
-            {/* AI-Powered Insights (after Data Type Mappings) */}
+            {/* AI-Powered Insights */}
             {report.llm_insights && (
               <div className="compat-section compat-ai-section">
                 <button className="compat-section-header compat-ai-header" onClick={() => toggleSection('llmInsights')}>
@@ -342,7 +424,6 @@ export const CompatibilityCheckPage: React.FC = () => {
                 </button>
                 {expandedSections.llmInsights && (
                   <div className="compat-section-body">
-                    {/* Top: Summary + pills */}
                     <div className="llm-top-row">
                       <div className="llm-summary-text">{report.llm_insights.executive_summary}</div>
                       <div className="llm-meta-pills">
@@ -354,8 +435,6 @@ export const CompatibilityCheckPage: React.FC = () => {
                         )}
                       </div>
                     </div>
-
-                    {/* Strategy cards row */}
                     <div className="llm-strategy-grid">
                       <div className="llm-strategy-card">
                         <div className="llm-strategy-label">Approach</div>
@@ -368,12 +447,10 @@ export const CompatibilityCheckPage: React.FC = () => {
                         </div>
                       )}
                     </div>
-
-                    {/* Team + Testing + Cost in columns */}
                     <div className="llm-details-grid">
                       {report.llm_insights.team_requirements && report.llm_insights.team_requirements.length > 0 && (
                         <div className="llm-detail-col">
-                          <div className="llm-detail-title">👥 Team Needed</div>
+                          <div className="llm-detail-title">Team Needed</div>
                           {report.llm_insights.team_requirements.map((t, i) => (
                             <div key={i} className="llm-detail-item">
                               <span className="llm-detail-role">{t.role}</span>
@@ -384,7 +461,7 @@ export const CompatibilityCheckPage: React.FC = () => {
                       )}
                       {report.llm_insights.testing_strategy && report.llm_insights.testing_strategy.length > 0 && (
                         <div className="llm-detail-col">
-                          <div className="llm-detail-title">🧪 Testing Strategy</div>
+                          <div className="llm-detail-title">Testing Strategy</div>
                           {report.llm_insights.testing_strategy.map((s, i) => (
                             <div key={i} className="llm-detail-step">{i + 1}. {s}</div>
                           ))}
@@ -392,9 +469,9 @@ export const CompatibilityCheckPage: React.FC = () => {
                       )}
                       {report.llm_insights.cost_considerations && report.llm_insights.cost_considerations.length > 0 && (
                         <div className="llm-detail-col">
-                          <div className="llm-detail-title">💰 Cost Factors</div>
+                          <div className="llm-detail-title">Cost Factors</div>
                           {report.llm_insights.cost_considerations.map((c, i) => (
-                            <div key={i} className="llm-detail-step">• {c}</div>
+                            <div key={i} className="llm-detail-step">{c}</div>
                           ))}
                         </div>
                       )}
@@ -464,7 +541,7 @@ export const CompatibilityCheckPage: React.FC = () => {
                       <table className="compat-table">
                         <thead>
                           <tr>
-                            <th>BQ Pattern</th>
+                            <th>Source Pattern</th>
                             <th>Severity</th>
                             <th>Affected</th>
                             <th>Redshift Fix</th>
@@ -498,7 +575,7 @@ export const CompatibilityCheckPage: React.FC = () => {
           </div>
         )}
 
-        {/* Empty state when no report */}
+        {/* Empty state */}
         {!report && !loading && !error && (
           <div className="empty-state">
             <div className="empty-state-icon">
@@ -510,7 +587,7 @@ export const CompatibilityCheckPage: React.FC = () => {
             </div>
             <h2>Run a Compatibility Check</h2>
             <p>
-              Select a completed assessment above and click "Run Compatibility Check" to analyze
+              Select a source connection and target system above, then choose an assessment to analyze
               data type mappings, feature gaps, SQL syntax differences, and get AI-powered migration insights.
             </p>
           </div>

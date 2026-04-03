@@ -31,6 +31,7 @@ export const ConnectionsPage: React.FC = () => {
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [detailConnection, setDetailConnection] = useState<Connection | null>(null);
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -255,8 +256,11 @@ export const ConnectionsPage: React.FC = () => {
     if (!dateString) return 'Never';
     try {
       const date = new Date(dateString);
+      // Convert to IST (UTC+5:30)
+      const istDate = new Date(date.getTime() + (5.5 * 60 * 60 * 1000));
       const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
+      const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
+      const diffMs = istNow.getTime() - istDate.getTime();
       const diffMins = Math.floor(diffMs / 60000);
       const diffHours = Math.floor(diffMs / 3600000);
       const diffDays = Math.floor(diffMs / 86400000);
@@ -267,8 +271,9 @@ export const ConnectionsPage: React.FC = () => {
       if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
       if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
       
-      // Show formatted date for older timestamps
-      return date.toLocaleString('en-US', {
+      // Show formatted date in IST for older timestamps
+      return date.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
         month: 'short',
         day: 'numeric',
         year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
@@ -486,7 +491,15 @@ export const ConnectionsPage: React.FC = () => {
                   <td>
                     <div className="name-cell-with-icon">
                       {getDatabaseIcon(connection.database)}
-                      <span className="name-cell">{connection.name}</span>
+                      <span
+                        className="name-cell name-cell-clickable"
+                        onClick={() => setDetailConnection(connection)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter') setDetailConnection(connection); }}
+                      >
+                        {connection.name}
+                      </span>
                     </div>
                   </td>
                   <td>
@@ -703,6 +716,94 @@ export const ConnectionsPage: React.FC = () => {
           }}
         >
           {toast.message}
+        </div>
+      )}
+
+      {/* Connection Detail Modal */}
+      {detailConnection && (
+        <div className="confirm-dialog-overlay" onClick={() => setDetailConnection(null)}>
+          <div className="connection-detail-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="connection-detail-header">
+              <div className="connection-detail-title-row">
+                {getDatabaseIcon(detailConnection.database)}
+                <h3>{detailConnection.name}</h3>
+                <span className={`type-badge ${detailConnection.type}`}>
+                  {detailConnection.type.charAt(0).toUpperCase() + detailConnection.type.slice(1)}
+                </span>
+              </div>
+              <button className="connection-detail-close" onClick={() => setDetailConnection(null)} aria-label="Close">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <div className="connection-detail-body">
+              <div className="connection-detail-grid">
+                <div className="connection-detail-item">
+                  <span className="connection-detail-label">Database Type</span>
+                  <span className="connection-detail-value">{getDatabaseLabel(detailConnection.database)}</span>
+                </div>
+                <div className="connection-detail-item">
+                  <span className="connection-detail-label">Connection Type</span>
+                  <span className="connection-detail-value">{detailConnection.type === 'source' ? 'Source' : 'Target'}</span>
+                </div>
+                <div className="connection-detail-item">
+                  <span className="connection-detail-label">Status</span>
+                  <span className="connection-detail-value">{getStatusBadge(detailConnection.status)}</span>
+                </div>
+                <div className="connection-detail-item">
+                  <span className="connection-detail-label">Created By</span>
+                  <span className="connection-detail-value">
+                    <div className="created-by-cell">
+                      <Avatar name={detailConnection.created_by} size="sm" />
+                      <span>{detailConnection.created_by}</span>
+                    </div>
+                  </span>
+                </div>
+                <div className="connection-detail-item">
+                  <span className="connection-detail-label">Created At</span>
+                  <span className="connection-detail-value">
+                    {detailConnection.created_at ? new Date(detailConnection.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : 'N/A'}
+                  </span>
+                </div>
+                <div className="connection-detail-item">
+                  <span className="connection-detail-label">Last Tested At</span>
+                  <span className="connection-detail-value">
+                    {detailConnection.last_tested_at ? new Date(detailConnection.last_tested_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : 'Never'}
+                  </span>
+                </div>
+                <div className="connection-detail-item">
+                  <span className="connection-detail-label">Last Updated</span>
+                  <span className="connection-detail-value">
+                    {detailConnection.updated_at ? new Date(detailConnection.updated_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : 'N/A'}
+                  </span>
+                </div>
+                <div className="connection-detail-item">
+                  <span className="connection-detail-label">Workspace ID</span>
+                  <span className="connection-detail-value">{detailConnection.workspace_id ?? 'N/A'}</span>
+                </div>
+                {detailConnection.connection_params && Object.keys(detailConnection.connection_params).length > 0 && (
+                  <>
+                    {Object.entries(detailConnection.connection_params)
+                      .filter(([key]) => !['password', 'secret', 'token', 'credentials', 'private_key', 'service_account_key', 'connection_string'].some(s => key.toLowerCase().includes(s)))
+                      .map(([key, value]) => (
+                        <div className="connection-detail-item" key={key}>
+                          <span className="connection-detail-label">{key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</span>
+                          <span className="connection-detail-value">{typeof value === 'object' ? JSON.stringify(value) : String(value)}</span>
+                        </div>
+                      ))
+                    }
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="connection-detail-footer">
+              <Button variant="outline" onClick={() => setDetailConnection(null)}>Close</Button>
+              <Button variant="primary" onClick={() => { handleTestConnection(detailConnection); setDetailConnection(null); }}>
+                Test Connection
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>
