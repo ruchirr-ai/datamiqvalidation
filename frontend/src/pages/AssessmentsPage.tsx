@@ -158,7 +158,9 @@ export const AssessmentsPage: React.FC = () => {
   const formatDateTime = (dateString: string | null) => {
     if (!dateString) return 'N/A';
     try {
-      const date = new Date(dateString);
+      // API returns UTC timestamps without Z suffix — normalize
+      const normalized = dateString.endsWith('Z') ? dateString : dateString + 'Z';
+      const date = new Date(normalized);
       const now = new Date();
       const diffMs = now.getTime() - date.getTime();
       const diffMins = Math.floor(diffMs / 60000);
@@ -170,7 +172,8 @@ export const AssessmentsPage: React.FC = () => {
       if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
       if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
       
-      return date.toLocaleString('en-US', {
+      return date.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
         month: 'short',
         day: 'numeric',
         year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
