@@ -284,7 +284,6 @@ export const CompatibilityCheckPage: React.FC = () => {
                     onChange={(val) => {
                       const name = val as string;
                       setSelectedAssessmentName(name);
-                      // Auto-select latest version
                       const latest = assessments.filter(a => a.name === name).sort((a, b) => (b.version || 1) - (a.version || 1))[0];
                       if (latest) setSelectedAssessmentId(latest.id);
                     }}
@@ -304,22 +303,6 @@ export const CompatibilityCheckPage: React.FC = () => {
                   />
                 </div>
               )}
-              <Button
-                onClick={handleRunCheck}
-                disabled={!selectedAssessmentId || loading}
-                className="compat-run-btn"
-              >
-                {loading ? (
-                  <><Loader size={16} className="spin" /> Analyzing...</>
-                ) : (
-                  <><Zap size={16} /> Run Compatibility Check</>
-                )}
-              </Button>
-              {saveStatus === 'saved' && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#10b981', marginLeft: 12 }}>
-                  <CheckCircle size={14} /> Saved
-                </span>
-              )}
             </div>
           )}
 
@@ -330,7 +313,7 @@ export const CompatibilityCheckPage: React.FC = () => {
           )}
         </div>
 
-        {/* Tab Navigation */}
+        {/* Tab Navigation - shown as soon as assessment is selected */}
         {selectedAssessmentId && (
           <div className="analyze-tabs">
             <button className={`analyze-tab ${activeTab === 'tco' ? 'active' : ''}`} onClick={() => handleTabChange('tco')}>
@@ -355,6 +338,30 @@ export const CompatibilityCheckPage: React.FC = () => {
         {selectedAssessmentId && activeTab === 'recommendations' && (
           <div className="analyze-tab-content">
             <RecommendationsSection assessmentId={selectedAssessmentId as number} />
+          </div>
+        )}
+
+        {/* Tab Content - Compatibility Check */}
+        {activeTab === 'compatibility' && selectedAssessmentId && (
+          <div className="analyze-tab-content">
+            <div className="compat-run-bar">
+              <Button
+                onClick={handleRunCheck}
+                disabled={!selectedAssessmentId || loading}
+                className="compat-run-btn"
+              >
+                {loading ? (
+                  <><Loader size={16} className="spin" /> Analyzing...</>
+                ) : (
+                  <><Zap size={16} /> Run Compatibility Check</>
+                )}
+              </Button>
+              {saveStatus === 'saved' && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#10b981' }}>
+                  <CheckCircle size={14} /> Saved
+                </span>
+              )}
+            </div>
           </div>
         )}
 

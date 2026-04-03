@@ -652,3 +652,10 @@
 .analyze-tab-content {
   min-height: 200px;
 }
+
+.compat-run-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
