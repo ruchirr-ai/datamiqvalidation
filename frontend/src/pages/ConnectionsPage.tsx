@@ -255,12 +255,11 @@ export const ConnectionsPage: React.FC = () => {
   const formatDateTime = (dateString: string | null) => {
     if (!dateString) return 'Never';
     try {
-      const date = new Date(dateString);
-      // Convert to IST (UTC+5:30)
-      const istDate = new Date(date.getTime() + (5.5 * 60 * 60 * 1000));
+      // API returns UTC timestamps without Z suffix — normalize
+      const normalized = dateString.endsWith('Z') ? dateString : dateString + 'Z';
+      const date = new Date(normalized);
       const now = new Date();
-      const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
-      const diffMs = istNow.getTime() - istDate.getTime();
+      const diffMs = now.getTime() - date.getTime();
       const diffMins = Math.floor(diffMs / 60000);
       const diffHours = Math.floor(diffMs / 3600000);
       const diffDays = Math.floor(diffMs / 86400000);
@@ -763,19 +762,19 @@ export const ConnectionsPage: React.FC = () => {
                 <div className="connection-detail-item">
                   <span className="connection-detail-label">Created At</span>
                   <span className="connection-detail-value">
-                    {detailConnection.created_at ? new Date(detailConnection.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : 'N/A'}
+                    {detailConnection.created_at ? new Date(detailConnection.created_at.endsWith('Z') ? detailConnection.created_at : detailConnection.created_at + 'Z').toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : 'N/A'}
                   </span>
                 </div>
                 <div className="connection-detail-item">
                   <span className="connection-detail-label">Last Tested At</span>
                   <span className="connection-detail-value">
-                    {detailConnection.last_tested_at ? new Date(detailConnection.last_tested_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : 'Never'}
+                    {detailConnection.last_tested_at ? new Date(detailConnection.last_tested_at.endsWith('Z') ? detailConnection.last_tested_at : detailConnection.last_tested_at + 'Z').toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : 'Never'}
                   </span>
                 </div>
                 <div className="connection-detail-item">
                   <span className="connection-detail-label">Last Updated</span>
                   <span className="connection-detail-value">
-                    {detailConnection.updated_at ? new Date(detailConnection.updated_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : 'N/A'}
+                    {detailConnection.updated_at ? new Date(detailConnection.updated_at.endsWith('Z') ? detailConnection.updated_at : detailConnection.updated_at + 'Z').toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : 'N/A'}
                   </span>
                 </div>
                 <div className="connection-detail-item">
