@@ -25,9 +25,9 @@ export const CompatibilityCheckPage: React.FC = () => {
   
   // Derive active tab from URL
   const getTabFromPath = (): AnalyzeTab => {
-    if (location.pathname.includes('/tco')) return 'tco';
-    if (location.pathname.includes('/recommendations')) return 'recommendations';
-    return 'compatibility';
+    if (location.pathname.includes('/analyze/recommendations')) return 'recommendations';
+    if (location.pathname.includes('/analyze/compatibility')) return 'compatibility';
+    return 'tco';
   };
   const [activeTab, setActiveTab] = useState<AnalyzeTab>(getTabFromPath());
   

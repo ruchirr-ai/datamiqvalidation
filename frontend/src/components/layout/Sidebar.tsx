@@ -150,12 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <path d="M8 5v6M5 8h6" strokeLinecap="round" />
         </svg>
       ),
-      path: '/analyze',
-      children: [
-        { id: 'analyze-1', label: 'TCO Analysis', icon: null, path: '/analyze/tco' },
-        { id: 'analyze-2', label: 'Recommendations', icon: null, path: '/analyze/recommendations' },
-        { id: 'analyze-3', label: 'Compatibility Check', icon: null, path: '/analyze/compatibility' }
-      ]
+      path: '/analyze'
     },
     {
       id: 'migrations',
