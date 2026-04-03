@@ -452,7 +452,7 @@ async def run_assessment(
     db: Session = Depends(get_db)
 ):
     """
-    Manually trigger assessment execution
+    Re-run an assessment. Creates a new versioned copy and runs it.
     """
     try:
         assessment_repo = AssessmentRepository(db)
@@ -466,31 +466,35 @@ async def run_assessment(
         if assessment.status == 'running':
             raise HTTPException(status_code=400, detail="Assessment is already running")
         
-        # Reset status to pending
-        assessment_repo.update_status(assessment_id, 'pending')
+        # Create a new versioned assessment based on the existing one
+        new_assessment = assessment_repo.create_assessment(
+            name=assessment.name,
+            source_connection_id=assessment.source_connection_id,
+            target_connection_id=assessment.target_connection_id,
+            project_id=assessment.project_id,
+            status='pending',
+            created_by=assessment.created_by
+        )
         
         # Create log entry
         assessment_repo.create_log(
-            assessment_id=assessment_id,
+            assessment_id=new_assessment.id,
             log_level='INFO',
-            message='Assessment manually triggered for execution',
+            message=f'Assessment re-run triggered (v{new_assessment.version} based on v{assessment.version})',
             stage='manual_trigger'
         )
         
-        print(f"[API] About to add background task for assessment {assessment_id}")
-        print(f"[API] Source connection: {assessment.source_connection_id}, Target: {assessment.target_connection_id}")
+        print(f"[API] Created new assessment v{new_assessment.version} (id={new_assessment.id}) from assessment {assessment_id}")
         
-        # Start background task
+        # Start background task on the NEW assessment
         background_tasks.add_task(
             run_assessment_background,
-            assessment_id,
-            assessment.source_connection_id,
-            assessment.target_connection_id
+            new_assessment.id,
+            new_assessment.source_connection_id,
+            new_assessment.target_connection_id
         )
         
-        print(f"[API] Background task added successfully for assessment {assessment_id}")
-        
-        return {"message": "Assessment started successfully", "assessment_id": assessment_id}
+        return {"message": f"Assessment v{new_assessment.version} started successfully", "assessment_id": new_assessment.id}
     except HTTPException:
         raise
     except Exception as e:

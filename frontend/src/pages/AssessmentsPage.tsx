@@ -111,9 +111,9 @@ export const AssessmentsPage: React.FC = () => {
 
   const handleRunAssessment = async (assessmentId: number) => {
     try {
-      await runAssessment(assessmentId);
-      setToast({ message: 'Assessment started', type: 'success' });
-      // Immediately refresh to show 'running' status
+      const result = await runAssessment(assessmentId);
+      setToast({ message: result.message || 'Assessment started', type: 'success' });
+      // Refresh to show new versioned assessment
       await fetchAssessments();
     } catch (error: any) {
       setToast({ message: `Failed to run assessment: ${error.detail || error.message}`, type: 'error' });
