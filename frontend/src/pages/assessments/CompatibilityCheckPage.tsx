@@ -21,6 +21,7 @@ export const CompatibilityCheckPage: React.FC = () => {
   const [selectedTarget, setSelectedTarget] = useState<string>('redshift');
   const [assessments, setAssessments] = useState<Assessment[]>([]);
   const [selectedAssessmentId, setSelectedAssessmentId] = useState<number | ''>('');
+  const [selectedAssessmentName, setSelectedAssessmentName] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [loadingAssessments, setLoadingAssessments] = useState(false);
@@ -71,7 +72,6 @@ export const CompatibilityCheckPage: React.FC = () => {
     try {
       setLoadingAssessments(true);
       const data = await listAssessments();
-      // Filter assessments that use this source connection and are completed
       const filtered = data.assessments.filter(
         a => a.source_connection_id === connectionId && a.status === 'completed'
       );
@@ -79,6 +79,7 @@ export const CompatibilityCheckPage: React.FC = () => {
       // Auto-select if only one assessment
       if (filtered.length === 1) {
         setSelectedAssessmentId(filtered[0].id);
+        setSelectedAssessmentName(filtered[0].name);
       }
     } catch (err: any) {
       // silently fail
@@ -86,6 +87,30 @@ export const CompatibilityCheckPage: React.FC = () => {
       setLoadingAssessments(false);
     }
   };
+
+  // Group assessments by name for the dropdown, and get versions for selected name
+  const assessmentNames = React.useMemo(() => {
+    const names = new Set<string>();
+    assessments.forEach(a => names.add(a.name));
+    return Array.from(names).sort();
+  }, [assessments]);
+
+  const versionsForSelected = React.useMemo(() => {
+    if (!selectedAssessmentName) return [];
+    return assessments
+      .filter(a => a.name === selectedAssessmentName)
+      .sort((a, b) => (b.version || 1) - (a.version || 1));
+  }, [assessments, selectedAssessmentName]);
+
+  const assessmentNameOptions = assessmentNames.map(name => {
+    const latest = assessments.filter(a => a.name === name).sort((a, b) => (b.version || 1) - (a.version || 1))[0];
+    return { value: name, label: `${name} (${latest.total_tables} tables, ${latest.total_size_mb.toFixed(1)} MB)` };
+  });
+
+  const versionOptions = versionsForSelected.map(a => ({
+    value: a.id,
+    label: `v${a.version || 1}${a.id === versionsForSelected[0]?.id ? ' (latest)' : ''}`,
+  }));
 
   const handleRunCheck = async () => {
     if (!selectedAssessmentId) return;
@@ -175,11 +200,6 @@ export const CompatibilityCheckPage: React.FC = () => {
     { value: 'redshift', label: 'Amazon Redshift' },
   ];
 
-  const assessmentOptions = assessments.map(a => ({
-    value: a.id,
-    label: `${a.name} (${a.total_tables} tables, ${a.total_size_mb.toFixed(1)} MB)`,
-  }));
-
   const selectedSourceName = connections.find(c => c.id === selectedSourceId)?.name || '';
 
   return (
@@ -226,19 +246,36 @@ export const CompatibilityCheckPage: React.FC = () => {
                 <label>Select Assessment</label>
                 {loadingAssessments ? (
                   <div className="compat-loading-inline"><Loader size={16} className="spin" /> Loading assessments...</div>
-                ) : assessments.length === 0 ? (
+                ) : assessmentNames.length === 0 ? (
                   <div className="compat-no-assessments">
-                    <Info size={14} /> No completed assessments found for this connection. Run a Schema Analysis first.
+                    <Info size={14} /> No completed assessments found for this connection. Run an Assessment first.
                   </div>
                 ) : (
                   <SearchableSelect
-                    value={selectedAssessmentId}
-                    onChange={(val) => setSelectedAssessmentId(val as number)}
-                    options={assessmentOptions}
+                    value={selectedAssessmentName}
+                    onChange={(val) => {
+                      const name = val as string;
+                      setSelectedAssessmentName(name);
+                      // Auto-select latest version
+                      const latest = assessments.filter(a => a.name === name).sort((a, b) => (b.version || 1) - (a.version || 1))[0];
+                      if (latest) setSelectedAssessmentId(latest.id);
+                    }}
+                    options={assessmentNameOptions}
                     placeholder="Select assessment"
                   />
                 )}
               </div>
+              {selectedAssessmentName && versionsForSelected.length > 1 && (
+                <div className="compat-select-group" style={{ maxWidth: 160 }}>
+                  <label>Version</label>
+                  <SearchableSelect
+                    value={selectedAssessmentId}
+                    onChange={(val) => setSelectedAssessmentId(val as number)}
+                    options={versionOptions}
+                    placeholder="Version"
+                  />
+                </div>
+              )}
               <Button
                 onClick={handleRunCheck}
                 disabled={!selectedAssessmentId || loading}

@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/assessments", tags=["assessments"])
 class CreateAssessmentRequest(BaseModel):
     name: str
     source_connection_id: int
-    target_connection_id: int
+    target_connection_id: int | None = None
 
 
 class UpdateAssessmentRequest(BaseModel):
@@ -45,7 +45,7 @@ class AssessmentResponse(BaseModel):
     id: int
     name: str
     source_connection_id: int
-    target_connection_id: int
+    target_connection_id: int | None = None
     project_id: str
     status: str
     started_at: datetime
@@ -117,10 +117,12 @@ async def create_assessment(
         if not source_conn:
             raise HTTPException(status_code=404, detail="Source connection not found")
         
-        # Validate target connection
-        target_conn = connection_repo.get_by_id(request.target_connection_id)
-        if not target_conn:
-            raise HTTPException(status_code=404, detail="Target connection not found")
+        # Validate target connection (optional)
+        target_connection_id = request.target_connection_id
+        if target_connection_id:
+            target_conn = connection_repo.get_by_id(target_connection_id)
+            if not target_conn:
+                raise HTTPException(status_code=404, detail="Target connection not found")
         
         # Get project ID from source connection
         # For BigQuery, the database field contains the project ID
@@ -131,7 +133,7 @@ async def create_assessment(
         assessment = assessment_repo.create_assessment(
             name=request.name,
             source_connection_id=request.source_connection_id,
-            target_connection_id=request.target_connection_id,
+            target_connection_id=target_connection_id,
             project_id=project_id,
             status='pending',
             created_by='current_user'  # TODO: Get from auth context
@@ -145,7 +147,7 @@ async def create_assessment(
             stage='creation',
             log_metadata={
                 'source_connection_id': request.source_connection_id,
-                'target_connection_id': request.target_connection_id,
+                'target_connection_id': target_connection_id,
                 'project_id': project_id
             }
         )
@@ -155,7 +157,7 @@ async def create_assessment(
             run_assessment_background,
             assessment.id,
             request.source_connection_id,
-            request.target_connection_id
+            target_connection_id
         )
         
         return assessment

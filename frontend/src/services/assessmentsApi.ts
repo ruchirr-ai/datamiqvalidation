@@ -9,7 +9,7 @@ export interface Assessment {
   id: number;
   name: string;
   source_connection_id: number;
-  target_connection_id: number;
+  target_connection_id: number | null;
   project_id: string;
   status: string;
   started_at: string;
@@ -34,7 +34,7 @@ export interface AssessmentListResponse {
 export interface CreateAssessmentRequest {
   name: string;
   source_connection_id: number;
-  target_connection_id: number;
+  target_connection_id?: number;
 }
 
 export interface UpdateAssessmentRequest {
