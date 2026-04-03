@@ -42,6 +42,7 @@ export const AssessmentsPage: React.FC = () => {
   const [menuPosition, setMenuPosition] = useState<{ top?: number; bottom?: number; right: number }>({ right: 0 });
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [selectedVersions, setSelectedVersions] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (toast) {
@@ -197,6 +198,35 @@ export const AssessmentsPage: React.FC = () => {
   const totalAssessments = assessments.length;
   const totalPages = Math.ceil(totalAssessments / rowsPerPage);
 
+  // Group assessments by name, latest version first
+  const groupedAssessments = React.useMemo(() => {
+    const groups: Record<string, Assessment[]> = {};
+    for (const a of assessments) {
+      if (!groups[a.name]) groups[a.name] = [];
+      groups[a.name].push(a);
+    }
+    // Sort each group by version desc
+    Object.values(groups).forEach(g => g.sort((a, b) => (b.version || 1) - (a.version || 1)));
+    // Return as array sorted by latest completion
+    return Object.entries(groups)
+      .map(([name, versions]) => ({ name, versions }))
+      .sort((a, b) => {
+        const aDate = a.versions[0]?.completed_at || a.versions[0]?.started_at || '';
+        const bDate = b.versions[0]?.completed_at || b.versions[0]?.started_at || '';
+        return bDate.localeCompare(aDate);
+      });
+  }, [assessments]);
+
+  // Get the currently selected assessment for each group
+  const getSelectedAssessment = (group: { name: string; versions: Assessment[] }) => {
+    const selectedId = selectedVersions[group.name];
+    if (selectedId) {
+      const found = group.versions.find(v => v.id === selectedId);
+      if (found) return found;
+    }
+    return group.versions[0]; // default to latest
+  };
+
   // Close dropdown when clicking outside
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -285,7 +315,10 @@ export const AssessmentsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {assessments.map((assessment) => (
+              {groupedAssessments.map((group) => {
+                const assessment = getSelectedAssessment(group);
+                const hasMultipleVersions = group.versions.length > 1;
+                return (
                 <tr key={assessment.id}>
                   <td>
                     <div className="assessment-name-cell">
@@ -303,7 +336,23 @@ export const AssessmentsPage: React.FC = () => {
                       )}
                     </div>
                   </td>
-                  <td><span className="report-version-badge">v{assessment.version || 1}</span></td>
+                  <td>
+                    {hasMultipleVersions ? (
+                      <select
+                        className="version-select"
+                        value={assessment.id}
+                        onChange={(e) => setSelectedVersions(prev => ({ ...prev, [group.name]: Number(e.target.value) }))}
+                      >
+                        {group.versions.map(v => (
+                          <option key={v.id} value={v.id}>
+                            v{v.version || 1}{v.id === group.versions[0].id ? ' (latest)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="report-version-badge">v{assessment.version || 1}</span>
+                    )}
+                  </td>
                   <td>{getStatusBadge(assessment.status)}</td>
                   <td>{assessment.total_datasets}</td>
                   <td>{assessment.total_tables}</td>
@@ -355,7 +404,8 @@ export const AssessmentsPage: React.FC = () => {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -364,7 +414,7 @@ export const AssessmentsPage: React.FC = () => {
       {/* Pagination - Design pattern from Connections Page */}
       <div className="assessments-pagination">
         <div className="pagination-info">
-          {t('assessments.showing')} {((currentPage - 1) * rowsPerPage) + 1} to {Math.min(currentPage * rowsPerPage, totalAssessments)} {t('common.of')} {totalAssessments}
+          {t('assessments.showing')} {((currentPage - 1) * rowsPerPage) + 1} to {Math.min(currentPage * rowsPerPage, groupedAssessments.length)} {t('common.of')} {groupedAssessments.length}
         </div>
 
         <div className="pagination-controls">
