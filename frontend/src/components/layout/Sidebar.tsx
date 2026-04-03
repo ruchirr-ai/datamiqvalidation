@@ -137,7 +137,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ),
       path: '/assessments',
       children: [
-        { id: 'assess-1', label: t('nav.schemaAnalysis'), icon: null, path: '/assessments/schema-analysis' },
         { id: 'assess-2', label: t('nav.compatibilityCheck'), icon: null, path: '/assessments/compatibility' },
         { id: 'assess-3', label: t('nav.assessmentReports'), icon: null, path: '/assessments/reports' }
       ]

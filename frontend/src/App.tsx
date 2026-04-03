@@ -17,7 +17,6 @@ import { AdminPage } from './pages/AdminPage';
 import { DatabaseFieldConfigPage } from './pages/DatabaseFieldConfigPage';
 import { AssessmentsPage } from './pages/AssessmentsPage';
 import { AssessmentReportPage } from './pages/AssessmentReportPage';
-import { SchemaAnalysisPage } from './pages/assessments/SchemaAnalysisPage';
 import { CompatibilityCheckPage } from './pages/assessments/CompatibilityCheckPage';
 import { AssessmentReportsPage } from './pages/assessments/AssessmentReportsPage';
 import { BQRedshiftMigrationsPage } from './pages/migrations/BQRedshiftMigrationsPage';
@@ -181,7 +180,6 @@ const AppContent: React.FC = () => {
                   <Route path="/connections" element={<ConnectionsPage />} />
                   <Route path="/assessments" element={<AssessmentsPage />} />
                   <Route path="/assessments/:assessmentId/report" element={<AssessmentReportPage />} />
-                  <Route path="/assessments/schema-analysis" element={<SchemaAnalysisPage />} />
                   <Route path="/assessments/compatibility" element={<CompatibilityCheckPage />} />
                   <Route path="/assessments/reports" element={<AssessmentReportsPage />} />
                   <Route path="/migrations" element={<MigrationsPage />} />
