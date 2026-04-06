@@ -12,7 +12,9 @@ import './CreateMigrationWizard.css';
 export interface MigrationFormData {
   // Step 1: Connection Configuration
   migrationName: string;
-  migrationType: 'bigquery-redshift' | 'mongodb-documentdb' | null;
+  migrationType: 'bigquery-redshift' | 'mongodb-documentdb' | string | null;
+  sourceDbType?: string;
+  targetDbType?: string;
   sourceConnectionId: number | null;
   targetConnectionId: number | null;
   

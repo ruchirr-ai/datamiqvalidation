@@ -59,6 +59,7 @@
   border: 1px solid #E5E7EB;
   border-radius: 10px;
   min-width: 80px;
+  flex: 1;
 }
 
 .jobs-summary-value {

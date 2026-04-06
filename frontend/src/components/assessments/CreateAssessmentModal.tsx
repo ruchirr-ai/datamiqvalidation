@@ -2,14 +2,9 @@
  * Create Assessment Modal
  * 
  * Allows users to:
- * 1. Select source connection (BigQuery)
- * 2. Select target connection (Redshift)
- * 3. Start assessment to collect metadata and analyze migration compatibility
- * 
- * Displays results:
- * - Datasets (Databases)
- * - Dataset name, Creation time, Location/Region, Table count, Total size
- * - Migration compatibility analysis
+ * 1. Enter assessment name
+ * 2. Select source connection
+ * 3. Start assessment to collect source metadata
  */
 
 import React, { useState, useEffect } from 'react';
@@ -32,16 +27,13 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [sourceConnectionId, setSourceConnectionId] = useState<number | null>(null);
-  const [targetConnectionId, setTargetConnectionId] = useState<number | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (isOpen) {
-      fetchConnections();
-    }
+    if (isOpen) fetchConnections();
   }, [isOpen]);
 
   const fetchConnections = async () => {
@@ -50,7 +42,6 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
       const data = await listConnections();
       setConnections(data);
     } catch (err: any) {
-      console.error('Failed to fetch connections:', err);
       setError('Failed to load connections');
     } finally {
       setLoading(false);
@@ -59,36 +50,16 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!name.trim()) {
-      setError('Please enter an assessment name');
-      return;
-    }
-
-    if (!sourceConnectionId) {
-      setError('Please select a source connection');
-      return;
-    }
-
-    if (!targetConnectionId) {
-      setError('Please select a target connection');
-      return;
-    }
+    if (!name.trim()) { setError('Please enter an assessment name'); return; }
+    if (!sourceConnectionId) { setError('Please select a source connection'); return; }
 
     try {
       setSubmitting(true);
       setError(null);
-
-      await createAssessment({
-        name: name.trim(),
-        source_connection_id: sourceConnectionId,
-        target_connection_id: targetConnectionId
-      });
-      
+      await createAssessment({ name: name.trim(), source_connection_id: sourceConnectionId });
       onSuccess();
       handleClose();
     } catch (err: any) {
-      console.error('Failed to create assessment:', err);
       setError(err.detail || err.message || 'Failed to create assessment');
     } finally {
       setSubmitting(false);
@@ -98,16 +69,13 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
   const handleClose = () => {
     setName('');
     setSourceConnectionId(null);
-    setTargetConnectionId(null);
     setError(null);
     onClose();
   };
 
   if (!isOpen) return null;
 
-  // Allow any source and target connections (not restricted to BigQuery/Redshift)
   const sourceConnections = connections.filter(c => c.type === 'source');
-  const targetConnections = connections.filter(c => c.type === 'target');
 
   return (
     <div className="modal-overlay" onClick={handleClose}>
@@ -133,30 +101,19 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
 
             <div className="form-section">
               <p className="form-description">
-                Create a new assessment to analyze migration compatibility and collect metadata information.
+                Create a new assessment to analyze your source database metadata — tables, views, routines, and more.
               </p>
             </div>
 
             <div className="form-group">
-              <label htmlFor="assessment-name">
-                Assessment Name <span className="required">*</span>
-              </label>
+              <label htmlFor="assessment-name">Assessment Name <span className="required">*</span></label>
               <p className="field-hint">A descriptive name for this assessment</p>
-              <Input
-                id="assessment-name"
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., Production DB Migration Assessment"
-                disabled={submitting}
-              />
+              <Input id="assessment-name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Production DB Assessment" disabled={submitting} />
             </div>
 
             <div className="form-group">
-              <label htmlFor="source-connection">
-                Source Connection <span className="required">*</span>
-              </label>
-              <p className="field-hint">Source database connection to assess</p>
+              <label htmlFor="source-connection">Source Connection <span className="required">*</span></label>
+              <p className="field-hint">Source database to analyze</p>
               {loading ? (
                 <div className="loading-select">Loading connections...</div>
               ) : sourceConnections.length === 0 ? (
@@ -170,37 +127,7 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
                   onChange={(value) => setSourceConnectionId(Number(value))}
                   options={[
                     { value: '', label: 'Select source connection' },
-                    ...sourceConnections.map(conn => ({
-                      value: conn.id,
-                      label: conn.name
-                    }))
-                  ]}
-                />
-              )}
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="target-connection">
-                Target Connection <span className="required">*</span>
-              </label>
-              <p className="field-hint">Target database connection for migration</p>
-              {loading ? (
-                <div className="loading-select">Loading connections...</div>
-              ) : targetConnections.length === 0 ? (
-                <div className="no-connections-message">
-                  <p>No target connections found.</p>
-                  <p className="hint">Please create a target connection first.</p>
-                </div>
-              ) : (
-                <Select
-                  value={targetConnectionId || ''}
-                  onChange={(value) => setTargetConnectionId(Number(value))}
-                  options={[
-                    { value: '', label: 'Select target connection' },
-                    ...targetConnections.map(conn => ({
-                      value: conn.id,
-                      label: conn.name
-                    }))
+                    ...sourceConnections.map(conn => ({ value: conn.id, label: `${conn.name} (${conn.database})` }))
                   ]}
                 />
               )}
@@ -214,25 +141,19 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
               <div>
                 <strong>Assessment will analyze:</strong>
                 <ul>
-                  <li>Source metadata - datasets, tables, views, routines, ML models</li>
-                  <li>Data types and schema compatibility</li>
-                  <li>Migration complexity and potential issues</li>
-                  <li>Estimated migration time and resources</li>
+                  <li>Datasets, tables, views, routines, ML models</li>
+                  <li>Data types and schema structure</li>
+                  <li>Query patterns and usage insights</li>
+                  <li>Security policies and indexes</li>
                 </ul>
               </div>
             </div>
           </div>
 
           <div className="modal-footer">
-            <Button type="button" variant="outline" onClick={handleClose} disabled={submitting}>
-              Cancel
-            </Button>
-            <Button 
-              type="submit" 
-              variant="primary" 
-              disabled={submitting || !name.trim() || !sourceConnectionId || !targetConnectionId}
-            >
-              {submitting ? 'Creating Assessment...' : 'Create Assessment'}
+            <Button type="button" variant="outline" onClick={handleClose} disabled={submitting}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={submitting || !name.trim() || !sourceConnectionId}>
+              {submitting ? 'Creating...' : 'Create Assessment'}
             </Button>
           </div>
         </form>
