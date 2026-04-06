@@ -11,7 +11,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FileSearch, ArrowLeft, Database, Table as TableIcon, Eye, Code,
-  Activity, Shield, Users, TrendingUp, DollarSign,
+  Activity, Shield, Users,
   Zap, Server, Download
 } from 'lucide-react';
 import { Button, Badge } from '../components/ui';
@@ -358,7 +358,7 @@ const SQLServerSummarySection: React.FC<{ assessment: ReportSummary['assessment'
       <h3 className="subsection-heading">Assessment Details</h3>
       <div className="details-grid">
         <div className="detail-item"><span className="detail-label">Assessment Name:</span><span className="detail-value">{assessment.name}</span></div>
-        <div className="detail-item"><span className="detail-label">Version:</span><span className="detail-value">v{assessment.version || 1}</span></div>
+        <div className="detail-item"><span className="detail-label">Version:</span><span className="detail-value">v{(assessment as any).version || 1}</span></div>
         <div className="detail-item"><span className="detail-label">Project ID:</span><span className="detail-value">{assessment.project_id}</span></div>
         <div className="detail-item"><span className="detail-label">Status:</span><span className="detail-value" style={{ textTransform: 'capitalize' }}>{assessment.status}</span></div>
         <div className="detail-item"><span className="detail-label">Started At:</span><span className="detail-value">{formatDate(assessment.started_at)}</span></div>
@@ -373,8 +373,8 @@ const SQLServerSummarySection: React.FC<{ assessment: ReportSummary['assessment'
           return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`;
         })()}</span></div>
         <div className="detail-item"><span className="detail-label">Total Data Size:</span><span className="detail-value">{formatSize(assessment.total_size_mb)}</span></div>
-        <div className="detail-item"><span className="detail-label">Created By:</span><span className="detail-value">{assessment.created_by || 'System'}</span></div>
-        <div className="detail-item"><span className="detail-label">Workspace ID:</span><span className="detail-value">{assessment.workspace_id}</span></div>
+        <div className="detail-item"><span className="detail-label">Created By:</span><span className="detail-value">{(assessment as any).created_by || 'System'}</span></div>
+        <div className="detail-item"><span className="detail-label">Workspace ID:</span><span className="detail-value">{(assessment as any).workspace_id}</span></div>
       </div>
     </div>
   </div>
@@ -634,6 +634,9 @@ const AgentJobsSection: React.FC<{ jobs: any[]; formatDate: (d: string | null) =
 };
 
 // ============ Recommendations Section (self-fetching, shared logic) ============
+// COMMENTED OUT: Moved to Analyze page (CompatibilityCheckPage.tsx)
+// Will reuse later if needed for SQL Server specific recommendations
+/*
 import { SearchableSelect } from '../components/ui/SearchableSelect';
 import {
   RecommendationsData, TCOData, AWSRegion,
@@ -869,3 +872,4 @@ const TCOPlaceholder: React.FC<{ assessmentId: number }> = ({ assessmentId }) =>
     </div>
   );
 };
+*/
