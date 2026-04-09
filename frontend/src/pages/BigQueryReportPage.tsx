@@ -850,6 +850,7 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
   const [selectedTable, setSelectedTable] = useState<string | number>('all');
   const [dskPage, setDskPage] = useState(1);
   const [dskPageSize, setDskPageSize] = useState<string | number>(20);
+  const [expandedArch, setExpandedArch] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -870,6 +871,19 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
   return (
     <div className="section-content">
       <h2 className="section-heading">Migration Recommendations</h2>
+
+      {/* Assessment Insights Summary */}
+      {arch.insights_summary && arch.insights_summary.length > 0 && (
+        <div className="rec-section">
+          <h3 className="rec-section-title"><Info size={18} /> Assessment Insights</h3>
+          <div style={{ background: '#F8FAFC', border: '1px solid var(--color-divider)', borderRadius: '8px', padding: '16px 20px' }}>
+            {arch.insights_summary.map((insight: string, i: number) => (
+              <p key={i} style={{ fontSize: '14px', color: 'var(--color-text-primary)', lineHeight: '1.6', margin: i === 0 ? '0' : '10px 0 0' }}>{insight}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="rec-section">
         <h3 className="rec-section-title"><TableIcon size={18} /> Distribution & Sort Key Recommendations</h3>
         <div className="section-filters" style={{ marginBottom: 'var(--spacing-4)' }}>
@@ -908,16 +922,162 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
         </div>
       </div>
       <div className="rec-section">
-        <h3 className="rec-section-title"><Activity size={18} /> Query Classification & Architecture</h3>
+        <h3 className="rec-section-title"><Activity size={18} /> Query Classification</h3>
         <div className="rec-cards-row">
           <div className="rec-card rec-card-blue"><div className="rec-card-icon"><Zap size={24} /></div><div className="rec-card-value">{qc.adhoc_count.toLocaleString()}</div><div className="rec-card-label">Ad-hoc Queries</div><div className="rec-card-pct">{qc.adhoc_pct}%</div></div>
           <div className="rec-card rec-card-purple"><div className="rec-card-icon"><TrendingUp size={24} /></div><div className="rec-card-value">{qc.bi_count.toLocaleString()}</div><div className="rec-card-label">BI / Scheduled Queries</div><div className="rec-card-pct">{qc.bi_pct}%</div></div>
           <div className="rec-card rec-card-green"><div className="rec-card-icon"><Activity size={24} /></div><div className="rec-card-value">{qc.total_queries.toLocaleString()}</div><div className="rec-card-label">Total Queries Analyzed</div></div>
         </div>
-        {arch.strategies.map((s, i) => (
-          <div key={i} className="rec-info-box"><div className="rec-info-title"><Info size={16} /> {s.title}</div><ul className="rec-info-list">{s.points.map((p, j) => <li key={j}>{p}</li>)}</ul></div>
-        ))}
       </div>
+
+      {/* Workload Categories */}
+      {arch.workloads && arch.workloads.length > 0 && (
+        <div className="rec-section">
+          <h3 className="rec-section-title"><Activity size={18} /> Identified Workload Categories</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
+            {arch.workloads.map((w, i) => (
+              <div key={i} style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-divider)', borderRadius: '8px', padding: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontWeight: 600, fontSize: '14px' }}>{w.name}</span>
+                  <Badge variant={w.priority === 'high' ? 'error' : w.priority === 'medium' ? 'warning' : 'default'}>{w.priority}</Badge>
+                </div>
+                <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '10px' }}>{w.description}</p>
+                <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                  <span>{w.percentage}% of workload</span>
+                  <span>{w.query_count.toLocaleString()} queries</span>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
+                  {w.characteristics.map((c, j) => (
+                    <span key={j} style={{ fontSize: '11px', padding: '2px 8px', background: '#F3F4F6', borderRadius: '4px', color: 'var(--color-text-secondary)' }}>{c}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Architecture Patterns */}
+      {arch.architecture_patterns && arch.architecture_patterns.length > 0 && (
+        <div className="rec-section">
+          <h3 className="rec-section-title"><Database size={18} /> Architecture Patterns</h3>
+          {arch.recommendation && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', marginBottom: '16px', background: arch.recommendation.type === 'combination' ? '#EFF6FF' : '#F0FDF4', border: `1px solid ${arch.recommendation.type === 'combination' ? '#93C5FD' : '#86EFAC'}`, borderRadius: '8px' }}>
+              <CheckCircle size={18} color={arch.recommendation.type === 'combination' ? '#2563EB' : '#16A34A'} />
+              <span style={{ fontSize: '14px', fontWeight: 500 }}>{arch.recommendation.summary}</span>
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {arch.architecture_patterns.map((p, i) => {
+              const isRecommended = arch.recommendation && (
+                arch.recommendation.primary_architecture_id === p.id ||
+                (arch.workload_mappings || []).some(m => m.architecture_id === p.id)
+              );
+              const isExpanded = expandedArch === i;
+              return (
+                <div key={i} style={{
+                  background: isRecommended ? '#FAFFF9' : 'var(--color-bg-surface)',
+                  border: `1px solid ${isRecommended ? '#BBF7D0' : 'var(--color-divider)'}`,
+                  borderRadius: '8px', padding: '14px 18px', cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }} onClick={() => setExpandedArch(isExpanded ? null : i)}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                      <span style={{ fontSize: '14px', fontWeight: 600 }}>{p.short_name}</span>
+                      {isRecommended && <Badge variant="success">Recommended</Badge>}
+                      <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{p.description}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <span style={{ fontSize: '20px', fontWeight: 700, color: p.suitability_score >= 70 ? '#16A34A' : p.suitability_score >= 50 ? '#CA8A04' : '#6B7280' }}>{p.suitability_score}%</span>
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--color-text-secondary)', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                        <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid var(--color-divider)' }} onClick={e => e.stopPropagation()}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                        <div>
+                          <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: '#16A34A' }}>Strengths</div>
+                          {p.strengths.map((s, j) => (
+                            <div key={j} style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '3px', display: 'flex', gap: '4px' }}>
+                              <span style={{ color: '#16A34A' }}>✓</span> {s}
+                            </div>
+                          ))}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: '#DC2626' }}>Limitations</div>
+                          {p.limitations.map((l, j) => (
+                            <div key={j} style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '3px', display: 'flex', gap: '4px' }}>
+                              <span style={{ color: '#DC2626' }}>✗</span> {l}
+                            </div>
+                          ))}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px' }}>Components</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                            {p.components.map((c, j) => (
+                              <span key={j} style={{ fontSize: '11px', padding: '2px 8px', background: '#F3F4F6', borderRadius: '4px', color: 'var(--color-text-secondary)' }}>{c}</span>
+                            ))}
+                          </div>
+                          <div style={{ fontSize: '12px', fontWeight: 600, marginTop: '10px', marginBottom: '4px' }}>Cost Profile</div>
+                          <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{p.cost_profile}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                        <span style={{ fontSize: '11px', padding: '2px 8px', background: '#DBEAFE', borderRadius: '4px', color: '#1E40AF' }}>Hot: {p.data_placement.hot}</span>
+                        <span style={{ fontSize: '11px', padding: '2px 8px', background: '#FEF3C7', borderRadius: '4px', color: '#92400E' }}>Warm: {p.data_placement.warm}</span>
+                        <span style={{ fontSize: '11px', padding: '2px 8px', background: '#F3F4F6', borderRadius: '4px', color: '#6B7280' }}>Cold: {p.data_placement.cold}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Workload-to-Architecture Mapping */}
+      {arch.workload_mappings && arch.workload_mappings.length > 0 && (
+        <div className="rec-section">
+          <h3 className="rec-section-title"><TableIcon size={18} /> Workload → Architecture Mapping</h3>
+          <div className="table-container">
+            <table className="data-table">
+              <thead><tr><th style={{ textAlign: 'left' }}>Workload</th><th style={{ textAlign: 'left' }}>Recommended Architecture</th><th style={{ textAlign: 'left' }}>Score</th><th style={{ textAlign: 'left' }}>Justification</th></tr></thead>
+              <tbody>
+                {arch.workload_mappings.map((m, i) => (
+                  <tr key={i}>
+                    <td style={{ textAlign: 'left', fontWeight: 500 }}>{m.workload}</td>
+                    <td style={{ textAlign: 'left' }}><Badge variant="info">{m.recommended_architecture}</Badge></td>
+                    <td style={{ textAlign: 'left' }}>{m.suitability_score}%</td>
+                    <td style={{ textAlign: 'left', fontSize: '13px', color: 'var(--color-text-secondary)' }}>{m.justification}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Data Placement Strategy */}
+      {arch.data_placement && (
+        <div className="rec-section">
+          <h3 className="rec-section-title"><Database size={18} /> Data Placement Strategy</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+            {Object.entries(arch.data_placement).map(([tier, info]: [string, any]) => (
+              <div key={tier} style={{ background: tier === 'hot' ? '#FEF2F2' : tier === 'warm' ? '#FFFBEB' : '#F9FAFB', border: '1px solid var(--color-divider)', borderRadius: '8px', padding: '16px' }}>
+                <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '6px', textTransform: 'capitalize' }}>{tier} Data</div>
+                <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '8px' }}>{info.description}</p>
+                <div style={{ fontSize: '13px', fontWeight: 500, marginBottom: '6px' }}>{info.recommendation}</div>
+                <ul style={{ fontSize: '12px', margin: 0, paddingLeft: '16px', color: 'var(--color-text-secondary)' }}>
+                  {info.criteria.map((c: string, j: number) => <li key={j}>{c}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
