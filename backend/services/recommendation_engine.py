@@ -8,7 +8,7 @@ Analyzes BigQuery assessment data and generates:
 4. Architecture recommendations
 
 Key BQ → Redshift mappings:
-- BQ slots → Redshift vCPUs/RPUs (1 BQ slot ≈ 0.5 vCPU equivalent)
+- BQ slots → Redshift vCPUs/RPUs (1 BQ slot ≈ 2 GiB memory equivalent)
 - BQ bytes_scanned → Redshift data scan patterns (affects sort key choices)
 - BQ partitioning → Redshift sort keys
 - BQ clustering → Redshift sort keys (compound)
@@ -134,7 +134,7 @@ class RecommendationEngine:
         Conversion approach:
         1. Estimate per-query wall-clock duration from slot_ms and concurrency
         2. Apply 60-second minimum billing per activation window
-        3. Convert BQ slots to RPUs (1 RPU ≈ 2 vCPUs ≈ 2 BQ slots)
+        3. Convert BQ slots to RPUs (1 BQ slot ≈ 2 GiB, 1 RPU = 16 GiB)
         4. Account for query concurrency (overlapping queries share activation)
         """
         if not query_stats:
@@ -294,9 +294,10 @@ class RecommendationEngine:
         billed_seconds_per_hour = min(billed_seconds_per_hour, 3600)
 
         # Step 3: Convert BQ slots to RPUs for sizing
-        # 1 RPU = 16 GiB memory ≈ 2 BQ slots. So RPU needed = avg_slots / 2.
+        # 1 BQ slot ≈ 2 GiB memory. 1 RPU = 16 GiB memory.
+        # So RPU needed = avg_slots * 2 / 16 = avg_slots / 8.
         # Valid RPU values: 4, 8, 16, 24, 32, ..., 1024 (4 is minimum, then multiples of 8).
-        rpus_from_avg = max(1, math.ceil(estimated_avg_concurrent_slots / 2))
+        rpus_from_avg = max(1, math.ceil(estimated_avg_concurrent_slots * 2 / 16))
         if rpus_from_avg <= 4:
             estimated_base_rpu = 4
         else:
@@ -594,12 +595,12 @@ class RecommendationEngine:
         # If peak is much higher than avg (>3x), size for a middle ground with concurrency scaling
         # Otherwise, size closer to peak for consistent performance
         if peak_to_avg_ratio > 3:
-            # High variance workload - size for avg (1 BQ slot ≈ 1 GiB), concurrency scaling handles peaks
-            target_memory_gib = max(32, math.ceil(avg_slots))
+            # High variance workload - size for avg (1 BQ slot ≈ 2 GiB), concurrency scaling handles peaks
+            target_memory_gib = max(32, math.ceil(avg_slots * 2))
             use_concurrency_scaling = True
         else:
             # Steady workload - size for peak with some headroom
-            target_memory_gib = max(32, math.ceil(peak_slots * 0.7))
+            target_memory_gib = max(32, math.ceil(peak_slots * 2 * 0.7))
             use_concurrency_scaling = peak_slots > (target_memory_gib * 1.3)
         
         # Ensure minimum for data volume
@@ -733,22 +734,22 @@ class RecommendationEngine:
         """
         Recommend serverless configuration using actual BQ workload data.
 
-        Mapping: 1 BQ slot ≈ 1 GiB memory, 1 RPU ≈ 2 BQ slots.
-        Base RPU = floor(avg_slots / 2) rounded down to nearest 8.
+        Mapping: 1 BQ slot ≈ 2 GiB memory, 1 RPU = 16 GiB.
+        Base RPU = ceil(avg_slots * 2 / 16) rounded down to nearest 8.
         Max RPU = based on peak_slots for auto-scaling headroom.
         """
         # Base RPU from avg slots (not peak) — same logic as _analyze_workload
-        # 1 RPU ≈ 2 BQ slots → avg_slots / 2 = RPUs needed
+        # 1 BQ slot ≈ 2 GiB, 1 RPU = 16 GiB → avg_slots * 2 / 16 = RPUs needed
         # Valid RPU values: 4, 8, 16, 24, 32, ..., 1024 (4 is minimum, then multiples of 8).
         base_avg = avg_slots if avg_slots > 0 else peak_slots
-        rpus_from_avg = max(1, math.ceil(base_avg / 2))
+        rpus_from_avg = max(1, math.ceil(base_avg * 2 / 16))
         if rpus_from_avg <= 4:
             base_rpu = 4
         else:
             base_rpu = math.floor(rpus_from_avg / 8) * 8
 
         # Max RPU from peak slots for auto-scaling headroom
-        rpus_from_peak = max(1, math.ceil(peak_slots / 2))
+        rpus_from_peak = max(1, math.ceil(peak_slots * 2 / 16))
         max_rpu = max(base_rpu, math.ceil(rpus_from_peak / 8) * 8)
         max_rpu = min(max_rpu, 1024)
 
