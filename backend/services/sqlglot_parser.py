@@ -325,6 +325,7 @@ DIALECT_MAP: Dict[str, str] = {
     "tsql": "tsql",
     "mssql": "tsql",
     "sqlserver": "tsql",
+    "sql server": "tsql",
 }
 
 # Dialects that sqlglot cannot handle (NoSQL / non-SQL engines).

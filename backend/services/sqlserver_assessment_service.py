@@ -52,7 +52,12 @@ class SQLServerAssessmentService:
         self.username = connection_params.get('username')
         self.password = connection_params.get('password')
         self.driver = connection_params.get('driver', 'ODBC Driver 17 for SQL Server')
-        self.windows_auth = connection_params.get('windows_auth', False)
+        # Handle windows_auth as string "true"/"false" or boolean
+        windows_auth_value = connection_params.get('windows_auth', False)
+        if isinstance(windows_auth_value, str):
+            self.windows_auth = windows_auth_value.lower() in ('true', '1', 'yes')
+        else:
+            self.windows_auth = bool(windows_auth_value)
         
         # Build connection string
         self.connection_string = self._build_connection_string()
@@ -490,6 +495,87 @@ class SQLServerAssessmentService:
             )
             db.commit()
             
+            # 12a. Collect additional SQL Server metadata (Agent Jobs, Certificates, Encryption, etc.)
+            print("[SQL Server Assessment] Step 12a: Collecting additional SQL Server metadata...", flush=True)
+            additional_metadata = {}
+            
+            try:
+                additional_metadata['agent_jobs'] = await self.collect_agent_jobs()
+                print(f"[SQL Server Assessment] ✓ Collected {len(additional_metadata['agent_jobs'])} SQL Agent jobs", flush=True)
+            except Exception as e:
+                print(f"[SQL Server Assessment] Warning: Could not collect Agent jobs: {e}", flush=True)
+                additional_metadata['agent_jobs'] = []
+            
+            try:
+                additional_metadata['certificates'] = await self.collect_certificates()
+                print(f"[SQL Server Assessment] ✓ Collected {len(additional_metadata['certificates'])} certificates", flush=True)
+            except Exception as e:
+                print(f"[SQL Server Assessment] Warning: Could not collect certificates: {e}", flush=True)
+                additional_metadata['certificates'] = []
+            
+            try:
+                additional_metadata['encryption'] = await self.collect_encryption()
+                print(f"[SQL Server Assessment] ✓ Collected encryption info", flush=True)
+            except Exception as e:
+                print(f"[SQL Server Assessment] Warning: Could not collect encryption: {e}", flush=True)
+                additional_metadata['encryption'] = {}
+            
+            try:
+                additional_metadata['assemblies'] = await self.collect_assemblies()
+                print(f"[SQL Server Assessment] ✓ Collected {len(additional_metadata['assemblies'])} CLR assemblies", flush=True)
+            except Exception as e:
+                print(f"[SQL Server Assessment] Warning: Could not collect assemblies: {e}", flush=True)
+                additional_metadata['assemblies'] = []
+            
+            try:
+                additional_metadata['policies'] = await self.collect_policies()
+                print(f"[SQL Server Assessment] ✓ Collected {len(additional_metadata['policies'])} policies", flush=True)
+            except Exception as e:
+                print(f"[SQL Server Assessment] Warning: Could not collect policies: {e}", flush=True)
+                additional_metadata['policies'] = []
+            
+            try:
+                additional_metadata['replication'] = await self.collect_replication()
+                print(f"[SQL Server Assessment] ✓ Collected replication info", flush=True)
+            except Exception as e:
+                print(f"[SQL Server Assessment] Warning: Could not collect replication: {e}", flush=True)
+                additional_metadata['replication'] = {}
+            
+            try:
+                additional_metadata['computed_columns'] = await self.collect_computed_columns()
+                print(f"[SQL Server Assessment] ✓ Collected {len(additional_metadata['computed_columns'])} computed columns", flush=True)
+            except Exception as e:
+                print(f"[SQL Server Assessment] Warning: Could not collect computed columns: {e}", flush=True)
+                additional_metadata['computed_columns'] = []
+            
+            try:
+                additional_metadata['user_defined_types'] = await self.collect_user_defined_types()
+                print(f"[SQL Server Assessment] ✓ Collected {len(additional_metadata['user_defined_types'])} user-defined types", flush=True)
+            except Exception as e:
+                print(f"[SQL Server Assessment] Warning: Could not collect UDTs: {e}", flush=True)
+                additional_metadata['user_defined_types'] = []
+            
+            # Store additional metadata in the dataset record
+            dataset = repo.get_datasets(assessment_id)
+            if dataset:
+                ds = dataset[0]
+                existing_meta = dict(ds.dataset_metadata or {})
+                existing_meta['additional_metadata'] = additional_metadata
+                ds.dataset_metadata = existing_meta
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(ds, 'dataset_metadata')
+                db.add(ds)
+                db.commit()
+                print(f"[SQL Server Assessment] ✓ Stored additional metadata in dataset record", flush=True)
+            
+            repo.create_log(
+                assessment_id=assessment_id,
+                log_level='INFO',
+                message=f'Collected additional metadata: {len(additional_metadata.get("agent_jobs", []))} jobs, {len(additional_metadata.get("certificates", []))} certs, {len(additional_metadata.get("assemblies", []))} assemblies, {len(additional_metadata.get("user_defined_types", []))} UDTs',
+                stage='metadata_collection'
+            )
+            db.commit()
+            
             # 12. Update assessment totals
             print("[SQL Server Assessment] Step 13: Updating assessment totals...", flush=True)
             repo.create_log(
@@ -501,7 +587,8 @@ class SQLServerAssessmentService:
             db.commit()
             
             assessment = repo.get_by_id(assessment_id)
-            total_size_mb = sum(t.get('size_mb', 0) for t in tables_data)
+            # Use database-level data size for consistency with dataset tab
+            total_size_mb = database_data.get('dataset_metadata', {}).get('data_size_mb', 0) or sum(t.get('size_mb', 0) for t in tables_data)
             total_routines = len(procedures_data) + len(functions_data) + len(triggers_data)
             
             repo.update_totals(
@@ -622,7 +709,7 @@ class SQLServerAssessmentService:
             'location': f"{self.host}\\{self.instance_name}" if self.instance_name else self.host,
             'creation_time': row.create_date,
             'table_count': 0,  # Will be updated later
-            'total_size_mb': data_size_mb + log_size_mb,
+            'total_size_mb': data_size_mb,
             'dataset_metadata': {
                 'collation': row.collation,
                 'status': row.status,
@@ -785,10 +872,15 @@ class SQLServerAssessmentService:
                 -- Check if part of foreign key
                 CASE WHEN fk.parent_column_id IS NOT NULL THEN 1 ELSE 0 END AS is_foreign_key,
                 -- Check if part of unique constraint
-                CASE WHEN uq.column_id IS NOT NULL THEN 1 ELSE 0 END AS is_unique
+                CASE WHEN uq.column_id IS NOT NULL THEN 1 ELSE 0 END AS is_unique,
+                -- User-defined type detection
+                t.is_user_defined AS is_user_defined_type,
+                CASE WHEN t.is_user_defined = 1 THEN t.name ELSE NULL END AS udt_name,
+                CASE WHEN t.is_user_defined = 1 THEN st.name ELSE NULL END AS base_type_name
                 {encryption_select}
             FROM sys.columns c
             INNER JOIN sys.types t ON c.user_type_id = t.user_type_id
+            LEFT JOIN sys.types st ON t.system_type_id = st.system_type_id AND st.is_user_defined = 0 AND st.user_type_id = st.system_type_id
             LEFT JOIN sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id
             LEFT JOIN sys.default_constraints dc ON c.default_object_id = dc.object_id
             LEFT JOIN (
@@ -833,7 +925,10 @@ class SQLServerAssessmentService:
                     'default_definition': row.default_definition,
                     'is_primary_key': row.is_primary_key,
                     'is_foreign_key': row.is_foreign_key,
-                    'is_unique': row.is_unique
+                    'is_unique': row.is_unique,
+                    'is_user_defined_type': bool(row.is_user_defined_type),
+                    'udt_name': row.udt_name,
+                    'base_type_name': row.base_type_name
                 }
                 
                 # Add encryption columns if they exist
@@ -2652,9 +2747,10 @@ class SQLServerAssessmentService:
                 'SECURITY' AS policy_type,
                 s.name AS table_schema,
                 t.name AS table_name,
-                sp.predicate_definition AS filter_predicate,
+                pred.predicate_definition AS filter_predicate,
                 sp.is_enabled,
-                sp.create_date
+                sp.create_date,
+                pred.predicate_type_desc
             FROM sys.security_policies sp
             LEFT JOIN sys.security_predicates pred ON sp.object_id = pred.object_id
             LEFT JOIN sys.tables t ON pred.target_object_id = t.object_id
@@ -2676,7 +2772,7 @@ class SQLServerAssessmentService:
                     'creation_time': row.create_date,
                     'security_metadata': {
                         'policy_name': row.policy_name,
-                        'policy_type': row.policy_type,
+                        'policy_type': row.predicate_type_desc or row.policy_type,
                         'table_schema': row.table_schema,
                         'table_name': row.table_name,
                         'filter_predicate': row.filter_predicate,
@@ -2808,3 +2904,178 @@ class SQLServerAssessmentService:
 
 
 
+
+    async def collect_agent_jobs(self) -> List[Dict]:
+        """Collect SQL Agent jobs from msdb"""
+        cursor = self.connection.cursor()
+        jobs = []
+        query = """
+        SELECT j.name AS job_name, j.enabled, j.description, j.date_created, j.date_modified,
+               (SELECT COUNT(*) FROM msdb.dbo.sysjobsteps js WHERE js.job_id = j.job_id) AS step_count
+        FROM msdb.dbo.sysjobs j
+        ORDER BY j.name
+        """
+        try:
+            cursor.execute(query)
+            for row in cursor.fetchall():
+                steps = []
+                step_query = """
+                SELECT step_name, subsystem, command, database_name, retry_attempts, retry_interval
+                FROM msdb.dbo.sysjobsteps WHERE job_id = (SELECT job_id FROM msdb.dbo.sysjobs WHERE name = ?)
+                ORDER BY step_id
+                """
+                cursor.execute(step_query, row.job_name)
+                for s in cursor.fetchall():
+                    steps.append({
+                        'step_name': s.step_name, 'subsystem': s.subsystem,
+                        'command': s.command, 'database_name': s.database_name,
+                        'retry_attempts': s.retry_attempts, 'retry_interval': s.retry_interval
+                    })
+                jobs.append({
+                    'job_name': row.job_name, 'enabled': bool(row.enabled),
+                    'description': row.description or '',
+                    'date_created': row.date_created.isoformat() if row.date_created else None,
+                    'date_modified': row.date_modified.isoformat() if row.date_modified else None,
+                    'step_count': row.step_count, 'steps': steps
+                })
+        except Exception as e:
+            print(f"[SQL Server Assessment] Agent jobs query failed: {e}", flush=True)
+        return jobs
+
+    async def collect_certificates(self) -> List[Dict]:
+        """Collect database certificates"""
+        cursor = self.connection.cursor()
+        certs = []
+        query = """
+        SELECT name, certificate_id, pvt_key_encryption_type_desc,
+               subject, start_date, expiry_date, issuer_name
+        FROM sys.certificates WHERE name NOT LIKE '##%'
+        """
+        try:
+            cursor.execute(query)
+            for row in cursor.fetchall():
+                certs.append({
+                    'name': row.name, 'certificate_id': row.certificate_id,
+                    'encryption_type': row.pvt_key_encryption_type_desc,
+                    'subject': row.subject, 'issuer': row.issuer_name,
+                    'start_date': row.start_date.isoformat() if row.start_date else None,
+                    'expiry_date': row.expiry_date.isoformat() if row.expiry_date else None
+                })
+        except Exception as e:
+            print(f"[SQL Server Assessment] Certificates query failed: {e}", flush=True)
+        return certs
+
+    async def collect_encryption(self) -> Dict:
+        """Collect encryption keys and TDE status"""
+        cursor = self.connection.cursor()
+        result = {'symmetric_keys': [], 'asymmetric_keys': [], 'tde_enabled': False}
+        try:
+            cursor.execute("SELECT name, algorithm_desc, key_length FROM sys.symmetric_keys WHERE name NOT LIKE '##%'")
+            for row in cursor.fetchall():
+                result['symmetric_keys'].append({'name': row.name, 'algorithm': row.algorithm_desc, 'key_length': row.key_length})
+        except Exception as e:
+            print(f"[SQL Server Assessment] Symmetric keys query failed: {e}", flush=True)
+        try:
+            cursor.execute("SELECT name, algorithm_desc, key_length FROM sys.asymmetric_keys")
+            for row in cursor.fetchall():
+                result['asymmetric_keys'].append({'name': row.name, 'algorithm': row.algorithm_desc, 'key_length': row.key_length})
+        except Exception as e:
+            print(f"[SQL Server Assessment] Asymmetric keys query failed: {e}", flush=True)
+        try:
+            cursor.execute("SELECT db.name, dek.encryption_state FROM sys.dm_database_encryption_keys dek JOIN sys.databases db ON dek.database_id = db.database_id")
+            tde_rows = cursor.fetchall()
+            result['tde_enabled'] = len(tde_rows) > 0
+            result['tde_databases'] = [{'database': r.name, 'state': r.encryption_state} for r in tde_rows]
+        except Exception as e:
+            result['tde_databases'] = []
+        return result
+
+    async def collect_assemblies(self) -> List[Dict]:
+        """Collect CLR assemblies"""
+        cursor = self.connection.cursor()
+        assemblies = []
+        try:
+            cursor.execute("SELECT name, permission_set_desc, create_date, is_user_defined FROM sys.assemblies WHERE is_user_defined = 1")
+            for row in cursor.fetchall():
+                assemblies.append({
+                    'name': row.name, 'permission_set': row.permission_set_desc,
+                    'create_date': row.create_date.isoformat() if row.create_date else None
+                })
+        except Exception as e:
+            print(f"[SQL Server Assessment] Assemblies query failed: {e}", flush=True)
+        return assemblies
+
+    async def collect_policies(self) -> List[Dict]:
+        """Collect Policy-Based Management policies from msdb"""
+        cursor = self.connection.cursor()
+        policies = []
+        try:
+            cursor.execute("SELECT name, is_enabled, execution_mode FROM msdb.dbo.syspolicy_policies")
+            for row in cursor.fetchall():
+                policies.append({'name': row.name, 'is_enabled': bool(row.is_enabled), 'execution_mode': row.execution_mode})
+        except Exception as e:
+            print(f"[SQL Server Assessment] Policies query failed: {e}", flush=True)
+        return policies
+
+    async def collect_replication(self) -> Dict:
+        """Collect replication status"""
+        cursor = self.connection.cursor()
+        result = {'is_published': False, 'is_subscribed': False, 'is_merge_published': False, 'publications': []}
+        try:
+            cursor.execute("SELECT name, is_published, is_subscribed, is_merge_published FROM sys.databases WHERE name = DB_NAME()")
+            row = cursor.fetchone()
+            if row:
+                result['is_published'] = bool(row.is_published)
+                result['is_subscribed'] = bool(row.is_subscribed)
+                result['is_merge_published'] = bool(row.is_merge_published)
+        except Exception as e:
+            print(f"[SQL Server Assessment] Replication query failed: {e}", flush=True)
+        return result
+
+    async def collect_computed_columns(self) -> List[Dict]:
+        """Collect all computed columns across tables"""
+        cursor = self.connection.cursor()
+        computed = []
+        try:
+            cursor.execute("""
+                SELECT s.name AS schema_name, t.name AS table_name, c.name AS column_name,
+                       c.definition, c.is_persisted
+                FROM sys.computed_columns c
+                JOIN sys.tables t ON c.object_id = t.object_id
+                JOIN sys.schemas s ON t.schema_id = s.schema_id
+                ORDER BY s.name, t.name, c.name
+            """)
+            for row in cursor.fetchall():
+                computed.append({
+                    'schema_name': row.schema_name, 'table_name': row.table_name,
+                    'column_name': row.column_name, 'definition': row.definition,
+                    'is_persisted': bool(row.is_persisted)
+                })
+        except Exception as e:
+            print(f"[SQL Server Assessment] Computed columns query failed: {e}", flush=True)
+        return computed
+
+    async def collect_user_defined_types(self) -> List[Dict]:
+        """Collect user-defined types (alias types and table types)"""
+        cursor = self.connection.cursor()
+        udts = []
+        try:
+            cursor.execute("""
+                SELECT t.name AS type_name, st.name AS base_type, t.max_length,
+                       t.precision, t.scale, t.is_nullable, t.is_table_type
+                FROM sys.types t
+                LEFT JOIN sys.types st ON t.system_type_id = st.system_type_id
+                    AND st.is_user_defined = 0 AND st.user_type_id = st.system_type_id
+                WHERE t.is_user_defined = 1
+                ORDER BY t.name
+            """)
+            for row in cursor.fetchall():
+                udts.append({
+                    'type_name': row.type_name, 'base_type': row.base_type,
+                    'max_length': row.max_length, 'precision': row.precision,
+                    'scale': row.scale, 'is_nullable': bool(row.is_nullable),
+                    'is_table_type': bool(row.is_table_type)
+                })
+        except Exception as e:
+            print(f"[SQL Server Assessment] UDT query failed: {e}", flush=True)
+        return udts

@@ -717,3 +717,126 @@
     padding: 12px 16px;
   }
 }
+
+/* Clickable connection name */
+.name-cell-clickable {
+  cursor: pointer;
+  color: #000000;
+  transition: color var(--transition-fast);
+}
+
+.name-cell-clickable:hover {
+  color: #2A6BDB;
+}
+
+.name-cell-clickable:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Connection Detail Modal */
+.connection-detail-modal {
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-md);
+  max-width: 560px;
+  width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+  animation: scaleIn 0.2s ease;
+  overflow: hidden;
+}
+
+.connection-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.connection-detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.connection-detail-title-row h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.connection-detail-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.connection-detail-close:hover {
+  background: var(--color-hover-bg);
+  color: var(--color-text-primary);
+}
+
+.connection-detail-body {
+  padding: 24px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.connection-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.connection-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connection-detail-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.connection-detail-value {
+  font-size: 14px;
+  font-weight: 450;
+  color: var(--color-text-primary);
+  word-break: break-word;
+}
+
+.connection-detail-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 16px 24px;
+  border-top: 1px solid var(--color-divider);
+}
+
+@media (max-width: 767px) {
+  .connection-detail-modal {
+    max-width: 95%;
+    max-height: 90vh;
+  }
+
+  .connection-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}

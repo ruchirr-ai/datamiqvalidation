@@ -154,13 +154,12 @@
 
 .assessment-name-link {
   cursor: pointer;
-  color: #2563eb;
+  color: #000000;
   transition: color 0.15s;
 }
 
 .assessment-name-link:hover {
-  color: #1d4ed8;
-  text-decoration: underline;
+  color: #2A6BDB;
 }
 
 .project-id-cell {
@@ -465,4 +464,40 @@
   .pagination-controls {
     justify-content: space-between;
   }
+}
+
+/* Version badge */
+.report-version-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6B7280;
+  background: #F3F4F6;
+  border-radius: 4px;
+}
+
+/* Version dropdown trigger */
+.version-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #059669;
+  background: #ECFDF5;
+  border: 1px solid #D1FAE5;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.version-dropdown-trigger:hover {
+  border-color: #059669;
+}
+
+.version-dropdown-trigger svg {
+  color: #059669;
 }

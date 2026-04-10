@@ -38,6 +38,7 @@ class Assessment(Base):
     # Audit fields
     created_by = Column(String(255), nullable=True)
     workspace_id = Column(Integer, nullable=False)
+    version = Column(Integer, nullable=False, default=1, server_default='1')
     
     # Relationships
     datasets = relationship("AssessmentDataset", back_populates="assessment", cascade="all, delete-orphan")

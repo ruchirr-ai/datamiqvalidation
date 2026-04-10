@@ -137,11 +137,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ),
       path: '/assessments',
       children: [
-        { id: 'assess-1', label: t('nav.schemaAnalysis'), icon: null, path: '/assessments/schema-analysis' },
-        { id: 'assess-2', label: t('nav.compatibilityCheck'), icon: null, path: '/assessments/compatibility' },
-        { id: 'assess-3', label: t('nav.assessmentReports'), icon: null, path: '/assessments/reports' },
-        { id: 'assess-4', label: t('nav.dataProfiling'), icon: null, path: '/assessments/data-profiling' }
+        { id: 'assess-3', label: t('nav.assessmentReports'), icon: null, path: '/assessments/reports' }
       ]
+    },
+    {
+      id: 'analyze',
+      label: t('nav.analyze') || 'Analyze',
+      icon: (
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <circle cx="8" cy="8" r="5" />
+          <path d="M12 12l5 5" strokeLinecap="round" />
+          <path d="M8 5v6M5 8h6" strokeLinecap="round" />
+        </svg>
+      ),
+      path: '/analyze'
     },
     {
       id: 'migrations',

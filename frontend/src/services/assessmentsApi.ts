@@ -9,7 +9,7 @@ export interface Assessment {
   id: number;
   name: string;
   source_connection_id: number;
-  target_connection_id: number;
+  target_connection_id: number | null;
   project_id: string;
   status: string;
   started_at: string;
@@ -23,6 +23,7 @@ export interface Assessment {
   total_size_mb: number;
   created_by: string | null;
   workspace_id: number;
+  version: number;
 }
 
 export interface AssessmentListResponse {
@@ -33,7 +34,7 @@ export interface AssessmentListResponse {
 export interface CreateAssessmentRequest {
   name: string;
   source_connection_id: number;
-  target_connection_id: number;
+  target_connection_id?: number;
 }
 
 export interface UpdateAssessmentRequest {
@@ -332,6 +333,21 @@ export const getReportMLModels = async (assessmentId: number): Promise<MLModelsR
 
 export const getReportUserInsights = async (assessmentId: number): Promise<UserInsightsResponse> => {
   return api.get(`/api/assessments/${assessmentId}/report/user-insights`);
+};
+
+export interface AdditionalMetadata {
+  agent_jobs?: any[];
+  certificates?: any[];
+  encryption?: { symmetric_keys?: any[]; asymmetric_keys?: any[]; tde_enabled?: boolean; tde_databases?: any[] };
+  assemblies?: any[];
+  policies?: any[];
+  replication?: { is_published?: boolean; is_subscribed?: boolean; is_merge_published?: boolean };
+  computed_columns?: any[];
+  user_defined_types?: any[];
+}
+
+export const getReportAdditionalMetadata = async (assessmentId: number): Promise<AdditionalMetadata> => {
+  return api.get(`/api/assessments/${assessmentId}/report/additional-metadata`);
 };
 
 /** Fetch ALL tables (no pagination) for CSV export */

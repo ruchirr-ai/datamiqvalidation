@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/assessments", tags=["assessments"])
 class CreateAssessmentRequest(BaseModel):
     name: str
     source_connection_id: int
-    target_connection_id: int
+    target_connection_id: int | None = None
 
 
 class UpdateAssessmentRequest(BaseModel):
@@ -45,7 +45,7 @@ class AssessmentResponse(BaseModel):
     id: int
     name: str
     source_connection_id: int
-    target_connection_id: int
+    target_connection_id: int | None = None
     project_id: str
     status: str
     started_at: datetime
@@ -59,6 +59,7 @@ class AssessmentResponse(BaseModel):
     total_size_mb: float
     created_by: str | None
     workspace_id: int
+    version: int = 1
 
     class Config:
         from_attributes = True
@@ -116,10 +117,12 @@ async def create_assessment(
         if not source_conn:
             raise HTTPException(status_code=404, detail="Source connection not found")
         
-        # Validate target connection
-        target_conn = connection_repo.get_by_id(request.target_connection_id)
-        if not target_conn:
-            raise HTTPException(status_code=404, detail="Target connection not found")
+        # Validate target connection (optional)
+        target_connection_id = request.target_connection_id
+        if target_connection_id:
+            target_conn = connection_repo.get_by_id(target_connection_id)
+            if not target_conn:
+                raise HTTPException(status_code=404, detail="Target connection not found")
         
         # Get project ID from source connection
         # For BigQuery, the database field contains the project ID
@@ -130,7 +133,7 @@ async def create_assessment(
         assessment = assessment_repo.create_assessment(
             name=request.name,
             source_connection_id=request.source_connection_id,
-            target_connection_id=request.target_connection_id,
+            target_connection_id=target_connection_id,
             project_id=project_id,
             status='pending',
             created_by='current_user'  # TODO: Get from auth context
@@ -144,7 +147,7 @@ async def create_assessment(
             stage='creation',
             log_metadata={
                 'source_connection_id': request.source_connection_id,
-                'target_connection_id': request.target_connection_id,
+                'target_connection_id': target_connection_id,
                 'project_id': project_id
             }
         )
@@ -154,7 +157,7 @@ async def create_assessment(
             run_assessment_background,
             assessment.id,
             request.source_connection_id,
-            request.target_connection_id
+            target_connection_id
         )
         
         return assessment
@@ -169,7 +172,7 @@ async def create_assessment(
 def run_assessment_background(
     assessment_id: int,
     source_connection_id: int,
-    target_connection_id: int
+    target_connection_id: int = None
 ):
     """
     Background task to run the assessment.
@@ -214,7 +217,7 @@ def run_assessment_background(
 
         # Get source and target connections
         source_conn = connection_repo.get_by_id(source_connection_id)
-        target_conn = connection_repo.get_by_id(target_connection_id)
+        target_conn = connection_repo.get_by_id(target_connection_id) if target_connection_id else None
 
         assessment_repo.create_log(
             assessment_id=assessment_id,
@@ -225,14 +228,15 @@ def run_assessment_background(
         )
         db.commit()
 
-        assessment_repo.create_log(
-            assessment_id=assessment_id,
-            log_level='INFO',
-            message=f'Retrieved target connection: {target_conn.name}',
-            stage='initialization',
-            log_metadata={'connection_id': target_connection_id, 'connection_name': target_conn.name}
-        )
-        db.commit()
+        if target_conn:
+            assessment_repo.create_log(
+                assessment_id=assessment_id,
+                log_level='INFO',
+                message=f'Retrieved target connection: {target_conn.name}',
+                stage='initialization',
+                log_metadata={'connection_id': target_connection_id, 'connection_name': target_conn.name}
+            )
+            db.commit()
 
         # Determine source database type (the 'database' field holds the engine name,
         # e.g. 'bigquery', 'sqlserver'; the 'type' field is 'source'/'target')
@@ -451,7 +455,7 @@ async def run_assessment(
     db: Session = Depends(get_db)
 ):
     """
-    Manually trigger assessment execution
+    Re-run an assessment. Creates a new versioned copy and runs it.
     """
     try:
         assessment_repo = AssessmentRepository(db)
@@ -465,31 +469,35 @@ async def run_assessment(
         if assessment.status == 'running':
             raise HTTPException(status_code=400, detail="Assessment is already running")
         
-        # Reset status to pending
-        assessment_repo.update_status(assessment_id, 'pending')
+        # Create a new versioned assessment based on the existing one
+        new_assessment = assessment_repo.create_assessment(
+            name=assessment.name,
+            source_connection_id=assessment.source_connection_id,
+            target_connection_id=assessment.target_connection_id,
+            project_id=assessment.project_id,
+            status='pending',
+            created_by=assessment.created_by
+        )
         
         # Create log entry
         assessment_repo.create_log(
-            assessment_id=assessment_id,
+            assessment_id=new_assessment.id,
             log_level='INFO',
-            message='Assessment manually triggered for execution',
+            message=f'Assessment re-run triggered (v{new_assessment.version} based on v{assessment.version})',
             stage='manual_trigger'
         )
         
-        print(f"[API] About to add background task for assessment {assessment_id}")
-        print(f"[API] Source connection: {assessment.source_connection_id}, Target: {assessment.target_connection_id}")
+        print(f"[API] Created new assessment v{new_assessment.version} (id={new_assessment.id}) from assessment {assessment_id}")
         
-        # Start background task
+        # Start background task on the NEW assessment
         background_tasks.add_task(
             run_assessment_background,
-            assessment_id,
-            assessment.source_connection_id,
-            assessment.target_connection_id
+            new_assessment.id,
+            new_assessment.source_connection_id,
+            new_assessment.target_connection_id
         )
         
-        print(f"[API] Background task added successfully for assessment {assessment_id}")
-        
-        return {"message": "Assessment started successfully", "assessment_id": assessment_id}
+        return {"message": f"Assessment v{new_assessment.version} started successfully", "assessment_id": new_assessment.id}
     except HTTPException:
         raise
     except Exception as e:
@@ -704,7 +712,8 @@ async def get_assessment_report(assessment_id: int, db: Session = Depends(get_db
                     "is_partitioning_column": c.is_partitioning_column,
                     "clustering_ordinal_position": c.clustering_ordinal_position,
                     "policy_tags": c.policy_tags or [],
-                    "max_length": c.max_length
+                    "max_length": c.max_length,
+                    "column_metadata": c.column_metadata or {}
                 }
                 for c in columns
             ],
@@ -970,7 +979,8 @@ async def get_assessment_report_tables(assessment_id: int, page: int = 1, page_s
                     "is_nullable": c.is_nullable, "ordinal_position": c.ordinal_position,
                     "is_partitioning_column": c.is_partitioning_column,
                     "clustering_ordinal_position": c.clustering_ordinal_position,
-                    "policy_tags": c.policy_tags or [], "max_length": c.max_length
+                    "policy_tags": c.policy_tags or [], "max_length": c.max_length,
+                    "column_metadata": c.column_metadata or {}
                 }
                 for c in all_columns if c.table_id in table_ids
             ],
@@ -1095,6 +1105,29 @@ async def get_assessment_report_routines(assessment_id: int, db: Session = Depen
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{assessment_id}/report/additional-metadata")
+async def get_assessment_additional_metadata(assessment_id: int, db: Session = Depends(get_db)):
+    """Get additional SQL Server metadata (Agent Jobs, Certificates, Encryption, Assemblies, Policies, Replication, Computed Columns, UDTs)."""
+    try:
+        assessment_repo = AssessmentRepository(db)
+        assessment = assessment_repo.get_by_id(assessment_id)
+        if not assessment:
+            raise HTTPException(status_code=404, detail="Assessment not found")
+
+        datasets = assessment_repo.get_datasets(assessment_id)
+        additional = {}
+        if datasets:
+            ds_meta = datasets[0].dataset_metadata or {}
+            additional = ds_meta.get('additional_metadata', {})
+
+        return additional
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting additional metadata: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{assessment_id}/report/security")
 async def get_assessment_report_security(assessment_id: int, db: Session = Depends(get_db)):
     """Get security policies and column-level security data for an assessment."""
@@ -1123,7 +1156,8 @@ async def get_assessment_report_security(assessment_id: int, db: Session = Depen
                     "is_nullable": c.is_nullable, "ordinal_position": c.ordinal_position,
                     "is_partitioning_column": c.is_partitioning_column,
                     "clustering_ordinal_position": c.clustering_ordinal_position,
-                    "policy_tags": c.policy_tags or [], "max_length": c.max_length
+                    "policy_tags": c.policy_tags or [], "max_length": c.max_length,
+                    "column_metadata": c.column_metadata or {}
                 }
                 for c in columns
             ],
