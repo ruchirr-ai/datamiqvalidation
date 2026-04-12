@@ -1,4 +1,4 @@
-"""
+﻿"""
 Recommendation Engine for BigQuery to Redshift Migration
 
 Analyzes BigQuery assessment data and generates:
@@ -7,12 +7,12 @@ Analyzes BigQuery assessment data and generates:
 3. Query classification (Ad-hoc vs BI)
 4. Architecture recommendations
 
-Key BQ → Redshift mappings:
-- BQ slots → Redshift vCPUs/RPUs (1 BQ slot ≈ 0.5 vCPU equivalent)
-- BQ bytes_scanned → Redshift data scan patterns (affects sort key choices)
-- BQ partitioning → Redshift sort keys
-- BQ clustering → Redshift sort keys (compound)
-- BQ slot_milliseconds → Redshift compute hours (for serverless RPU estimation)
+Key BQ â†’ Redshift mappings:
+- BQ slots â†’ Redshift vCPUs/RPUs (1 BQ slot â‰ˆ 0.5 vCPU equivalent)
+- BQ bytes_scanned â†’ Redshift data scan patterns (affects sort key choices)
+- BQ partitioning â†’ Redshift sort keys
+- BQ clustering â†’ Redshift sort keys (compound)
+- BQ slot_milliseconds â†’ Redshift compute hours (for serverless RPU estimation)
 """
 
 import logging
@@ -49,7 +49,7 @@ class RecommendationEngine:
             'vcpu': 4, 'memory_gb': 32, 'storage_gb': 32000,
             'slices_per_node': 2,
             'storage_type': 'Managed Storage', 'max_nodes': 32,
-            'use_case': 'Most workloads — separates compute and storage',
+            'use_case': 'Most workloads â€” separates compute and storage',
         },
         'ra3.4xlarge': {
             'vcpu': 12, 'memory_gb': 96, 'storage_gb': 128000,
@@ -80,6 +80,7 @@ class RecommendationEngine:
 
         # Compute workload metrics from BQ query stats
         workload = self._analyze_workload(query_stats)
+        self._workload_cache = workload  # Cache for architecture recommendation
 
         # Override peak/avg slots with JOBS_TIMELINE data if available
         assessment_data = assessment.get('assessment_data') or {}
@@ -119,22 +120,22 @@ class RecommendationEngine:
         }
 
     # ------------------------------------------------------------------ #
-    #  Workload Analysis (BQ → Redshift mapping)
+    #  Workload Analysis (BQ â†’ Redshift mapping)
     # ------------------------------------------------------------------ #
     def _analyze_workload(self, query_stats: List[Dict]) -> Dict:
         """
         Analyze BQ workload to derive Redshift-equivalent compute needs.
 
-        BQ slot_milliseconds = total_slots_used × duration_ms for a query.
+        BQ slot_milliseconds = total_slots_used Ã— duration_ms for a query.
         This is CPU-time, NOT wall-clock time.
 
-        Redshift Serverless bills: RPUs_allocated × wall_clock_seconds,
+        Redshift Serverless bills: RPUs_allocated Ã— wall_clock_seconds,
         with a 60-second minimum per warehouse activation.
 
         Conversion approach:
         1. Estimate per-query wall-clock duration from slot_ms and concurrency
         2. Apply 60-second minimum billing per activation window
-        3. Convert BQ slots to RPUs (1 RPU ≈ 2 vCPUs ≈ 2 BQ slots)
+        3. Convert BQ slots to RPUs (1 RPU â‰ˆ 2 vCPUs â‰ˆ 2 BQ slots)
         4. Account for query concurrency (overlapping queries share activation)
         """
         if not query_stats:
@@ -157,7 +158,7 @@ class RecommendationEngine:
         total_bytes = sum(q.get('bytes_scanned', 0) for q in query_stats)
         query_count = len(query_stats)
 
-        total_slot_hours = total_slot_ms / (1000 * 3600)  # ms → hours
+        total_slot_hours = total_slot_ms / (1000 * 3600)  # ms â†’ hours
         total_tb_scanned = total_bytes / (1024 ** 4) if total_bytes else 0
 
         # Determine time span of captured queries
@@ -183,7 +184,7 @@ class RecommendationEngine:
         monthly_slot_hours = daily_slot_hours * 30
 
         # --- Estimate per-query concurrency and wall-clock duration ---
-        # BQ slot_ms = concurrent_slots × wall_clock_ms
+        # BQ slot_ms = concurrent_slots Ã— wall_clock_ms
         # We estimate avg concurrent slots per query, then derive wall-clock.
         slot_values = sorted(
             [q.get('slot_milliseconds', 0) for q in query_stats], reverse=True
@@ -276,12 +277,12 @@ class RecommendationEngine:
         # Estimate how many 60-second activation windows per day.
         # If queries are spread evenly: activations = daily_queries if gap > 60s,
         # else queries cluster into fewer windows.
-        # Heuristic: assume queries arrive in bursts. Active hours per day ≈
-        # min(daily_queries × max(wall_clock, 60) / 3600, 24)
+        # Heuristic: assume queries arrive in bursts. Active hours per day â‰ˆ
+        # min(daily_queries Ã— max(wall_clock, 60) / 3600, 24)
         billed_seconds_per_query = max(avg_wall_clock_s, 60)  # 60s minimum
         # But overlapping queries share the window, so apply concurrency factor
         # Estimate: if N queries run per hour, and each takes T seconds,
-        # concurrent queries = N × T / 3600. Activation windows = N / max(concurrent, 1)
+        # concurrent queries = N Ã— T / 3600. Activation windows = N / max(concurrent, 1)
         queries_per_hour = daily_queries / 24 if daily_queries > 0 else 0
         concurrent_queries = max(1, queries_per_hour * billed_seconds_per_query / 3600)
         # Effective activations per hour = queries_per_hour / concurrent_queries
@@ -294,7 +295,7 @@ class RecommendationEngine:
         billed_seconds_per_hour = min(billed_seconds_per_hour, 3600)
 
         # Step 3: Convert BQ slots to RPUs for sizing
-        # 1 RPU = 16 GiB memory ≈ 2 BQ slots. So RPU needed = avg_slots / 2.
+        # 1 RPU = 16 GiB memory â‰ˆ 2 BQ slots. So RPU needed = avg_slots / 2.
         # Valid RPU values: 4, 8, 16, 24, 32, ..., 1024 (4 is minimum, then multiples of 8).
         rpus_from_avg = max(1, math.ceil(estimated_avg_concurrent_slots / 2))
         if rpus_from_avg <= 4:
@@ -303,8 +304,8 @@ class RecommendationEngine:
             estimated_base_rpu = math.floor(rpus_from_avg / 8) * 8
 
         # Step 4: Calculate monthly RPU-hours
-        # active_hours_per_day = total_slot_hours / (time_span_days × 24)
-        # RPU-hours/month = base_rpu × active_hours_per_day × 30
+        # active_hours_per_day = total_slot_hours / (time_span_days Ã— 24)
+        # RPU-hours/month = base_rpu Ã— active_hours_per_day Ã— 30
         active_hours_per_day = total_slot_hours / (time_span_days * 24) if time_span_days > 0 else 0
         active_hours_per_day = min(active_hours_per_day, 24)
 
@@ -506,12 +507,12 @@ class RecommendationEngine:
 
         # Compute intensity factor (based on actual slot hours)
         if monthly_slot_hours < 50:
-            serverless_score += 3  # Light workload → serverless wins
+            serverless_score += 3  # Light workload â†’ serverless wins
         elif monthly_slot_hours < 500:
             serverless_score += 1
             provisioned_score += 1
         else:
-            provisioned_score += 3  # Heavy workload → provisioned wins
+            provisioned_score += 3  # Heavy workload â†’ provisioned wins
 
         # Query volume factor
         daily_queries = total_queries / max(workload.get('query_time_span_days', 30), 1)
@@ -529,22 +530,22 @@ class RecommendationEngine:
         reasons = []
         if recommended == 'serverless':
             if monthly_slot_hours < 50:
-                reasons.append(f'Low compute usage ({monthly_slot_hours:.1f} slot-hours/month) — pay-per-use is more efficient')
+                reasons.append(f'Low compute usage ({monthly_slot_hours:.1f} slot-hours/month) â€” pay-per-use is more efficient')
             elif total_size_gb < 100:
-                reasons.append(f'Small dataset ({total_size_gb:.2f} GB) — no need for dedicated cluster')
+                reasons.append(f'Small dataset ({total_size_gb:.2f} GB) â€” no need for dedicated cluster')
             if adhoc_pct > 50:
-                reasons.append(f'{adhoc_pct}% ad-hoc queries — variable workload benefits from auto-scaling')
+                reasons.append(f'{adhoc_pct}% ad-hoc queries â€” variable workload benefits from auto-scaling')
             if daily_queries < 50:
-                reasons.append(f'Low query frequency (~{daily_queries:.0f}/day) — avoid paying for idle cluster')
+                reasons.append(f'Low query frequency (~{daily_queries:.0f}/day) â€” avoid paying for idle cluster')
             reasons.append('Serverless auto-scales RPUs based on workload complexity')
             reasons.append('No cluster management overhead')
         else:
             if monthly_slot_hours >= 500:
-                reasons.append(f'High compute usage ({monthly_slot_hours:.1f} slot-hours/month) — dedicated resources are cost-effective')
+                reasons.append(f'High compute usage ({monthly_slot_hours:.1f} slot-hours/month) â€” dedicated resources are cost-effective')
             if total_size_gb >= 500:
-                reasons.append(f'Large dataset ({total_size_gb:.2f} GB) — benefits from dedicated compute')
+                reasons.append(f'Large dataset ({total_size_gb:.2f} GB) â€” benefits from dedicated compute')
             if bi_pct > 50:
-                reasons.append(f'{bi_pct}% BI/scheduled queries — consistent performance needed')
+                reasons.append(f'{bi_pct}% BI/scheduled queries â€” consistent performance needed')
             reasons.append('Predictable costs with Reserved Instance pricing (up to 75% savings)')
             reasons.append('Full control over concurrency scaling and WLM queues')
 
@@ -580,7 +581,7 @@ class RecommendationEngine:
         - Consider peak workload for sizing, not just average
         - Use concurrency scaling when peak >> base capacity
         - Optimize for cost across different node type combinations
-        - Mapping: 1 BQ slot ≈ 1 GiB memory equivalent.
+        - Mapping: 1 BQ slot â‰ˆ 1 GiB memory equivalent.
 
         Node specs (official AWS docs):
           ra3.xlplus:   4 vCPU, 32 GiB RAM, 2 slices/node, 2-32 nodes
@@ -594,7 +595,7 @@ class RecommendationEngine:
         # If peak is much higher than avg (>3x), size for a middle ground with concurrency scaling
         # Otherwise, size closer to peak for consistent performance
         if peak_to_avg_ratio > 3:
-            # High variance workload - size for avg (1 BQ slot ≈ 1 GiB), concurrency scaling handles peaks
+            # High variance workload - size for avg (1 BQ slot â‰ˆ 1 GiB), concurrency scaling handles peaks
             target_memory_gib = max(32, math.ceil(avg_slots))
             use_concurrency_scaling = True
         else:
@@ -679,25 +680,25 @@ class RecommendationEngine:
         
         if peak_to_avg_ratio > 3:
             rationale_parts.append(
-                f"High variance workload (peak is {peak_to_avg_ratio:.1f}× avg) — "
+                f"High variance workload (peak is {peak_to_avg_ratio:.1f}Ã— avg) â€” "
                 f"base cluster sized for sustained load with concurrency scaling for bursts"
             )
         else:
             rationale_parts.append(
-                f"Steady workload — cluster sized to handle {int(total_memory_gib * 0.7)}-{total_memory_gib} concurrent slots"
+                f"Steady workload â€” cluster sized to handle {int(total_memory_gib * 0.7)}-{total_memory_gib} concurrent slots"
             )
         
         rationale_parts.extend([
-            f"Selected {node_type} ({specs['memory_gb']} GiB/node) × {num_nodes} nodes "
+            f"Selected {node_type} ({specs['memory_gb']} GiB/node) Ã— {num_nodes} nodes "
             f"= {total_memory_gib} GiB total RAM",
             f"Total slices: {specs['slices_per_node'] * num_nodes} "
-            f"({specs['slices_per_node']} slices/node × {num_nodes} nodes)",
+            f"({specs['slices_per_node']} slices/node Ã— {num_nodes} nodes)",
         ])
         
         if use_concurrency_scaling:
             rationale_parts.append(
                 f"Concurrency scaling enabled: peak ({peak_slots:.0f} slots) is "
-                f"{peak_to_base_ratio}× base capacity — burst traffic handled automatically"
+                f"{peak_to_base_ratio}Ã— base capacity â€” burst traffic handled automatically"
             )
         
         return {
@@ -733,12 +734,12 @@ class RecommendationEngine:
         """
         Recommend serverless configuration using actual BQ workload data.
 
-        Mapping: 1 BQ slot ≈ 1 GiB memory, 1 RPU ≈ 2 BQ slots.
+        Mapping: 1 BQ slot â‰ˆ 1 GiB memory, 1 RPU â‰ˆ 2 BQ slots.
         Base RPU = floor(avg_slots / 2) rounded down to nearest 8.
         Max RPU = based on peak_slots for auto-scaling headroom.
         """
-        # Base RPU from avg slots (not peak) — same logic as _analyze_workload
-        # 1 RPU ≈ 2 BQ slots → avg_slots / 2 = RPUs needed
+        # Base RPU from avg slots (not peak) â€” same logic as _analyze_workload
+        # 1 RPU â‰ˆ 2 BQ slots â†’ avg_slots / 2 = RPUs needed
         # Valid RPU values: 4, 8, 16, 24, 32, ..., 1024 (4 is minimum, then multiples of 8).
         base_avg = avg_slots if avg_slots > 0 else peak_slots
         rpus_from_avg = max(1, math.ceil(base_avg / 2))
@@ -812,18 +813,18 @@ class RecommendationEngine:
                     reasoning.append(f"Column '{distkey['key']}' has high cardinality for even distribution")
             else:
                 if row_count < 1_000_000:
-                    reasoning.append(f"EVEN distribution — table has {row_count:,} rows (< 1M)")
+                    reasoning.append(f"EVEN distribution â€” table has {row_count:,} rows (< 1M)")
                 else:
-                    reasoning.append("EVEN distribution — no clear DISTKEY candidate found")
+                    reasoning.append("EVEN distribution â€” no clear DISTKEY candidate found")
 
             if sortkey['keys']:
                 for sk in sortkey['keys']:
                     if sk in (partitioning or []):
-                        reasoning.append(f"BQ partition column '{sk}' → ideal SORTKEY (range scans)")
+                        reasoning.append(f"BQ partition column '{sk}' â†’ ideal SORTKEY (range scans)")
                     elif sk in (clustering or []):
-                        reasoning.append(f"BQ clustering column '{sk}' → SORTKEY (filter optimization)")
+                        reasoning.append(f"BQ clustering column '{sk}' â†’ SORTKEY (filter optimization)")
             else:
-                reasoning.append("AUTO sortkey — Redshift will auto-optimize based on query patterns")
+                reasoning.append("AUTO sortkey â€” Redshift will auto-optimize based on query patterns")
 
             recommendations.append({
                 'table_name': full_name,
@@ -904,506 +905,411 @@ class RecommendationEngine:
 
         return {'join_columns': join_columns}
 
-    # ------------------------------------------------------------------ #
-    #  Table Access Profiling (data-driven hot/warm/cold)
-    # ------------------------------------------------------------------ #
-    def _build_table_access_profile(self, tables: List[Dict], query_stats: List[Dict]) -> Dict:
-        """Build per-table access profile from actual query stats."""
+
+    # ================================================================== #
+    #  ARCHITECTURE RECOMMENDATION FRAMEWORK
+    #  Metadata → Metrics → Classification → Scoring → Overrides → Output
+    # ================================================================== #
+
+    def _compute_decision_metrics(self, tables: List[Dict], query_stats: List[Dict],
+                                   query_classification: Dict, workload: Dict) -> Dict:
+        """Compute all decision metrics from assessment data."""
+        import re
         from datetime import datetime
-        table_access = {}
-        for q in query_stats:
-            meta = q.get('query_metadata', {}) or {}
-            exec_count = meta.get('execution_count', 1) or 1
-            slot_ms = q.get('slot_milliseconds', 0) or 0
-            bytes_scanned = q.get('bytes_scanned', 0) or 0
-            query_text = (q.get('query_text') or '').upper()
-            exec_time = q.get('execution_time')
-            is_write = any(kw in query_text for kw in ['INSERT', 'UPDATE', 'DELETE', 'MERGE', 'CREATE TABLE', 'TRUNCATE'])
-            for ref in (q.get('referenced_tables') or []):
-                # Store under multiple keys for matching (full path + short name + dataset.table)
-                keys_to_store = [ref]
-                parts = ref.split('.')
-                if len(parts) >= 2:
-                    keys_to_store.append(parts[-1])
-                    keys_to_store.append(f"{parts[-2]}.{parts[-1]}")
-                for key in keys_to_store:
-                    if key not in table_access:
-                        table_access[key] = {'query_count': 0, 'exec_count': 0, 'total_bytes': 0, 'total_slot_ms': 0, 'last_access': None, 'write_count': 0, 'read_count': 0, 'large_scans': 0}
-                    ta = table_access[key]
-                    ta['query_count'] += 1
-                    ta['exec_count'] += exec_count
-                    ta['total_bytes'] += bytes_scanned
-                    ta['total_slot_ms'] += slot_ms
-                    if is_write: ta['write_count'] += 1
-                    else: ta['read_count'] += 1
-                    if bytes_scanned > 1e9: ta['large_scans'] += 1
-                    if exec_time:
-                        try:
-                            et = datetime.fromisoformat(exec_time) if isinstance(exec_time, str) else exec_time
-                            if ta['last_access'] is None or et > ta['last_access']: ta['last_access'] = et
-                        except Exception: pass
-
-        hot, warm, cold = [], [], []
-        hot_gb = warm_gb = cold_gb = 0
-        write_heavy = []
-        large_scan_tables = []
-        now = datetime.utcnow()
-
-        # If no table-level references found, use heuristic based on table size and total query volume
-        has_references = any(v.get('exec_count', 0) > 0 for v in table_access.values())
-
-        for t in tables:
-            tname = t.get('table_name', '')
-            full_name = f"{t.get('dataset_name', '')}.{tname}" if t.get('dataset_name') else tname
-            access = table_access.get(tname) or table_access.get(full_name) or {}
-            size_mb = t.get('size_mb', 0)
-            ec = access.get('exec_count', 0)
-            la = access.get('last_access')
-
-            if has_references:
-                # Data-driven classification from actual query references
-                if ec >= 10 or (la and (now - la).days <= 7):
-                    hot.append(tname); hot_gb += size_mb / 1024
-                elif ec >= 1 or (la and (now - la).days <= 30):
-                    warm.append(tname); warm_gb += size_mb / 1024
-                else:
-                    cold.append(tname); cold_gb += size_mb / 1024
-            else:
-                # Heuristic: when referenced_tables is empty, classify by update_frequency and size
-                update_freq = (t.get('update_frequency') or '').lower()
-                row_count = t.get('row_count', 0)
-                if update_freq in ('daily', 'hourly', 'streaming') or row_count > 100000:
-                    hot.append(tname); hot_gb += size_mb / 1024
-                elif row_count > 1000 or size_mb > 10:
-                    warm.append(tname); warm_gb += size_mb / 1024
-                else:
-                    cold.append(tname); cold_gb += size_mb / 1024
-
-            if access.get('write_count', 0) > access.get('read_count', 0): write_heavy.append(tname)
-            if access.get('large_scans', 0) > 0: large_scan_tables.append(tname)
-
-        total_t = max(len(tables), 1)
-        return {
-            'table_access': table_access, 'hot_tables': hot, 'warm_tables': warm, 'cold_tables': cold,
-            'hot_size_gb': hot_gb, 'warm_size_gb': warm_gb, 'cold_size_gb': cold_gb,
-            'hot_pct': round(len(hot) / total_t * 100, 1), 'warm_pct': round(len(warm) / total_t * 100, 1), 'cold_pct': round(len(cold) / total_t * 100, 1),
-            'write_heavy_tables': write_heavy, 'large_scan_tables': large_scan_tables,
-        }
-
-    # ------------------------------------------------------------------ #
-    #  Workload Categorization
-    # ------------------------------------------------------------------ #
-    def _categorize_workloads(self, query_stats: List[Dict], tables: List[Dict], query_classification: Dict) -> List[Dict]:
-        """Identify and categorize workloads from actual assessment data."""
-        workloads = []
         total_queries = query_classification.get('total_queries', 0) or 1
         bi_pct = query_classification.get('bi_pct', 0)
         adhoc_pct = query_classification.get('adhoc_pct', 0)
-
-        # Build table access profile for data-driven classification
-        self._table_profile = self._build_table_access_profile(tables, query_stats)
-        tp = self._table_profile
-
-        # Deep analysis from actual query stats
-        batch_indicators = 0
-        heavy_transform_indicators = 0
-        high_concurrency_count = 0
-
-        for q in query_stats:
-            meta = q.get('query_metadata', {}) or {}
-            slot_ms = q.get('slot_milliseconds', 0) or 0
-            bytes_scanned = q.get('bytes_scanned', 0) or 0
-            exec_count = meta.get('execution_count', 1) or 1
-            query_text = (q.get('query_text') or '').upper()
-
-            if slot_ms > 60000 or bytes_scanned > 1e10:
-                batch_indicators += 1
-            if slot_ms < 5000 and exec_count > 10:
-                high_concurrency_count += 1
-            if any(kw in query_text for kw in ['CREATE TABLE', 'INSERT INTO', 'MERGE', 'CREATE VIEW', 'CTAS', 'CREATE OR REPLACE']):
-                heavy_transform_indicators += 1
-
-        if bi_pct > 15:
-            workloads.append({
-                'id': 'bi_dashboards', 'name': 'BI / Dashboard Workloads',
-                'description': f'High-frequency queries from BI tools and dashboards. {high_concurrency_count} queries show high-concurrency patterns. {len(tp["hot_tables"])} hot tables identified.',
-                'percentage': bi_pct, 'query_count': query_classification.get('bi_count', 0),
-                'characteristics': ['High concurrency', 'Low latency required', 'Predictable query patterns', 'Repeated aggregations'],
-                'priority': 'high'
-            })
-
-        if adhoc_pct > 15:
-            workloads.append({
-                'id': 'adhoc_analytical', 'name': 'Ad-hoc Analytical Queries',
-                'description': f'Exploratory queries with varying complexity. {len(tp["large_scan_tables"])} tables have queries scanning >1GB.',
-                'percentage': adhoc_pct, 'query_count': query_classification.get('adhoc_count', 0),
-                'characteristics': ['Variable complexity', 'Unpredictable patterns', 'Full table scans common', 'Schema exploration'],
-                'priority': 'medium'
-            })
-
-        if batch_indicators > max(total_queries * 0.05, 3):
-            workloads.append({
-                'id': 'batch_processing', 'name': 'Batch Processing Pipelines',
-                'description': f'{batch_indicators} queries with >60s CPU time or >10GB scans detected. {len(tp["write_heavy_tables"])} write-heavy tables identified.',
-                'percentage': round(batch_indicators / total_queries * 100, 1), 'query_count': batch_indicators,
-                'characteristics': ['High data volume', 'Scheduled execution', 'Long-running queries', 'Write-heavy operations'],
-                'priority': 'medium'
-            })
-
-        if heavy_transform_indicators > 3:
-            workloads.append({
-                'id': 'heavy_transforms', 'name': 'Heavy Data Transformations',
-                'description': f'{heavy_transform_indicators} DDL/DML transformation operations detected (CREATE TABLE, INSERT, MERGE).',
-                'percentage': round(heavy_transform_indicators / total_queries * 100, 1), 'query_count': heavy_transform_indicators,
-                'characteristics': ['Complex joins', 'Multi-step pipelines', 'Data modeling', 'Schema transformations'],
-                'priority': 'medium'
-            })
-
-        if len(tp['cold_tables']) > 0:
-            workloads.append({
-                'id': 'archival', 'name': 'Archival / Rarely Accessed Data',
-                'description': f'{len(tp["cold_tables"])} tables ({tp["cold_size_gb"]:.1f} GB) with no query activity in the assessment period.',
-                'percentage': tp['cold_pct'], 'query_count': 0,
-                'characteristics': ['No recent queries', 'Large data volume', 'Compliance/retention needs', 'Infrequent access'],
-                'table_count': len(tp['cold_tables']), 'size_gb': round(tp['cold_size_gb'], 2),
-                'priority': 'low'
-            })
-
-        return workloads
-
-    # ------------------------------------------------------------------ #
-    #  Architecture Patterns
-    # ------------------------------------------------------------------ #
-    def _define_architecture_patterns(self, total_size_gb: float, workloads: List[Dict], query_classification: Dict) -> List[Dict]:
-        """Define architecture patterns with data-driven suitability scores."""
-        bi_pct = query_classification.get('bi_pct', 0)
-        adhoc_pct = query_classification.get('adhoc_pct', 0)
-        has_batch = any(w['id'] == 'batch_processing' for w in workloads)
-        has_archive = any(w['id'] == 'archival' for w in workloads)
-        has_transforms = any(w['id'] == 'heavy_transforms' for w in workloads)
-
-        # Use table profile for data-driven scoring
-        tp = getattr(self, '_table_profile', {})
-        hot_pct = tp.get('hot_pct', 50)
-        warm_pct = tp.get('warm_pct', 25)
-        cold_pct = tp.get('cold_pct', 25)
-        hot_size_gb = tp.get('hot_size_gb', total_size_gb * 0.5)
-        cold_size_gb = tp.get('cold_size_gb', 0)
-        write_heavy_count = len(tp.get('write_heavy_tables', []))
-
-        patterns = []
-
-        # Architecture A: Redshift-Centric
-        a_score = 30
-        if bi_pct > 60: a_score += 25
-        elif bi_pct > 40: a_score += 15
-        if hot_pct > 70: a_score += 20  # Most tables are hot — all belong in Redshift
-        if total_size_gb < 500: a_score += 10
-        if cold_pct < 10: a_score += 10  # Very little cold data
-        if write_heavy_count > 0: a_score += 5  # Write-heavy tables need Redshift
-        patterns.append({
-            'id': 'redshift_centric',
-            'name': 'Architecture A: Redshift-Centric (Full Warehouse)',
-            'short_name': 'Redshift-Centric',
-            'description': f'All {total_size_gb:.0f} GB loaded into Amazon Redshift. Best suited when most tables ({hot_pct}% hot) need low-latency access and BI workloads dominate ({bi_pct}% BI queries).',
-            'suitability_score': min(a_score, 100),
-            'best_for': ['High-frequency BI / dashboard workloads', 'Low-latency query requirements', 'Moderate data volumes (< 500 GB)'],
-            'components': ['Amazon Redshift (Provisioned or Serverless)', 'Redshift Materialized Views', 'Redshift WLM for workload management'],
-            'data_placement': {'hot': 'All data in Redshift tables', 'warm': 'N/A', 'cold': 'N/A'},
-            'strengths': ['Lowest query latency', 'Simplest architecture', 'Best BI tool integration', 'Consistent performance'],
-            'limitations': ['Higher storage costs at scale', 'All data must be loaded', 'Less flexible for ad-hoc exploration', 'Storage scales with compute'],
-            'cost_profile': 'Higher compute cost, predictable pricing',
-            'suitable_workloads': ['bi_dashboards']
-        })
-
-        # Architecture B: Redshift + Spectrum
-        b_score = 35
-        if adhoc_pct > 30: b_score += 15
-        if warm_pct > 20: b_score += 15  # Significant warm data benefits from Spectrum
-        if has_archive: b_score += 10
-        if total_size_gb > 100: b_score += 10
-        if bi_pct > 30 and adhoc_pct > 20: b_score += 10  # Mixed workload sweet spot
-        if hot_pct > 30 and cold_pct > 20: b_score += 10  # Clear hot/cold split
-        patterns.append({
-            'id': 'redshift_spectrum',
-            'name': 'Architecture B: Redshift + Spectrum (Hybrid Query Layer)',
-            'short_name': 'Redshift + Spectrum',
-            'description': f'Hot tables ({hot_pct}% of data) in Redshift for performance, warm/cold tables ({warm_pct + cold_pct}%) queried from S3 via Spectrum. Ideal for mixed workloads ({bi_pct}% BI, {adhoc_pct}% ad-hoc).',
-            'suitability_score': min(b_score, 100),
-            'best_for': ['Mixed BI and ad-hoc workloads', 'Large datasets with varying access patterns', 'Cost optimization for infrequently accessed data'],
-            'components': ['Amazon Redshift', 'Redshift Spectrum', 'Amazon S3', 'AWS Glue Data Catalog'],
-            'data_placement': {'hot': 'Frequently queried tables in Redshift', 'warm': 'Less frequent data in S3 via Spectrum', 'cold': 'Archived data in S3 (Parquet)'},
-            'strengths': ['Balance of performance and cost', 'Query S3 data without loading', 'Unified SQL interface', 'Flexible data tiering'],
-            'limitations': ['Spectrum queries slower than native Redshift', 'Requires data format optimization (Parquet)', 'More complex data management', 'S3 data not cached'],
-            'cost_profile': 'Moderate — reduced storage costs, pay-per-query for S3 data',
-            'suitable_workloads': ['bi_dashboards', 'adhoc_analytical', 'archival']
-        })
-
-        # Architecture C: Lakehouse
-        c_score = 30
-        if total_size_gb > 500: c_score += 20
-        elif total_size_gb > 100: c_score += 10
-        if cold_pct > 30: c_score += 15  # Significant cold data benefits from Iceberg
-        if has_archive: c_score += 10
-        if adhoc_pct > 40: c_score += 10
-        if has_batch: c_score += 10
-        if warm_pct > 30: c_score += 10  # Warm data fits Iceberg well
-        patterns.append({
-            'id': 'lakehouse',
-            'name': 'Architecture C: Lakehouse (Redshift + S3 + Iceberg)',
-            'short_name': 'Lakehouse',
-            'description': f'Active tables in Redshift, {cold_pct}% of tables classified as cold{" (" + str(round(cold_size_gb, 1)) + " GB)" if cold_size_gb > 0.1 else ""} stored in S3 as Apache Iceberg tables. Supports schema evolution and time travel with {total_size_gb:.0f} GB total data.',
-            'suitability_score': min(c_score, 100),
-            'best_for': ['Large-scale datasets (500+ GB)', 'Schema evolution requirements', 'Mixed hot/cold data access patterns', 'Time travel and audit needs'],
-            'components': ['Amazon Redshift', 'Amazon S3 (Apache Iceberg)', 'AWS Glue Data Catalog', 'AWS Lake Formation'],
-            'data_placement': {'hot': 'Active tables in Redshift', 'warm': 'Recent historical data in S3 Iceberg tables', 'cold': 'Archived data in S3 Iceberg (compressed)'},
-            'strengths': ['Schema evolution support', 'Time travel capabilities', 'Cost-effective at scale', 'Single copy of data possible', 'ACID transactions on S3'],
-            'limitations': ['More complex setup', 'Iceberg table management overhead', 'Query performance varies by data location', 'Requires catalog management'],
-            'cost_profile': 'Lower storage costs, moderate compute, Iceberg management overhead',
-            'suitable_workloads': ['bi_dashboards', 'adhoc_analytical', 'archival', 'batch_processing']
-        })
-
-        # Architecture D: S3-Centric
-        d_score = 25
-        if adhoc_pct > 60: d_score += 20
-        if total_size_gb > 1000: d_score += 20
-        elif total_size_gb > 500: d_score += 10
-        if cold_pct > 50: d_score += 20  # Majority cold data — S3 is ideal
-        if has_archive: d_score += 10
-        if hot_pct < 20: d_score += 10  # Very few hot tables — no need for full Redshift
-        patterns.append({
-            'id': 's3_centric',
-            'name': 'Architecture D: S3-Centric (Data Lake First)',
-            'short_name': 'S3 Data Lake',
-            'description': f'All {total_size_gb:.0f} GB stored in S3 (Parquet/Iceberg). Two modes: D1 — query via Athena/Glue/EMR without Redshift, D2 — use Redshift as query engine over S3 tables. Best when ad-hoc queries dominate ({adhoc_pct}%) and {cold_pct}% of tables are cold.',
-            'suitability_score': min(d_score, 100),
-            'best_for': ['Very large datasets (1+ TB)', 'Cost-sensitive workloads', 'Flexible schema evolution', 'Multi-engine analytics'],
-            'components': ['Amazon S3 (Parquet / Iceberg)', 'Amazon Athena', 'AWS Glue Data Catalog / Lake Formation', 'Amazon Redshift (optional query engine)'],
-            'sub_patterns': [
-                {
-                    'id': 'd1_standalone',
-                    'name': 'D1: S3 Tables as Standalone Analytics Layer',
-                    'description': 'Data queried using Athena, Glue, or EMR directly. No Redshift required.',
-                    'best_for': ['Large-scale datasets', 'Cost-sensitive workloads', 'Flexible schema evolution'],
-                    'query_engines': ['Amazon Athena', 'AWS Glue', 'Amazon EMR']
-                },
-                {
-                    'id': 'd2_with_redshift',
-                    'name': 'D2: S3 Tables + Redshift (Integrated Query Layer)',
-                    'description': 'Data in S3 Iceberg tables, Redshift used as query engine via Glue Data Catalog. No data ingestion needed.',
-                    'best_for': ['Unified analytics across lake and warehouse', 'Reduced data movement', 'Single copy of data'],
-                    'integration': 'Redshift connects to AWS Glue Data Catalog to query Iceberg tables directly',
-                    'benefits': ['No data duplication', 'Reduced data movement', 'Schema evolution support', 'Time travel support']
-                }
-            ],
-            'data_placement': {'hot': 'S3 Iceberg tables (frequently queried)', 'warm': 'S3 Parquet (periodic access)', 'cold': 'S3 Glacier (archival)'},
-            'strengths': ['Lowest storage cost', 'Maximum flexibility', 'Multi-engine support', 'No vendor lock-in', 'Single copy of data'],
-            'limitations': ['Higher query latency than native Redshift', 'Requires data format optimization', 'More complex orchestration', 'Athena costs per query'],
-            'cost_profile': 'Lowest storage, pay-per-query compute, most cost-effective at scale',
-            'suitable_workloads': ['adhoc_analytical', 'archival', 'batch_processing']
-        })
-
-        # Architecture E: Processing-Heavy
-        e_score = 20
-        if has_transforms: e_score += 25
-        if has_batch: e_score += 20
-        if write_heavy_count > len(tp.get('hot_tables', [])) * 0.3: e_score += 15  # Many write-heavy tables
-        if total_size_gb > 500: e_score += 10
-        patterns.append({
-            'id': 'processing_heavy',
-            'name': 'Architecture E: Processing-Heavy (EMR / Glue Driven)',
-            'short_name': 'EMR / Glue Processing',
-            'description': f'Transformation-focused architecture. {len(tp.get("write_heavy_tables", []))} write-heavy tables and batch processing workloads handled by AWS Glue (serverless ETL) or Amazon EMR (Spark). Output stored in Redshift or S3.',
-            'suitability_score': min(e_score, 100),
-            'best_for': ['Complex data transformations', 'Large-scale Spark workloads', 'Multi-step ETL pipelines', 'ML feature engineering'],
-            'components': ['AWS Glue (serverless ETL)', 'Amazon EMR (Spark)', 'Amazon S3', 'Amazon Redshift or Athena (downstream)'],
-            'data_placement': {'hot': 'Processing output in Redshift or S3', 'warm': 'Intermediate data in S3', 'cold': 'Raw/source data in S3'},
-            'compute_recommendations': [
-                {'engine': 'AWS Glue', 'use_case': 'Lightweight/serverless ETL, schema discovery, data cataloging', 'scale': 'Small to medium'},
-                {'engine': 'Amazon EMR', 'use_case': 'Heavy Spark transformations, ML pipelines, complex joins', 'scale': 'Medium to large'}
-            ],
-            'strengths': ['Best for complex transformations', 'Scalable processing', 'Serverless option (Glue)', 'Spark ecosystem support'],
-            'limitations': ['Not optimized for interactive queries', 'EMR cluster management', 'Higher complexity', 'Requires orchestration (Step Functions)'],
-            'cost_profile': 'Variable — depends on processing volume and frequency',
-            'suitable_workloads': ['batch_processing', 'heavy_transforms']
-        })
-
-        # Sort by suitability score
-        patterns.sort(key=lambda p: p['suitability_score'], reverse=True)
-        return patterns
-
-    # ------------------------------------------------------------------ #
-    #  Workload-to-Architecture Mapping
-    # ------------------------------------------------------------------ #
-    def _map_workloads_to_architectures(self, workloads: List[Dict], patterns: List[Dict]) -> List[Dict]:
-        """Map each workload to the most suitable architecture with justification."""
-        mappings = []
-        for w in workloads:
-            wid = w['id']
-            best_pattern = None
-            best_score = 0
-            alternatives = []
-
-            for p in patterns:
-                if wid in p.get('suitable_workloads', []):
-                    score = p['suitability_score']
-                    # Boost score for specific matches
-                    if wid == 'bi_dashboards' and p['id'] == 'redshift_centric': score += 20
-                    if wid == 'adhoc_analytical' and p['id'] in ('redshift_spectrum', 's3_centric'): score += 15
-                    if wid == 'batch_processing' and p['id'] == 'processing_heavy': score += 20
-                    if wid == 'heavy_transforms' and p['id'] == 'processing_heavy': score += 25
-                    if wid == 'archival' and p['id'] in ('s3_centric', 'lakehouse'): score += 20
-
-                    if score > best_score:
-                        if best_pattern:
-                            alternatives.append({'name': best_pattern['short_name'], 'reason': 'Lower suitability score'})
-                        best_pattern = p
-                        best_score = score
-                    else:
-                        alternatives.append({'name': p['short_name'], 'reason': 'Lower suitability score'})
-
-            if best_pattern:
-                mappings.append({
-                    'workload': w['name'],
-                    'workload_id': wid,
-                    'recommended_architecture': best_pattern['short_name'],
-                    'architecture_id': best_pattern['id'],
-                    'suitability_score': best_score,
-                    'justification': self._get_mapping_justification(wid, best_pattern['id'], w),
-                    'trade_offs': best_pattern.get('limitations', [])[:2],
-                    'alternatives_not_selected': alternatives[:2]
-                })
-
-        return mappings
-
-    def _get_mapping_justification(self, workload_id: str, arch_id: str, workload: Dict) -> str:
-        """Generate justification for a workload-architecture mapping."""
-        justifications = {
-            ('bi_dashboards', 'redshift_centric'): f"With {workload.get('percentage', 0)}% BI queries requiring consistent low-latency responses, Redshift's columnar storage and result caching provide optimal dashboard performance.",
-            ('bi_dashboards', 'redshift_spectrum'): f"BI workloads ({workload.get('percentage', 0)}%) benefit from Redshift's native performance for hot data, while Spectrum handles overflow queries on historical data.",
-            ('adhoc_analytical', 'redshift_spectrum'): f"Ad-hoc queries ({workload.get('percentage', 0)}%) with unpredictable patterns benefit from Spectrum's ability to query S3 data without pre-loading, reducing storage costs.",
-            ('adhoc_analytical', 's3_centric'): f"High ad-hoc query volume ({workload.get('percentage', 0)}%) with variable patterns is best served by S3 + Athena for cost-effective, schema-flexible exploration.",
-            ('batch_processing', 'processing_heavy'): f"Batch processing workloads ({workload.get('query_count', 0)} queries) with large data volumes are best handled by EMR/Glue for scalable, cost-effective processing.",
-            ('heavy_transforms', 'processing_heavy'): f"Complex transformations ({workload.get('query_count', 0)} operations) require Spark-level processing power available through EMR or serverless Glue jobs.",
-            ('archival', 's3_centric'): f"Archival data ({workload.get('size_gb', 0):.1f} GB across {workload.get('table_count', 0)} tables) with no recent queries should reside in S3 for minimal cost with on-demand access via Athena.",
-            ('archival', 'lakehouse'): f"Archival data benefits from Iceberg's time travel and schema evolution while maintaining low S3 storage costs.",
-        }
-        return justifications.get((workload_id, arch_id), f"This architecture provides the best balance of performance and cost for {workload.get('name', 'this workload')}.")
-
-    # ------------------------------------------------------------------ #
-    #  Architecture Recommendation (Main Entry Point)
-    # ------------------------------------------------------------------ #
-    def _recommend_architecture(self, query_classification: Dict, total_size_gb: float, tables: List[Dict] = None, query_stats: List[Dict] = None) -> Dict:
-        """Generate comprehensive workload-based multi-architecture recommendations."""
-        tables = tables or []
-        query_stats = query_stats or []
-
-        # 1. Categorize workloads
-        workloads = self._categorize_workloads(query_stats, tables, query_classification)
-
-        # 2. Define architecture patterns with suitability scores
-        patterns = self._define_architecture_patterns(total_size_gb, workloads, query_classification)
-
-        # 3. Map workloads to architectures
-        workload_mappings = self._map_workloads_to_architectures(workloads, patterns)
-
-        # 4. Determine primary recommendation
-        if patterns:
-            primary = patterns[0]
-            # Check if a combination is better
-            unique_archs = set(m['architecture_id'] for m in workload_mappings)
-            if len(unique_archs) > 1:
-                recommendation_type = 'combination'
-                arch_names = list(set(m['recommended_architecture'] for m in workload_mappings))
-                workload_names = [m['workload'] for m in workload_mappings]
-                recommendation_summary = f"A combination of {' and '.join(arch_names)} is recommended to serve the identified workload categories: {', '.join(workload_names)}."
-            else:
-                recommendation_type = 'single'
-                recommendation_summary = f"{primary['short_name']} is recommended as the dominant architecture, scoring {primary['suitability_score']}% suitability for the identified workload profile."
-        else:
-            primary = None
-            recommendation_type = 'single'
-            recommendation_summary = 'Insufficient data to generate architecture recommendations.'
-
-        # 5. Data placement strategy
-        data_placement = {
-            'hot': {'description': 'Frequently queried data (daily access)', 'recommendation': 'Amazon Redshift tables', 'criteria': ['Query frequency > 10/day', 'Latency < 1s required', 'Active dashboards']},
-            'warm': {'description': 'Periodically accessed data (weekly/monthly)', 'recommendation': 'S3 via Redshift Spectrum or Iceberg tables', 'criteria': ['Query frequency 1-10/week', 'Moderate latency acceptable', 'Historical analysis']},
-            'cold': {'description': 'Rarely accessed / archival data', 'recommendation': 'S3 (Parquet/Iceberg) or S3 Glacier', 'criteria': ['No recent queries', 'Compliance/retention only', 'Cost optimization priority']}
-        }
-
-        # 6. Backward-compatible strategies (for existing frontend)
-        strategies = []
-        for p in patterns[:3]:
-            strategies.append({
-                'title': p['name'],
-                'points': p['best_for'] + [f"Suitability Score: {p['suitability_score']}%"]
-            })
-
-        # 7. Generate plain-English insights summary from actual assessment data
-        tp = getattr(self, '_table_profile', {})
-        total_tables = len(tables)
-        total_queries = query_classification.get('total_queries', 0)
-        bi_pct = query_classification.get('bi_pct', 0)
-        adhoc_pct = query_classification.get('adhoc_pct', 0)
-        read_pct = query_classification.get('read_pct', 0)
         write_pct = query_classification.get('write_pct', 0)
         cache_ratio = query_classification.get('cache_hit_ratio', 0)
-        hot_count = len(tp.get('hot_tables', []))
-        warm_count = len(tp.get('warm_tables', []))
-        cold_count = len(tp.get('cold_tables', []))
+        total_size_gb = sum(t.get('size_mb', 0) for t in tables) / 1024
 
-        insights = []
-        # Data volume insight
-        if total_size_gb > 1000:
-            insights.append(f"The dataset is large at {total_size_gb:.1f} GB across {total_tables} tables, which favors architectures with tiered storage (S3 + Redshift) to optimize costs.")
-        elif total_size_gb > 100:
-            insights.append(f"The dataset is {total_size_gb:.1f} GB across {total_tables} tables — a moderate size that works well with most architecture patterns.")
-        else:
-            insights.append(f"The dataset is compact at {total_size_gb:.1f} GB across {total_tables} tables, making a Redshift-centric approach straightforward and cost-effective.")
+        # Table access profiling
+        table_access = {}
+        for q in query_stats:
+            meta = q.get('query_metadata', {}) or {}
+            ec = meta.get('execution_count', 1) or 1
+            slot_ms = q.get('slot_milliseconds', 0) or 0
+            bs = q.get('bytes_scanned', 0) or 0
+            qt = (q.get('query_text') or '').upper()
+            et = q.get('execution_time')
+            is_w = any(k in qt for k in ['INSERT','UPDATE','DELETE','MERGE','CREATE TABLE','TRUNCATE'])
+            for ref in (q.get('referenced_tables') or []):
+                keys = [ref]
+                parts = ref.split('.')
+                if len(parts) >= 2: keys += [parts[-1], f'{parts[-2]}.{parts[-1]}']
+                for key in keys:
+                    ta = table_access.setdefault(key, {'qc':0,'ec':0,'bytes':0,'slot':0,'writes':0,'reads':0,'scans':0})
+                    ta['qc'] += 1; ta['ec'] += ec; ta['bytes'] += bs; ta['slot'] += slot_ms
+                    if is_w: ta['writes'] += 1
+                    else: ta['reads'] += 1
+                    if bs > 1e9: ta['scans'] += 1
 
-        # Query pattern insight
-        if total_queries > 0:
-            if bi_pct > 60:
-                insights.append(f"The workload is heavily BI-driven ({bi_pct}% scheduled/repeated queries), indicating a need for consistent low-latency performance — Redshift excels here.")
-            elif adhoc_pct > 60:
-                insights.append(f"The workload is predominantly ad-hoc ({adhoc_pct}% exploratory queries), suggesting flexible, pay-per-query options like Athena or Redshift Spectrum would be cost-effective.")
+        # Hot/warm/cold classification
+        has_refs = any(v.get('ec', 0) > 0 for v in table_access.values())
+        hot, warm, cold = [], [], []
+        hot_gb = warm_gb = cold_gb = 0.0
+        wh_tables = []
+        now = datetime.utcnow()
+        for t in tables:
+            tn = t.get('table_name', '')
+            fn = f"{t.get('dataset_name','')}.{tn}" if t.get('dataset_name') else tn
+            a = table_access.get(tn) or table_access.get(fn) or {}
+            sm = t.get('size_mb', 0)
+            if has_refs:
+                if a.get('ec', 0) >= 10: hot.append(tn); hot_gb += sm/1024
+                elif a.get('ec', 0) >= 1: warm.append(tn); warm_gb += sm/1024
+                else: cold.append(tn); cold_gb += sm/1024
             else:
-                insights.append(f"A mixed workload is observed — {bi_pct}% BI/scheduled and {adhoc_pct}% ad-hoc queries — which benefits from a hybrid architecture combining Redshift with S3-based querying.")
+                rc = t.get('row_count', 0)
+                if rc > 100000: hot.append(tn); hot_gb += sm/1024
+                elif rc > 1000 or sm > 10: warm.append(tn); warm_gb += sm/1024
+                else: cold.append(tn); cold_gb += sm/1024
+            if a.get('writes', 0) > a.get('reads', 0): wh_tables.append(tn)
+        tt = max(len(tables), 1)
+        hot_pct = round(len(hot)/tt*100, 1)
+        cold_pct = round(len(cold)/tt*100, 1)
 
-        # Read/write insight
-        if write_pct > 30:
-            insights.append(f"A notable {write_pct}% of queries are write operations (INSERT, UPDATE, MERGE), indicating active data transformation pipelines that may benefit from dedicated ETL processing (Glue/EMR).")
-        elif read_pct > 90:
-            insights.append(f"The workload is read-heavy ({read_pct}% reads), which is ideal for columnar storage and caching optimizations in Redshift.")
-
-        # Table access pattern insight
-        if total_tables > 0 and (hot_count + warm_count + cold_count) > 0:
-            if cold_count > total_tables * 0.4:
-                insights.append(f"Over {cold_count} tables ({tp.get('cold_pct', 0)}%) show no recent query activity — these are strong candidates for S3 cold storage, significantly reducing costs.")
-            if hot_count > 0 and cold_count > 0:
-                insights.append(f"The data has a clear access pattern: {hot_count} hot tables (frequently queried), {warm_count} warm tables, and {cold_count} cold tables — a tiered storage strategy would optimize both performance and cost.")
-            elif hot_count > total_tables * 0.7:
-                insights.append(f"Most tables ({hot_count}/{total_tables}) are actively queried, supporting a Redshift-centric approach where all data stays in the warehouse.")
-
-        # Cache insight
-        if cache_ratio > 50:
-            insights.append(f"A {cache_ratio}% cache hit ratio indicates many repeated queries — Redshift's result caching will provide significant performance gains for these patterns.")
-        elif cache_ratio < 20 and total_queries > 100:
-            insights.append(f"A low cache hit ratio ({cache_ratio}%) suggests diverse query patterns with few repeats — Redshift Spectrum or Athena may be more cost-effective for handling varied queries.")
+        # Join complexity
+        total_joins = 0; q_with_joins = 0; scan_heavy = 0
+        for q in query_stats:
+            qt = (q.get('query_text') or '').upper()
+            jc = len(re.findall(r'\bJOIN\b', qt))
+            total_joins += jc
+            if jc > 0: q_with_joins += 1
+            if (q.get('bytes_scanned', 0) or 0) > 1e9: scan_heavy += 1
+        avg_joins = round(total_joins / total_queries, 1) if total_queries else 0
+        # ETL detection
+        etl_count = sum(1 for q in query_stats if any(k in (q.get('query_text') or '').upper() for k in ['CREATE TABLE','INSERT INTO','MERGE','CTAS','CREATE OR REPLACE']))
+        etl_pct = round(etl_count / total_queries * 100, 1) if total_queries else 0
+        # User distribution
+        users = set(q.get('user_email','') for q in query_stats if q.get('user_email'))
+        user_tables = {}
+        for q in query_stats:
+            u = q.get('user_email','')
+            for ref in (q.get('referenced_tables') or []):
+                s = ref.split('.')[-1] if '.' in ref else ref
+                user_tables.setdefault(s, set()).add(u) if u else None
+        shared = sum(1 for v in user_tables.values() if len(v) > 1)
+        # Top table concentration
+        tqc = {}
+        for q in query_stats:
+            for ref in (q.get('referenced_tables') or []):
+                s = ref.split('.')[-1] if '.' in ref else ref
+                tqc[s] = tqc.get(s, 0) + 1
+        sc = sorted(tqc.values(), reverse=True)
+        top10_pct = round(sum(sc[:10]) / (sum(sc) or 1) * 100, 1) if sc else 0
+        # Concurrency
+        peak = round(workload.get('estimated_peak_slots', 0), 1)
+        avg_c = round(workload.get('avg_concurrent_slots', 0), 1)
 
         return {
+            'bi_pct': bi_pct, 'adhoc_pct': adhoc_pct, 'write_pct': write_pct,
+            'etl_pct': etl_pct, 'etl_count': etl_count, 'cache_ratio': cache_ratio,
+            'total_size_gb': total_size_gb, 'total_tables': len(tables), 'total_queries': total_queries,
+            'hot_pct': hot_pct, 'cold_pct': cold_pct,
+            'hot_size_gb': round(hot_gb, 2), 'cold_size_gb': round(cold_gb, 2),
+            'hot_count': len(hot), 'warm_count': len(warm), 'cold_count': len(cold),
+            'write_heavy_count': len(wh_tables),
+            'avg_joins': avg_joins, 'queries_with_joins': q_with_joins, 'scan_heavy': scan_heavy,
+            'peak_concurrent': peak, 'avg_concurrent': avg_c,
+            'unique_users': len(users), 'shared_tables': shared, 'top10_pct': top10_pct,
+        }
+
+    # ------------------------------------------------------------------ #
+    #  Step 2: Score Architectures
+    # ------------------------------------------------------------------ #
+    def _score_architectures(self, m: Dict) -> List[Dict]:
+        """Score each architecture using weighted metrics. m = decision metrics."""
+        archs = []
+
+        # --- 1. Redshift ---
+        s = 0
+        s += min(m['bi_pct'] * 0.25, 25)
+        s += min(m['hot_pct'] * 0.20, 20)
+        s += min(m['avg_joins'] * 5, 15)
+        s += min(m['peak_concurrent'] * 0.15, 15) if m['peak_concurrent'] > 10 else 5
+        s += 10 if m['total_size_gb'] < 500 else 0
+        s += 5 if m['top10_pct'] > 80 else 0
+        s -= 10 if m['cold_pct'] > 60 else 0
+        # Provisioned vs Serverless decision
+        # Provisioned: stable predictable workload, high concurrency, cost-effective at scale
+        # Serverless: spiky/unpredictable, low admin overhead, auto-scaling
+        prefer_provisioned = (
+            m['bi_pct'] > 60 or  # Stable BI workload
+            m['peak_concurrent'] > 50 or  # High concurrency
+            m['total_size_gb'] > 200 or  # Large dataset
+            m['total_queries'] > 5000  # High query volume
+        )
+        if prefer_provisioned:
+            deploy_mode = 'Provisioned'
+            deploy_reason = 'Stable workload pattern with predictable query volume — provisioned offers better cost efficiency and consistent performance.'
+            # Suggest node type based on data size
+            if m['total_size_gb'] < 100:
+                node_config = 'ra3.xlplus (2-node cluster recommended)'
+            elif m['total_size_gb'] < 500:
+                node_config = 'ra3.xlplus (4-node cluster recommended)'
+            elif m['total_size_gb'] < 2000:
+                node_config = 'ra3.4xlarge (2-4 node cluster recommended)'
+            else:
+                node_config = 'ra3.16xlarge (2+ node cluster recommended)'
+        else:
+            deploy_mode = 'Serverless'
+            deploy_reason = 'Variable or unpredictable workload pattern — serverless auto-scales and eliminates cluster management overhead.'
+            node_config = None
+        archs.append({
+            'id': 'all_redshift', 'name': 'Redshift',
+            'score': round(max(min(s, 100), 0)),
+            'description': f'All {m["total_size_gb"]:.0f} GB loaded into Amazon Redshift. {m["hot_pct"]}% hot tables, {m["bi_pct"]}% BI queries, avg {m["avg_joins"]} joins/query.',
+            'components': ['Amazon Redshift', 'Materialized Views', 'WLM'],
+            'strengths': ['Lowest query latency', 'Best BI tool integration', 'Simplest architecture', 'Result caching'],
+            'limitations': ['Higher storage cost at scale', 'All data must be loaded', 'Less flexible for ad-hoc'],
+            'cost_profile': 'Higher compute, predictable pricing',
+            'best_for': 'BI-heavy, high-join, high-concurrency workloads with mostly hot data',
+            'deploy_mode': deploy_mode,
+            'deploy_reason': deploy_reason,
+            'node_config': node_config,
+        })
+
+        # --- 2. Redshift + Data Sharing ---
+        # HARD GATE: Only consider if 3+ distinct users AND shared tables detected
+        s = 0
+        if m['unique_users'] >= 3 and m['shared_tables'] > 0:
+            s += 20 if m['unique_users'] > 3 else 10
+            s += 20 if m['shared_tables'] > 5 else (10 if m['shared_tables'] > 0 else 0)
+            s += min(m['bi_pct'] * 0.15, 15)
+            s += min(m['peak_concurrent'] * 0.10, 10) if m['peak_concurrent'] > 20 else 0
+            s += 10 if m['hot_pct'] > 50 else 0
+            s += 5 if m['avg_joins'] > 2 else 0
+        # If fewer than 3 users or no shared tables, score stays 0
+        archs.append({
+            'id': 'redshift_data_sharing', 'name': 'Redshift + Data Sharing',
+            'score': round(max(min(s, 100), 0)),
+            'description': f'{m["unique_users"]} distinct users, {m["shared_tables"]} shared tables. Workload isolation across teams with shared datasets.',
+            'components': ['Amazon Redshift', 'Data Sharing', 'Separate Namespaces/Clusters'],
+            'strengths': ['Workload isolation per team', 'Governance & access control', 'No data duplication', 'Independent scaling'],
+            'limitations': ['Management complexity', 'Cross-cluster query overhead', 'Requires Redshift RA3'],
+            'cost_profile': 'Multiple clusters/namespaces, shared storage',
+            'best_for': 'Multi-team environments with shared datasets and different SLAs',
+        })
+
+        # --- 3. EMR / Glue + Open Iceberg ---
+        s = 0
+        s += min(m['etl_pct'] * 0.30, 30)          # ETL weight 30%
+        s += min(m['write_pct'] * 0.20, 20)         # Write-heavy weight 20%
+        s += 15 if m['write_heavy_count'] > 3 else (5 if m['write_heavy_count'] > 0 else 0)
+        s += 10 if m['total_size_gb'] > 500 else 0
+        s += 10 if m['scan_heavy'] > m['total_queries'] * 0.1 else 0
+        s -= 15 if m['etl_pct'] < 10 else 0         # No ETL = not suitable
+        archs.append({
+            'id': 'emr_glue_iceberg', 'name': 'EMR / Glue + Open Iceberg',
+            'score': round(max(min(s, 100), 0)),
+            'description': f'{m["etl_pct"]}% ETL workload, {m["write_heavy_count"]} write-heavy tables. Heavy transformations via Spark/Glue with Iceberg tables.',
+            'components': ['Amazon EMR (Spark)', 'AWS Glue', 'Apache Iceberg on S3', 'AWS Glue Data Catalog'],
+            'strengths': ['Best for complex transformations', 'Schema evolution', 'CDC/streaming support', 'ACID on S3'],
+            'limitations': ['Cluster management (EMR)', 'Higher complexity', 'Not optimized for interactive BI'],
+            'cost_profile': 'Variable — depends on processing volume',
+            'best_for': 'Heavy ETL, streaming/CDC pipelines, frequent schema evolution',
+        })
+
+        # --- 4. AWS Managed Iceberg (Glue + S3 Tables) ---
+        s = 0
+        s += min(m['etl_pct'] * 0.20, 20)
+        s += 15 if m['cold_pct'] > 30 else 5
+        s += 15 if m['total_size_gb'] > 100 else 5
+        s += 10 if m['write_pct'] > 20 else 0
+        s += 10 if m['adhoc_pct'] > 30 else 0
+        s -= 10 if m['etl_pct'] < 5 and m['cold_pct'] < 20 else 0
+        archs.append({
+            'id': 'managed_iceberg', 'name': 'AWS Managed Iceberg (Glue + S3 Tables)',
+            'score': round(max(min(s, 100), 0)),
+            'description': f'{m["cold_pct"]}% cold tables, {m["total_size_gb"]:.0f} GB total. Serverless Iceberg management without EMR cluster overhead.',
+            'components': ['AWS Glue', 'S3 Tables (Iceberg)', 'AWS Glue Data Catalog', 'Lake Formation'],
+            'strengths': ['Serverless — no cluster management', 'Schema evolution', 'Lower ops overhead than EMR', 'ACID transactions'],
+            'limitations': ['Less flexible than full EMR', 'Limited to Glue capabilities', 'Moderate query latency'],
+            'cost_profile': 'Serverless pricing, lower ops cost than EMR',
+            'best_for': 'Moderate ETL, serverless preference, cold data management',
+        })
+
+        # --- 5. Athena + Redshift ---
+        s = 0
+        s += min(m['adhoc_pct'] * 0.25, 25)        # Ad-hoc weight 25%
+        s += min(m['cold_pct'] * 0.20, 20)          # Cold data weight 20%
+        s += 15 if m['total_size_gb'] > 500 else 5
+        s += 10 if m['scan_heavy'] < m['total_queries'] * 0.2 else 0  # Not too many large scans
+        s += 10 if m['bi_pct'] > 20 else 0          # Some BI = needs Redshift too
+        s -= 10 if m['peak_concurrent'] > 100 else 0  # High concurrency = Athena struggles
+        s -= 10 if m['avg_joins'] > 3 else 0         # Complex joins = Athena not ideal
+        archs.append({
+            'id': 'athena_redshift', 'name': 'Athena + Redshift',
+            'score': round(max(min(s, 100), 0)),
+            'description': f'{m["adhoc_pct"]}% ad-hoc queries via Athena on S3, {m["bi_pct"]}% BI queries via Redshift. Pay-per-query for exploration.',
+            'components': ['Amazon Athena', 'Amazon Redshift', 'Amazon S3 (Parquet/Iceberg)', 'AWS Glue Data Catalog'],
+            'strengths': ['Pay-per-query for ad-hoc', 'No cluster for exploration', 'Cost-effective for cold data', 'Flexible'],
+            'limitations': ['Athena latency higher than Redshift', 'Cost risk with large frequent scans', 'Not ideal for complex joins'],
+            'cost_profile': 'Pay-per-query (Athena) + Redshift for BI',
+            'best_for': 'High ad-hoc %, cost-sensitive, mixed workloads with cold data',
+        })
+        archs.sort(key=lambda a: a['score'], reverse=True)
+        return archs
+
+    # ------------------------------------------------------------------ #
+    #  Step 3: Apply Rule-Based Overrides
+    # ------------------------------------------------------------------ #
+    def _apply_overrides(self, archs: List[Dict], m: Dict) -> List[Dict]:
+        """Apply hard rules that override or adjust scores."""
+        overrides_applied = []
+        for a in archs:
+            aid = a['id']
+            # Performance & Latency
+            if aid == 'athena_redshift' and m['peak_concurrent'] > 100:
+                a['score'] = max(a['score'] - 20, 0)
+                overrides_applied.append(f"Athena penalized: high concurrency ({m['peak_concurrent']} peak)")
+            if aid == 'all_redshift' and m['bi_pct'] > 75:
+                a['score'] = min(a['score'] + 10, 100)
+                overrides_applied.append(f"Redshift boosted: BI-dominant workload ({m['bi_pct']}%)")
+            # Data Access
+            if aid == 'all_redshift' and m['cold_pct'] > 60:
+                a['score'] = max(a['score'] - 20, 0)
+                overrides_applied.append(f"Redshift penalized: majority cold data ({m['cold_pct']}%)")
+            if aid == 'all_redshift' and m['hot_pct'] > 70:
+                a['score'] = min(a['score'] + 15, 100)
+                overrides_applied.append(f"Redshift boosted: mostly hot data ({m['hot_pct']}%)")
+            if aid == 'athena_redshift' and m['cold_pct'] > 60:
+                a['score'] = min(a['score'] + 15, 100)
+                overrides_applied.append(f"Athena+Redshift boosted: high cold data ({m['cold_pct']}%)")
+            # Workload Type
+            if aid == 'athena_redshift' and m['adhoc_pct'] > 50:
+                a['score'] = min(a['score'] + 10, 100)
+                overrides_applied.append(f"Athena boosted: ad-hoc dominant ({m['adhoc_pct']}%)")
+            if aid == 'athena_redshift' and m['adhoc_pct'] < 10:
+                a['score'] = 0
+                overrides_applied.append(f"Athena disqualified: no significant ad-hoc workload ({m['adhoc_pct']}%)")
+            if aid in ('emr_glue_iceberg', 'managed_iceberg') and m['etl_pct'] > 40:
+                a['score'] = min(a['score'] + 15, 100)
+                overrides_applied.append(f"Iceberg boosted: heavy ETL ({m['etl_pct']}%)")
+            if aid == 'athena_redshift' and m['write_pct'] > 30:
+                a['score'] = max(a['score'] - 15, 0)
+                overrides_applied.append(f"Athena penalized: write-heavy ({m['write_pct']}%)")
+            # Query Complexity
+            if aid == 'all_redshift' and m['avg_joins'] > 3:
+                a['score'] = min(a['score'] + 10, 100)
+                overrides_applied.append(f"Redshift boosted: complex joins (avg {m['avg_joins']})")
+            if aid == 'athena_redshift' and m['avg_joins'] > 3:
+                a['score'] = max(a['score'] - 10, 0)
+                overrides_applied.append(f"Athena penalized: complex joins not ideal")
+            # Organization
+            if aid == 'redshift_data_sharing' and m['unique_users'] > 3 and m['shared_tables'] > 5:
+                a['score'] = min(a['score'] + 15, 100)
+                overrides_applied.append(f"Data Sharing boosted: {m['unique_users']} users, {m['shared_tables']} shared tables")
+            # Data Volume
+            if aid == 'all_redshift' and m['total_size_gb'] > 500:
+                a['score'] = max(a['score'] - 10, 0)
+                overrides_applied.append(f"Redshift penalized: large dataset ({m['total_size_gb']:.0f} GB)")
+            if aid in ('athena_redshift', 'managed_iceberg') and m['total_size_gb'] > 500:
+                a['score'] = min(a['score'] + 10, 100)
+            # ETL
+            if aid in ('emr_glue_iceberg', 'managed_iceberg') and m['etl_pct'] < 5:
+                a['score'] = max(a['score'] - 15, 0)
+                overrides_applied.append(f"Iceberg penalized: minimal ETL ({m['etl_pct']}%)")
+        # Golden Rules
+        for a in archs:
+            if a['id'] == 'athena_redshift' and m['bi_pct'] > 70 and a['score'] > archs[0]['score']:
+                a['score'] = max(a['score'] - 20, 0)
+                overrides_applied.append("Golden rule: never Athena-only for enterprise BI")
+            if a['id'] == 'all_redshift' and m['cold_pct'] > 70:
+                a['score'] = min(a['score'], 40)
+                overrides_applied.append("Golden rule: never full Redshift if majority cold")
+            if a['id'] in ('emr_glue_iceberg', 'managed_iceberg') and m['etl_pct'] < 5:
+                a['score'] = min(a['score'], 30)
+                overrides_applied.append("Golden rule: never EMR/Iceberg without ETL workload")
+            if a['id'] == 'redshift_data_sharing' and (m['unique_users'] < 3 or m['shared_tables'] == 0):
+                a['score'] = 0
+                overrides_applied.append(f"Golden rule: Data Sharing requires 3+ distinct user groups AND shared table access (found {m['unique_users']} users, {m['shared_tables']} shared tables)")
+        archs.sort(key=lambda a: a['score'], reverse=True)
+        return archs, overrides_applied
+
+    # ------------------------------------------------------------------ #
+    #  Step 4: Generate Insights Summary
+    # ------------------------------------------------------------------ #
+    def _generate_insights(self, m: Dict) -> List[str]:
+        """Generate plain-English assessment insights."""
+        insights = []
+        sz = m['total_size_gb']
+        if sz > 1000: insights.append(f"The dataset is large at {sz:.0f} GB across {m['total_tables']} tables, favoring tiered storage to optimize costs.")
+        elif sz > 100: insights.append(f"The dataset is {sz:.0f} GB across {m['total_tables']} tables — a moderate size compatible with most architectures.")
+        else: insights.append(f"The dataset is compact at {sz:.0f} GB across {m['total_tables']} tables, making a Redshift-centric approach straightforward.")
+        if m['bi_pct'] > 60: insights.append(f"The workload is BI-driven ({m['bi_pct']}% scheduled/repeated queries), requiring consistent low-latency performance.")
+        elif m['adhoc_pct'] > 60: insights.append(f"The workload is predominantly ad-hoc ({m['adhoc_pct']}% exploratory queries), favoring pay-per-query options.")
+        else: insights.append(f"A mixed workload is observed — {m['bi_pct']}% BI/scheduled and {m['adhoc_pct']}% ad-hoc — benefiting from a hybrid architecture.")
+        if m['avg_joins'] > 3: insights.append(f"High join complexity detected (avg {m['avg_joins']} joins/query) — Redshift's collocation advantage is significant here.")
+        if m['write_pct'] > 30: insights.append(f"Notable write activity ({m['write_pct']}% writes) indicates active transformation pipelines.")
+        if m['cold_pct'] > 40: insights.append(f"{m['cold_count']} tables ({m['cold_pct']}%) show no recent query activity — candidates for S3 cold storage.")
+        if m['hot_pct'] > 0 and m['cold_pct'] > 0: insights.append(f"Clear access pattern: {m['hot_count']} hot, {m['warm_count']} warm, {m['cold_count']} cold tables — tiered storage recommended.")
+        if m['unique_users'] > 3: insights.append(f"{m['unique_users']} distinct users with {m['shared_tables']} shared tables — data sharing may improve governance.")
+        if m['cache_ratio'] > 50: insights.append(f"A {m['cache_ratio']}% cache hit ratio indicates repeated queries — Redshift result caching will provide gains.")
+        if m['etl_pct'] > 20: insights.append(f"{m['etl_pct']}% of queries are ETL/transformation operations — dedicated processing (Glue/EMR) recommended.")
+        return insights
+
+    # ------------------------------------------------------------------ #
+    #  Step 5: Main Entry Point
+    # ------------------------------------------------------------------ #
+    def _recommend_architecture(self, query_classification: Dict, total_size_gb: float,
+                                 tables: List[Dict] = None, query_stats: List[Dict] = None) -> Dict:
+        """Generate architecture recommendations using the full framework."""
+        tables = tables or []
+        query_stats = query_stats or []
+        workload = getattr(self, '_workload_cache', {})
+        # 1. Compute decision metrics
+        m = self._compute_decision_metrics(tables, query_stats, query_classification, workload)
+        # 2. Score architectures
+        archs = self._score_architectures(m)
+        # 3. Apply rule-based overrides
+        archs, overrides = self._apply_overrides(archs, m)
+        # 4. Generate insights
+        insights = self._generate_insights(m)
+        # 5. Determine recommendation
+        primary = archs[0] if archs else None
+        # Check if combination is needed
+        recommended_ids = set()
+        if m['bi_pct'] > 20 and m['adhoc_pct'] > 20:
+            # Mixed workload — may need combination
+            bi_arch = max((a for a in archs if a['id'] in ('all_redshift','redshift_data_sharing')), key=lambda a: a['score'], default=None)
+            adhoc_arch = max((a for a in archs if a['id'] in ('athena_redshift','managed_iceberg')), key=lambda a: a['score'], default=None)
+            if bi_arch and adhoc_arch and bi_arch['id'] != adhoc_arch['id']:
+                recommended_ids = {bi_arch['id'], adhoc_arch['id']}
+        if m['etl_pct'] > 20:
+            etl_arch = max((a for a in archs if a['id'] in ('emr_glue_iceberg','managed_iceberg')), key=lambda a: a['score'], default=None)
+            if etl_arch: recommended_ids.add(etl_arch['id'])
+        if m['unique_users'] >= 3 and m['shared_tables'] > 0:
+            recommended_ids.add('redshift_data_sharing')
+        if not recommended_ids and primary:
+            recommended_ids = {primary['id']}
+        # Build recommendation summary
+        rec_names = [a['name'] for a in archs if a['id'] in recommended_ids]
+        if len(rec_names) > 1:
+            rec_type = 'combination'
+            rec_summary = f"A combination of {' and '.join(rec_names)} is recommended based on the identified workload patterns."
+        elif rec_names:
+            rec_type = 'single'
+            rec_summary = f"{rec_names[0]} is recommended as the primary architecture (score: {primary['score']}%)."
+        else:
+            rec_type = 'single'
+            rec_summary = 'Insufficient data to generate recommendations.'
+        # Mark recommended architectures
+        for a in archs:
+            a['recommended'] = a['id'] in recommended_ids
+        # Backward-compatible strategies
+        strategies = [{'title': a['name'], 'points': [a['best_for'], f"Score: {a['score']}%"]} for a in archs[:3]]
+        return {
             'strategies': strategies,
-            'workloads': workloads,
-            'architecture_patterns': patterns,
-            'workload_mappings': workload_mappings,
-            'data_placement': data_placement,
+            'architecture_patterns': archs,
             'insights_summary': insights,
             'recommendation': {
-                'type': recommendation_type,
-                'summary': recommendation_summary,
-                'primary_architecture': primary['short_name'] if primary else None,
+                'type': rec_type, 'summary': rec_summary,
+                'primary_architecture': primary['name'] if primary else None,
                 'primary_architecture_id': primary['id'] if primary else None,
             },
-            'total_size_gb': round(total_size_gb, 2)
+            'decision_metrics': {k: v for k, v in m.items() if k not in ('hot_tables','warm_tables','cold_tables','write_heavy_tables')},
+            'overrides_applied': overrides,
+            'total_size_gb': round(m['total_size_gb'], 2),
         }
