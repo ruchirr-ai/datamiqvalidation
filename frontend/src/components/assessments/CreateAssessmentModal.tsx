@@ -105,7 +105,9 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
 
             <div className="form-section">
               <p className="form-description">
-                Create a new assessment to analyze your source database metadata — tables, views, routines, and more.
+                {mode === 'analyze'
+                  ? 'Create a new analysis to assess your source database and generate TCO comparison, migration recommendations, and Redshift sizing.'
+                  : 'Create a new assessment to analyze your source database metadata — tables, views, routines, and more.'}
               </p>
             </div>
 

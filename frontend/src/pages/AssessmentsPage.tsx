@@ -267,6 +267,11 @@ export const AssessmentsPage: React.FC = () => {
               <TrendingUp size={16} /> Analyze
             </button>
           </div>
+          <p className="assessments-mode-desc">
+            {assessmentMode === 'assess'
+              ? 'Collect and review source database metadata — tables, views, queries, and more.'
+              : 'Assess your source database and get TCO comparison, migration recommendations, and Redshift sizing.'}
+          </p>
           <div className="assessments-subheader">
             <span className="assessments-count">{totalAssessments} {t('assessments.title')}</span>
             
@@ -286,7 +291,7 @@ export const AssessmentsPage: React.FC = () => {
               </div>
 
               <Button variant="primary" onClick={() => setShowCreateModal(true)}>
-                {t('assessments.new')}
+                {assessmentMode === 'analyze' ? '+ New Analysis' : '+ New Assessment'}
               </Button>
             </div>
           </div>
