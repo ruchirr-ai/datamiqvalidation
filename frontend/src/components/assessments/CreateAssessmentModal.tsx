@@ -59,7 +59,12 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
     try {
       setSubmitting(true);
       setError(null);
-      await createAssessment({ name: name.trim(), source_connection_id: sourceConnectionId });
+      await createAssessment({ 
+        name: name.trim(), 
+        source_connection_id: sourceConnectionId,
+        assessment_mode: mode,
+        target_db: mode === 'analyze' ? targetDb : undefined,
+      });
       onSuccess();
       handleClose();
     } catch (err: any) {

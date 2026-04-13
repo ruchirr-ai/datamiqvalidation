@@ -80,7 +80,7 @@ export const AssessmentReportPage: React.FC = () => {
   }
 
   const isSQLServer = summary.assessment.source_db_type?.toLowerCase() === 'sqlserver';
-  const isAnalyzeMode = searchParams.get('mode') === 'analyze';
+  const isAnalyzeMode = searchParams.get('mode') === 'analyze' || summary.assessment.assessment_data?.mode === 'analyze';
 
   if (isSQLServer) {
     return <SQLServerReportPage summary={summary} assessmentId={id} />;

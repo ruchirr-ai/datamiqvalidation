@@ -133,10 +133,8 @@ export const AssessmentsPage: React.FC = () => {
   };
 
   const handleViewReport = (assessmentId: number, assessment?: Assessment) => {
-    // Navigate to report view — include mode=analyze if assessment has target info
-    const hasTarget = assessment?.target_connection_id != null;
-    const mode = hasTarget ? 'analyze' : assessmentMode;
-    navigate(`/assessments/${assessmentId}/report${mode === 'analyze' ? '?mode=analyze' : ''}`);
+    const isAnalyze = assessment?.assessment_data?.mode === 'analyze';
+    navigate(`/assessments/${assessmentId}/report${isAnalyze ? '?mode=analyze' : ''}`);
   };
 
   const handleDownloadReport = (assessment: Assessment) => {
@@ -365,10 +363,10 @@ export const AssessmentsPage: React.FC = () => {
                       fontWeight: 500, 
                       padding: '2px 8px', 
                       borderRadius: '4px',
-                      background: assessment.target_connection_id ? '#EFF6FF' : '#F3F4F6',
-                      color: assessment.target_connection_id ? '#2563EB' : '#6B7280'
+                      background: assessment.assessment_data?.mode === 'analyze' ? '#EFF6FF' : '#F3F4F6',
+                      color: assessment.assessment_data?.mode === 'analyze' ? '#2563EB' : '#6B7280'
                     }}>
-                      {assessment.target_connection_id ? 'Analyze' : 'Assess'}
+                      {assessment.assessment_data?.mode === 'analyze' ? 'Analyze' : 'Assess'}
                     </span>
                   </td>
                   <td>

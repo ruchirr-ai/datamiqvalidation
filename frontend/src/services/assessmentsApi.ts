@@ -24,6 +24,7 @@ export interface Assessment {
   created_by: string | null;
   workspace_id: number;
   version: number;
+  assessment_data?: Record<string, any> | null;
 }
 
 export interface AssessmentListResponse {
@@ -35,6 +36,8 @@ export interface CreateAssessmentRequest {
   name: string;
   source_connection_id: number;
   target_connection_id?: number;
+  assessment_mode?: string;
+  target_db?: string;
 }
 
 export interface UpdateAssessmentRequest {
@@ -216,6 +219,7 @@ export interface AssessmentFullReport {
     total_ml_models: number;
     total_size_mb: number;
     source_db_type?: string;
+    assessment_data?: Record<string, any>;
   };
   datasets: DatasetSummary[];
   tables: AssessmentReportTable[];
