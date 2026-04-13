@@ -326,6 +326,7 @@ export const AssessmentsPage: React.FC = () => {
             <thead>
               <tr>
                 <th>{t('assessments.name')}</th>
+                <th>TYPE</th>
                 <th>VERSION</th>
                 <th>{t('assessments.status')}</th>
                 <th>{t('assessments.datasets')}</th>
@@ -357,6 +358,11 @@ export const AssessmentsPage: React.FC = () => {
                         <span className="assessment-name">{assessment.name}</span>
                       )}
                     </div>
+                  </td>
+                  <td>
+                    <Badge variant={assessment.target_connection_id ? 'info' : 'default'}>
+                      {assessment.target_connection_id ? 'Analyze' : 'Assess'}
+                    </Badge>
                   </td>
                   <td>
                     {hasMultipleVersions ? (

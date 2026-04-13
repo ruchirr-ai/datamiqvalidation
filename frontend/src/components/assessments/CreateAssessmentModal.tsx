@@ -139,23 +139,6 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
               )}
             </div>
 
-            <div className="info-box">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="8" cy="8" r="6" />
-                <path d="M8 7v4M8 5h.01" strokeLinecap="round" />
-              </svg>
-              <div>
-                <strong>{mode === 'analyze' ? 'Assessment + Analysis will include:' : 'Assessment will analyze:'}</strong>
-                <ul>
-                  <li>Datasets, tables, views, routines, ML models</li>
-                  <li>Data types and schema structure</li>
-                  <li>Query patterns and usage insights</li>
-                  <li>Security policies and indexes</li>
-                  {mode === 'analyze' && <li>TCO comparison and migration recommendations</li>}
-                </ul>
-              </div>
-            </div>
-
             {mode === 'analyze' && (
               <div className="form-group">
                 <label htmlFor="target-db">Target Database <span className="required">*</span></label>
