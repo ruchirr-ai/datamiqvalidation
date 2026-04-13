@@ -28,6 +28,41 @@
   gap: 10px;
 }
 
+/* Mode Toggle */
+.assessments-mode-toggle {
+  display: flex;
+  gap: 0;
+  background: #F3F4F6;
+  border-radius: 8px;
+  padding: 3px;
+  width: fit-content;
+}
+
+.mode-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  border: none;
+  background: transparent;
+  color: #6B7280;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.mode-toggle-btn:hover {
+  color: #374151;
+}
+
+.mode-toggle-btn.active {
+  background: #fff;
+  color: #2563EB;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
 .page-title-icon {
   color: #111827;
   flex-shrink: 0;

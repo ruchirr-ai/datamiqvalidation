@@ -43,9 +43,10 @@ import './AssessmentReportPage.css';
 interface BigQueryReportPageProps {
   summary: ReportSummary;
   assessmentId: number;
+  showAnalysis?: boolean;
 }
 
-export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary, assessmentId }) => {
+export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary, assessmentId, showAnalysis = false }) => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<string>('summary');
   const id = assessmentId;
@@ -232,6 +233,10 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
     { id: 'query-insights', label: 'Query Insights', icon: Activity },
     { id: 'user-insights', label: 'User Insights', icon: Users },
     { id: 'security', label: 'Security', icon: Shield },
+    ...(showAnalysis ? [
+      { id: 'recommendations', label: 'Recommendations', icon: TrendingUp },
+      { id: 'tco', label: 'TCO Analysis', icon: DollarSign },
+    ] : []),
   ];
 
   return (
@@ -307,6 +312,8 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
           securityData ? <SecuritySection securityPolicies={securityData.security_policies} columns={securityData.columns} tables={securityData.tables} /> :
           <TabSpinner message="Loading security data..." />
         )}
+        {showAnalysis && activeTab === 'recommendations' && <RecommendationsSection assessmentId={id} />}
+        {showAnalysis && activeTab === 'tco' && <TCOAnalysisSection assessmentId={id} />}
       </div>
 
       <DownloadReportModal isOpen={showDownloadModal} onClose={() => setShowDownloadModal(false)} assessmentName={summary.assessment.name} onDownload={handleDownloadPDF} downloading={downloading} />
