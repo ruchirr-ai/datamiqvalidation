@@ -360,9 +360,16 @@ export const AssessmentsPage: React.FC = () => {
                     </div>
                   </td>
                   <td>
-                    <Badge variant={assessment.target_connection_id ? 'info' : 'default'}>
+                    <span style={{ 
+                      fontSize: '12px', 
+                      fontWeight: 500, 
+                      padding: '2px 8px', 
+                      borderRadius: '4px',
+                      background: assessment.target_connection_id ? '#EFF6FF' : '#F3F4F6',
+                      color: assessment.target_connection_id ? '#2563EB' : '#6B7280'
+                    }}>
                       {assessment.target_connection_id ? 'Analyze' : 'Assess'}
-                    </Badge>
+                    </span>
                   </td>
                   <td>
                     {hasMultipleVersions ? (
