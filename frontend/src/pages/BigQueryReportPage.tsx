@@ -857,6 +857,7 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
   const [selectedTable, setSelectedTable] = useState<string | number>('all');
   const [dskPage, setDskPage] = useState(1);
   const [dskPageSize, setDskPageSize] = useState<string | number>(20);
+  const [expandedArch, setExpandedArch] = useState<number | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -877,6 +878,19 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
   return (
     <div className="section-content">
       <h2 className="section-heading">Migration Recommendations</h2>
+
+      {/* Assessment Insights Summary */}
+      {arch.insights_summary && arch.insights_summary.length > 0 && (
+        <div className="rec-section">
+          <h3 className="rec-section-title"><Info size={18} /> Assessment Insights</h3>
+          <div style={{ background: '#F8FAFC', border: '1px solid var(--color-divider)', borderRadius: '8px', padding: '16px 20px' }}>
+            {arch.insights_summary.map((insight: string, i: number) => (
+              <p key={i} style={{ fontSize: '14px', color: 'var(--color-text-primary)', lineHeight: '1.6', margin: i === 0 ? '0' : '10px 0 0' }}>{insight}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="rec-section">
         <h3 className="rec-section-title"><TableIcon size={18} /> Distribution & Sort Key Recommendations</h3>
         <div className="section-filters" style={{ marginBottom: 'var(--spacing-4)' }}>
@@ -915,16 +929,102 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
         </div>
       </div>
       <div className="rec-section">
-        <h3 className="rec-section-title"><Activity size={18} /> Query Classification & Architecture</h3>
+        <h3 className="rec-section-title"><Activity size={18} /> Query Classification</h3>
         <div className="rec-cards-row">
           <div className="rec-card rec-card-blue"><div className="rec-card-icon"><Zap size={24} /></div><div className="rec-card-value">{qc.adhoc_count.toLocaleString()}</div><div className="rec-card-label">Ad-hoc Queries</div><div className="rec-card-pct">{qc.adhoc_pct}%</div></div>
           <div className="rec-card rec-card-purple"><div className="rec-card-icon"><TrendingUp size={24} /></div><div className="rec-card-value">{qc.bi_count.toLocaleString()}</div><div className="rec-card-label">BI / Scheduled Queries</div><div className="rec-card-pct">{qc.bi_pct}%</div></div>
           <div className="rec-card rec-card-green"><div className="rec-card-icon"><Activity size={24} /></div><div className="rec-card-value">{qc.total_queries.toLocaleString()}</div><div className="rec-card-label">Total Queries Analyzed</div></div>
         </div>
-        {arch.strategies.map((s, i) => (
-          <div key={i} className="rec-info-box"><div className="rec-info-title"><Info size={16} /> {s.title}</div><ul className="rec-info-list">{s.points.map((p, j) => <li key={j}>{p}</li>)}</ul></div>
-        ))}
       </div>
+
+      {/* Architecture Recommendation */}
+      {arch.architecture_patterns && arch.architecture_patterns.length > 0 && (() => {
+        const primary = arch.architecture_patterns.find((p: any) => p.recommended) || arch.architecture_patterns[0];
+        const alternative = arch.architecture_patterns.filter((p: any) => p !== primary && p.score > 0)[0];
+        const hasAlternative = !!alternative;
+        return (
+        <div className="rec-section">
+          <h3 className="rec-section-title"><Database size={18} /> Architecture Recommendation</h3>
+
+          {/* Primary — always open if no alternative, dropdown if alternative exists */}
+          <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', marginBottom: '12px', cursor: hasAlternative ? 'pointer' : 'default' }} onClick={() => hasAlternative && setExpandedArch(expandedArch === -1 ? null : -1)}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Badge variant="success">Recommended</Badge>
+                <span style={{ fontSize: '16px', fontWeight: 700 }}>{primary.name}</span>
+                {primary.deploy_mode && <Badge variant={primary.deploy_mode === 'Provisioned' ? 'warning' : 'info'}>{primary.deploy_mode}</Badge>}
+              </div>
+              {hasAlternative && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: '#16A34A', transform: (expandedArch === -1 || !hasAlternative) ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}><path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </div>
+              )}
+            </div>
+            {(expandedArch === -1 || !hasAlternative) && (
+              <div style={{ padding: '0 20px 20px', borderTop: '1px solid #BBF7D0' }} onClick={e => e.stopPropagation()}>
+                <p style={{ fontSize: '14px', color: 'var(--color-text-primary)', margin: '14px 0' }}>{primary.description}</p>
+                {primary.deploy_mode && (
+                  <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '6px', padding: '12px 14px', marginBottom: '14px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>Deployment: {primary.deploy_mode}</div>
+                    <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>{primary.deploy_reason}</div>
+                    {primary.node_config && <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>Suggested Configuration: <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{primary.node_config}</span></div>}
+                    {primary.config_explanation && <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>{primary.config_explanation}</div>}
+                  </div>
+                )}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: '#16A34A' }}>Why This Approach</div>
+                    {(primary.strengths || []).map((s: string, j: number) => <div key={j} style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '3px' }}>✓ {s}</div>)}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: '#DC2626' }}>Trade-offs</div>
+                    {(primary.limitations || []).map((l: string, j: number) => <div key={j} style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '3px' }}>• {l}</div>)}
+                  </div>
+                </div>
+                <div style={{ marginTop: '12px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  {(primary.components || []).map((c: string, j: number) => <span key={j} style={{ fontSize: '11px', padding: '2px 8px', background: '#DCFCE7', borderRadius: '4px', color: '#166534' }}>{c}</span>)}
+                </div>
+                <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--color-text-secondary)' }}><span style={{ fontWeight: 500 }}>Cost Profile:</span> {primary.cost_profile}</div>
+                <div style={{ marginTop: '4px', fontSize: '12px', color: 'var(--color-text-secondary)' }}><span style={{ fontWeight: 500 }}>Best For:</span> {primary.best_for}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Alternative — expandable */}
+          {alternative && (
+            <div style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-divider)', borderRadius: '8px', cursor: 'pointer' }} onClick={() => setExpandedArch(expandedArch === 0 ? null : 0)}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Badge variant="default">Alternative</Badge>
+                  <span style={{ fontSize: '14px', fontWeight: 600 }}>{alternative.name}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: '#9CA3AF', transform: expandedArch === 0 ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}><path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </div>
+              </div>
+              {expandedArch === 0 && (
+                <div style={{ padding: '0 18px 16px', borderTop: '1px solid var(--color-divider)' }} onClick={e => e.stopPropagation()}>
+                  <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: '12px 0' }}>{alternative.description}</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#16A34A' }}>Strengths</div>
+                      {(alternative.strengths || []).map((s: string, j: number) => <div key={j} style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '2px' }}>✓ {s}</div>)}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#DC2626' }}>Limitations</div>
+                      {(alternative.limitations || []).map((l: string, j: number) => <div key={j} style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '2px' }}>• {l}</div>)}
+                    </div>
+                  </div>
+                  <div style={{ marginTop: '8px', fontSize: '12px' }}><span style={{ fontWeight: 500 }}>Components:</span> <span style={{ color: 'var(--color-text-secondary)' }}>{(alternative.components || []).join(' · ')}</span></div>
+                  <div style={{ marginTop: '4px', fontSize: '12px' }}><span style={{ fontWeight: 500 }}>Best For:</span> <span style={{ color: 'var(--color-text-secondary)' }}>{alternative.best_for}</span></div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        );
+      })()}
+
     </div>
   );
 };

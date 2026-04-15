@@ -418,12 +418,59 @@ export interface ArchitectureStrategy {
   points: string[];
 }
 
+export interface WorkloadCategory {
+  id: string;
+  name: string;
+  description: string;
+  percentage: number;
+  query_count: number;
+  characteristics: string[];
+  priority: string;
+  table_count?: number;
+  size_gb?: number;
+}
+
+export interface ArchitecturePattern {
+  id: string;
+  name: string;
+  short_name: string;
+  description: string;
+  suitability_score: number;
+  best_for: string[];
+  components: string[];
+  data_placement: { hot: string; warm: string; cold: string };
+  strengths: string[];
+  limitations: string[];
+  cost_profile: string;
+  suitable_workloads: string[];
+  sub_patterns?: any[];
+  compute_recommendations?: any[];
+}
+
+export interface WorkloadMapping {
+  workload: string;
+  workload_id: string;
+  recommended_architecture: string;
+  architecture_id: string;
+  suitability_score: number;
+  justification: string;
+  trade_offs: string[];
+  alternatives_not_selected: { name: string; reason: string }[];
+}
+
 export interface RecommendationsData {
   query_classification: QueryClassification;
   config_recommendation: ConfigRecommendation;
   dist_sort_keys: DistSortKeyRecommendation[];
   architecture: {
     strategies: ArchitectureStrategy[];
+    workloads?: WorkloadCategory[];
+    architecture_patterns?: ArchitecturePattern[];
+    workload_mappings?: WorkloadMapping[];
+    data_placement?: any;
+    insights_summary?: string[];
+    recommendation?: { type: string; summary: string; primary_architecture: string | null; primary_architecture_id: string | null };
+    total_size_gb?: number;
   };
 }
 
