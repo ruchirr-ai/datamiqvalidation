@@ -934,30 +934,34 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
       {arch.architecture_patterns && arch.architecture_patterns.length > 0 && (() => {
         const primary = arch.architecture_patterns.find((p: any) => p.recommended) || arch.architecture_patterns[0];
         const alternative = arch.architecture_patterns.filter((p: any) => p !== primary && p.score > 0)[0];
+        const hasAlternative = !!alternative;
         return (
         <div className="rec-section">
           <h3 className="rec-section-title"><Database size={18} /> Architecture Recommendation</h3>
 
-          {/* Primary — expandable */}
-          <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', marginBottom: '12px', cursor: 'pointer' }} onClick={() => setExpandedArch(expandedArch === -1 ? null : -1)}>
+          {/* Primary — always open if no alternative, dropdown if alternative exists */}
+          <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', marginBottom: '12px', cursor: hasAlternative ? 'pointer' : 'default' }} onClick={() => hasAlternative && setExpandedArch(expandedArch === -1 ? null : -1)}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Badge variant="success">Recommended</Badge>
                 <span style={{ fontSize: '16px', fontWeight: 700 }}>{primary.name}</span>
                 {primary.deploy_mode && <Badge variant={primary.deploy_mode === 'Provisioned' ? 'warning' : 'info'}>{primary.deploy_mode}</Badge>}
               </div>
+              {hasAlternative && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: '#16A34A', transform: expandedArch === -1 ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}><path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: '#16A34A', transform: (expandedArch === -1 || !hasAlternative) ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}><path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
               </div>
+              )}
             </div>
-            {expandedArch === -1 && (
+            {(expandedArch === -1 || !hasAlternative) && (
               <div style={{ padding: '0 20px 20px', borderTop: '1px solid #BBF7D0' }} onClick={e => e.stopPropagation()}>
                 <p style={{ fontSize: '14px', color: 'var(--color-text-primary)', margin: '14px 0' }}>{primary.description}</p>
                 {primary.deploy_mode && (
                   <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: '6px', padding: '12px 14px', marginBottom: '14px' }}>
                     <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '4px' }}>Deployment: {primary.deploy_mode}</div>
                     <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>{primary.deploy_reason}</div>
-                    {primary.node_config && <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>Suggested Configuration: <span style={{ fontWeight: 500 }}>{primary.node_config}</span></div>}
+                    {primary.node_config && <div style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>Suggested Configuration: <span style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{primary.node_config}</span></div>}
+                    {primary.config_explanation && <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>{primary.config_explanation}</div>}
                   </div>
                 )}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>

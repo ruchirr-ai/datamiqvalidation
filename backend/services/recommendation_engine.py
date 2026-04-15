@@ -45,6 +45,12 @@ class RecommendationEngine:
             'storage_type': 'SSD', 'max_nodes': 128,
             'use_case': 'Large datasets needing fast local SSD',
         },
+        'ra3.large': {
+            'vcpu': 2, 'memory_gb': 16, 'storage_gb': 8000,
+            'slices_per_node': 2,
+            'storage_type': 'Managed Storage', 'max_nodes': 16,
+            'use_case': 'Small workloads with managed storage',
+        },
         'ra3.xlplus': {
             'vcpu': 4, 'memory_gb': 32, 'storage_gb': 32000,
             'slices_per_node': 2,
@@ -611,6 +617,7 @@ class RecommendationEngine:
         # Evaluate all viable node type combinations
         # Format: (node_type, memory_per_node, hourly_cost_per_node, max_recommended_nodes)
         ra3_options = [
+            ('ra3.large', 16, 0.543, 16),
             ('ra3.xlplus', 32, 1.086, 32),
             ('ra3.4xlarge', 96, 3.26, 32),
             ('ra3.16xlarge', 384, 13.04, 128),
@@ -620,8 +627,8 @@ class RecommendationEngine:
         best_cost = float('inf')
         
         for node_type, mem_per_node, hourly_cost, max_nodes in ra3_options:
-            # Minimum nodes: ra3.xlplus supports single-node clusters, others need 2
-            min_nodes = 1 if node_type == 'ra3.xlplus' else 2
+            # Minimum nodes: ra3.large and ra3.xlplus support single-node, others need 2
+            min_nodes = 1 if node_type in ('ra3.large', 'ra3.xlplus') else 2
             
             # Calculate nodes needed for compute
             nodes_for_compute = max(min_nodes, math.ceil(target_memory_gib / mem_per_node))
@@ -1043,19 +1050,30 @@ class RecommendationEngine:
         if prefer_provisioned:
             deploy_mode = 'Provisioned'
             deploy_reason = 'Stable workload pattern with predictable query volume — provisioned offers better cost efficiency and consistent performance.'
-            # Suggest node type based on data size
-            if m['total_size_gb'] < 100:
-                node_config = 'ra3.xlplus (2-node cluster recommended)'
-            elif m['total_size_gb'] < 500:
-                node_config = 'ra3.xlplus (4-node cluster recommended)'
-            elif m['total_size_gb'] < 2000:
-                node_config = 'ra3.4xlarge (2-4 node cluster recommended)'
+            # Use the actual provisioned recommendation engine for node config
+            workload = getattr(self, '_workload_cache', {})
+            prov = self._recommend_provisioned(
+                m['total_size_gb'],
+                m['total_queries'],
+                workload.get('estimated_monthly_slot_hours', 0),
+                m['peak_concurrent'],
+                m['avg_concurrent']
+            )
+            node_config = f"{prov['node_type']} ({prov['num_nodes']}-node cluster, {prov['vcpu_total']} vCPUs, {prov['memory_gb_total']} GiB RAM)"
+            # One-liner sizing explanation tied to assessment data
+            nodes_for_compute = prov.get('sizing_basis', {}).get('nodes_for_compute', prov['num_nodes'])
+            nodes_for_storage = prov.get('sizing_basis', {}).get('nodes_for_storage', 1)
+            if nodes_for_compute > nodes_for_storage:
+                config_explanation = f"Based on the assessed workload of {m['total_queries']} queries with {m['peak_concurrent']:.0f} peak concurrent slots, {prov['num_nodes']} nodes are needed to handle the compute demand ({prov['memory_gb_total']} GiB RAM, {prov['vcpu_total']} vCPUs)."
+            elif nodes_for_storage > nodes_for_compute:
+                config_explanation = f"With {m['total_size_gb']:.0f} GB of data identified in the assessment, {prov['num_nodes']} nodes are needed to accommodate the storage requirement ({prov['memory_gb_total']} GiB RAM, {prov['vcpu_total']} vCPUs)."
             else:
-                node_config = 'ra3.16xlarge (2+ node cluster recommended)'
+                config_explanation = f"The assessed {m['total_size_gb']:.0f} GB dataset with {m['total_queries']} queries requires {prov['num_nodes']} nodes to meet both compute and storage needs ({prov['memory_gb_total']} GiB RAM, {prov['vcpu_total']} vCPUs)."
         else:
             deploy_mode = 'Serverless'
             deploy_reason = 'Variable or unpredictable workload pattern — serverless auto-scales and eliminates cluster management overhead.'
             node_config = None
+            config_explanation = None
         archs.append({
             'id': 'all_redshift', 'name': 'Redshift',
             'score': round(max(min(s, 100), 0)),
@@ -1068,6 +1086,7 @@ class RecommendationEngine:
             'deploy_mode': deploy_mode,
             'deploy_reason': deploy_reason,
             'node_config': node_config,
+            'config_explanation': config_explanation,
         })
 
         # --- 2. Redshift + Data Sharing ---
@@ -1225,6 +1244,12 @@ class RecommendationEngine:
             if a['id'] == 'redshift_data_sharing' and (m['unique_users'] < 3 or m['shared_tables'] == 0):
                 a['score'] = 0
                 overrides_applied.append(f"Golden rule: Data Sharing requires 3+ distinct user groups AND shared table access (found {m['unique_users']} users, {m['shared_tables']} shared tables)")
+            if a['id'] == 'athena_redshift' and m['adhoc_pct'] < 10:
+                a['score'] = 0
+                overrides_applied.append(f"Golden rule: Athena requires ad-hoc workload (found {m['adhoc_pct']}%)")
+            if a['id'] in ('managed_iceberg', 'emr_glue_iceberg') and m['bi_pct'] > 30:
+                a['score'] = 0
+                overrides_applied.append(f"Golden rule: {a['name']} cannot be standalone when BI is {m['bi_pct']}% — Redshift required")
         archs.sort(key=lambda a: a['score'], reverse=True)
         return archs, overrides_applied
 
