@@ -55,7 +55,7 @@ class RecommendationEngine:
             'vcpu': 4, 'memory_gb': 32, 'storage_gb': 32000,
             'slices_per_node': 2,
             'storage_type': 'Managed Storage', 'max_nodes': 32,
-            'use_case': 'Most workloads â€” separates compute and storage',
+            'use_case': 'Most workloads -- separates compute and storage',
         },
         'ra3.4xlarge': {
             'vcpu': 12, 'memory_gb': 96, 'storage_gb': 128000,
@@ -126,22 +126,22 @@ class RecommendationEngine:
         }
 
     # ------------------------------------------------------------------ #
-    #  Workload Analysis (BQ â†’ Redshift mapping)
+    #  Workload Analysis (BQ -> Redshift mapping)
     # ------------------------------------------------------------------ #
     def _analyze_workload(self, query_stats: List[Dict]) -> Dict:
         """
         Analyze BQ workload to derive Redshift-equivalent compute needs.
 
-        BQ slot_milliseconds = total_slots_used Ã— duration_ms for a query.
+        BQ slot_milliseconds = total_slots_used x duration_ms for a query.
         This is CPU-time, NOT wall-clock time.
 
-        Redshift Serverless bills: RPUs_allocated Ã— wall_clock_seconds,
+        Redshift Serverless bills: RPUs_allocated x wall_clock_seconds,
         with a 60-second minimum per warehouse activation.
 
         Conversion approach:
         1. Estimate per-query wall-clock duration from slot_ms and concurrency
         2. Apply 60-second minimum billing per activation window
-        3. Convert BQ slots to RPUs (1 BQ slot ï¿½ 2 GiB, 1 RPU = 16 GiB)
+        3. Convert BQ slots to RPUs (1 BQ slot -- 2 GiB, 1 RPU = 16 GiB)
         4. Account for query concurrency (overlapping queries share activation)
         """
         if not query_stats:
@@ -164,7 +164,7 @@ class RecommendationEngine:
         total_bytes = sum(q.get('bytes_scanned', 0) for q in query_stats)
         query_count = len(query_stats)
 
-        total_slot_hours = total_slot_ms / (1000 * 3600)  # ms â†’ hours
+        total_slot_hours = total_slot_ms / (1000 * 3600)  # ms -> hours
         total_tb_scanned = total_bytes / (1024 ** 4) if total_bytes else 0
 
         # Determine time span of captured queries
@@ -190,7 +190,7 @@ class RecommendationEngine:
         monthly_slot_hours = daily_slot_hours * 30
 
         # --- Estimate per-query concurrency and wall-clock duration ---
-        # BQ slot_ms = concurrent_slots Ã— wall_clock_ms
+        # BQ slot_ms = concurrent_slots x wall_clock_ms
         # We estimate avg concurrent slots per query, then derive wall-clock.
         slot_values = sorted(
             [q.get('slot_milliseconds', 0) for q in query_stats], reverse=True
@@ -283,12 +283,12 @@ class RecommendationEngine:
         # Estimate how many 60-second activation windows per day.
         # If queries are spread evenly: activations = daily_queries if gap > 60s,
         # else queries cluster into fewer windows.
-        # Heuristic: assume queries arrive in bursts. Active hours per day â‰ˆ
-        # min(daily_queries Ã— max(wall_clock, 60) / 3600, 24)
+        # Heuristic: assume queries arrive in bursts. Active hours per day =
+        # min(daily_queries x max(wall_clock, 60) / 3600, 24)
         billed_seconds_per_query = max(avg_wall_clock_s, 60)  # 60s minimum
         # But overlapping queries share the window, so apply concurrency factor
         # Estimate: if N queries run per hour, and each takes T seconds,
-        # concurrent queries = N Ã— T / 3600. Activation windows = N / max(concurrent, 1)
+        # concurrent queries = N x T / 3600. Activation windows = N / max(concurrent, 1)
         queries_per_hour = daily_queries / 24 if daily_queries > 0 else 0
         concurrent_queries = max(1, queries_per_hour * billed_seconds_per_query / 3600)
         # Effective activations per hour = queries_per_hour / concurrent_queries
@@ -301,7 +301,7 @@ class RecommendationEngine:
         billed_seconds_per_hour = min(billed_seconds_per_hour, 3600)
 
         # Step 3: Convert BQ slots to RPUs for sizing
-        # 1 BQ slot ï¿½ 2 GiB memory. 1 RPU = 16 GiB memory.
+        # 1 BQ slot -- 2 GiB memory. 1 RPU = 16 GiB memory.
         # So RPU needed = avg_slots * 2 / 16 = avg_slots / 8.
         # Valid RPU values: 4, 8, 16, 24, 32, ..., 1024 (4 is minimum, then multiples of 8).
         rpus_from_avg = max(1, math.ceil(estimated_avg_concurrent_slots * 2 / 16))
@@ -311,8 +311,8 @@ class RecommendationEngine:
             estimated_base_rpu = math.floor(rpus_from_avg / 8) * 8
 
         # Step 4: Calculate monthly RPU-hours
-        # active_hours_per_day = total_slot_hours / (time_span_days Ã— 24)
-        # RPU-hours/month = base_rpu Ã— active_hours_per_day Ã— 30
+        # active_hours_per_day = total_slot_hours / (time_span_days x 24)
+        # RPU-hours/month = base_rpu x active_hours_per_day x 30
         active_hours_per_day = total_slot_hours / (time_span_days * 24) if time_span_days > 0 else 0
         active_hours_per_day = min(active_hours_per_day, 24)
 
@@ -514,12 +514,12 @@ class RecommendationEngine:
 
         # Compute intensity factor (based on actual slot hours)
         if monthly_slot_hours < 50:
-            serverless_score += 3  # Light workload â†’ serverless wins
+            serverless_score += 3  # Light workload -> serverless wins
         elif monthly_slot_hours < 500:
             serverless_score += 1
             provisioned_score += 1
         else:
-            provisioned_score += 3  # Heavy workload â†’ provisioned wins
+            provisioned_score += 3  # Heavy workload -> provisioned wins
 
         # Query volume factor
         daily_queries = total_queries / max(workload.get('query_time_span_days', 30), 1)
@@ -537,22 +537,22 @@ class RecommendationEngine:
         reasons = []
         if recommended == 'serverless':
             if monthly_slot_hours < 50:
-                reasons.append(f'Low compute usage ({monthly_slot_hours:.1f} slot-hours/month) â€” pay-per-use is more efficient')
+                reasons.append(f'Low compute usage ({monthly_slot_hours:.1f} slot-hours/month) -- pay-per-use is more efficient')
             elif total_size_gb < 100:
-                reasons.append(f'Small dataset ({total_size_gb:.2f} GB) â€” no need for dedicated cluster')
+                reasons.append(f'Small dataset ({total_size_gb:.2f} GB) -- no need for dedicated cluster')
             if adhoc_pct > 50:
-                reasons.append(f'{adhoc_pct}% ad-hoc queries â€” variable workload benefits from auto-scaling')
+                reasons.append(f'{adhoc_pct}% ad-hoc queries -- variable workload benefits from auto-scaling')
             if daily_queries < 50:
-                reasons.append(f'Low query frequency (~{daily_queries:.0f}/day) â€” avoid paying for idle cluster')
+                reasons.append(f'Low query frequency (~{daily_queries:.0f}/day) -- avoid paying for idle cluster')
             reasons.append('Serverless auto-scales RPUs based on workload complexity')
             reasons.append('No cluster management overhead')
         else:
             if monthly_slot_hours >= 500:
-                reasons.append(f'High compute usage ({monthly_slot_hours:.1f} slot-hours/month) â€” dedicated resources are cost-effective')
+                reasons.append(f'High compute usage ({monthly_slot_hours:.1f} slot-hours/month) -- dedicated resources are cost-effective')
             if total_size_gb >= 500:
-                reasons.append(f'Large dataset ({total_size_gb:.2f} GB) â€” benefits from dedicated compute')
+                reasons.append(f'Large dataset ({total_size_gb:.2f} GB) -- benefits from dedicated compute')
             if bi_pct > 50:
-                reasons.append(f'{bi_pct}% BI/scheduled queries â€” consistent performance needed')
+                reasons.append(f'{bi_pct}% BI/scheduled queries -- consistent performance needed')
             reasons.append('Predictable costs with Reserved Instance pricing (up to 75% savings)')
             reasons.append('Full control over concurrency scaling and WLM queues')
 
@@ -588,7 +588,7 @@ class RecommendationEngine:
         - Consider peak workload for sizing, not just average
         - Use concurrency scaling when peak >> base capacity
         - Optimize for cost across different node type combinations
-        - Mapping: 1 BQ slot â‰ˆ 1 GiB memory equivalent.
+        - Mapping: 1 BQ slot = 1 GiB memory equivalent.
 
         Node specs (official AWS docs):
           ra3.xlplus:   4 vCPU, 32 GiB RAM, 2 slices/node, 2-32 nodes
@@ -602,7 +602,7 @@ class RecommendationEngine:
         # If peak is much higher than avg (>3x), size for a middle ground with concurrency scaling
         # Otherwise, size closer to peak for consistent performance
         if peak_to_avg_ratio > 3:
-            # High variance workload - size for avg (1 BQ slot ï¿½ 2 GiB), concurrency scaling handles peaks
+            # High variance workload - size for avg (1 BQ slot -- 2 GiB), concurrency scaling handles peaks
             target_memory_gib = max(32, math.ceil(avg_slots * 2))
             use_concurrency_scaling = True
         else:
@@ -688,25 +688,25 @@ class RecommendationEngine:
         
         if peak_to_avg_ratio > 3:
             rationale_parts.append(
-                f"High variance workload (peak is {peak_to_avg_ratio:.1f}Ã— avg) â€” "
+                f"High variance workload (peak is {peak_to_avg_ratio:.1f}x avg) -- "
                 f"base cluster sized for sustained load with concurrency scaling for bursts"
             )
         else:
             rationale_parts.append(
-                f"Steady workload â€” cluster sized to handle {int(total_memory_gib * 0.7)}-{total_memory_gib} concurrent slots"
+                f"Steady workload -- cluster sized to handle {int(total_memory_gib * 0.7)}-{total_memory_gib} concurrent slots"
             )
         
         rationale_parts.extend([
-            f"Selected {node_type} ({specs['memory_gb']} GiB/node) Ã— {num_nodes} nodes "
+            f"Selected {node_type} ({specs['memory_gb']} GiB/node) x {num_nodes} nodes "
             f"= {total_memory_gib} GiB total RAM",
             f"Total slices: {specs['slices_per_node'] * num_nodes} "
-            f"({specs['slices_per_node']} slices/node Ã— {num_nodes} nodes)",
+            f"({specs['slices_per_node']} slices/node x {num_nodes} nodes)",
         ])
         
         if use_concurrency_scaling:
             rationale_parts.append(
                 f"Concurrency scaling enabled: peak ({peak_slots:.0f} slots) is "
-                f"{peak_to_base_ratio}Ã— base capacity â€” burst traffic handled automatically"
+                f"{peak_to_base_ratio}x base capacity -- burst traffic handled automatically"
             )
         
         return {
@@ -742,12 +742,12 @@ class RecommendationEngine:
         """
         Recommend serverless configuration using actual BQ workload data.
 
-        Mapping: 1 BQ slot ï¿½ 2 GiB memory, 1 RPU = 16 GiB.
+        Mapping: 1 BQ slot -- 2 GiB memory, 1 RPU = 16 GiB.
         Base RPU = ceil(avg_slots * 2 / 16) rounded down to nearest 8.
         Max RPU = based on peak_slots for auto-scaling headroom.
         """
-        # Base RPU from avg slots (not peak) ï¿½ same logic as _analyze_workload
-        # 1 BQ slot ï¿½ 2 GiB, 1 RPU = 16 GiB ? avg_slots * 2 / 16 = RPUs needed
+        # Base RPU from avg slots (not peak) -- same logic as _analyze_workload
+        # 1 BQ slot -- 2 GiB, 1 RPU = 16 GiB ? avg_slots * 2 / 16 = RPUs needed
         # Valid RPU values: 4, 8, 16, 24, 32, ..., 1024 (4 is minimum, then multiples of 8).
         base_avg = avg_slots if avg_slots > 0 else peak_slots
         rpus_from_avg = max(1, math.ceil(base_avg * 2 / 16))
@@ -821,18 +821,18 @@ class RecommendationEngine:
                     reasoning.append(f"Column '{distkey['key']}' has high cardinality for even distribution")
             else:
                 if row_count < 1_000_000:
-                    reasoning.append(f"EVEN distribution â€” table has {row_count:,} rows (< 1M)")
+                    reasoning.append(f"EVEN distribution -- table has {row_count:,} rows (< 1M)")
                 else:
-                    reasoning.append("EVEN distribution â€” no clear DISTKEY candidate found")
+                    reasoning.append("EVEN distribution -- no clear DISTKEY candidate found")
 
             if sortkey['keys']:
                 for sk in sortkey['keys']:
                     if sk in (partitioning or []):
-                        reasoning.append(f"BQ partition column '{sk}' â†’ ideal SORTKEY (range scans)")
+                        reasoning.append(f"BQ partition column '{sk}' -> ideal SORTKEY (range scans)")
                     elif sk in (clustering or []):
-                        reasoning.append(f"BQ clustering column '{sk}' â†’ SORTKEY (filter optimization)")
+                        reasoning.append(f"BQ clustering column '{sk}' -> SORTKEY (filter optimization)")
             else:
-                reasoning.append("AUTO sortkey â€” Redshift will auto-optimize based on query patterns")
+                reasoning.append("AUTO sortkey -- Redshift will auto-optimize based on query patterns")
 
             recommendations.append({
                 'table_name': full_name,
@@ -1050,7 +1050,7 @@ class RecommendationEngine:
         )
         if prefer_provisioned:
             deploy_mode = 'Provisioned'
-            deploy_reason = 'Stable workload pattern with predictable query volume ï¿½ provisioned offers better cost efficiency and consistent performance.'
+            deploy_reason = 'Stable workload pattern with predictable query volume -- provisioned offers better cost efficiency and consistent performance.'
             # Use the actual provisioned recommendation engine for node config
             workload = getattr(self, '_workload_cache', {})
             prov = self._recommend_provisioned(
@@ -1072,7 +1072,7 @@ class RecommendationEngine:
                 config_explanation = f"The assessed {m['total_size_gb']:.0f} GB dataset with {m['total_queries']} queries requires {prov['num_nodes']} nodes to meet both compute and storage needs ({prov['memory_gb_total']} GiB RAM, {prov['vcpu_total']} vCPUs)."
         else:
             deploy_mode = 'Serverless'
-            deploy_reason = 'Variable or unpredictable workload pattern ï¿½ serverless auto-scales and eliminates cluster management overhead.'
+            deploy_reason = 'Variable or unpredictable workload pattern -- serverless auto-scales and eliminates cluster management overhead.'
             node_config = None
             config_explanation = None
         archs.append({
@@ -1127,7 +1127,7 @@ class RecommendationEngine:
             'components': ['Amazon EMR (Spark)', 'AWS Glue', 'Apache Iceberg on S3', 'AWS Glue Data Catalog'],
             'strengths': ['Best for complex transformations', 'Schema evolution', 'CDC/streaming support', 'ACID on S3'],
             'limitations': ['Cluster management (EMR)', 'Higher complexity', 'Not optimized for interactive BI'],
-            'cost_profile': 'Variable ï¿½ depends on processing volume',
+            'cost_profile': 'Variable -- depends on processing volume',
             'best_for': 'Heavy ETL, streaming/CDC pipelines, frequent schema evolution',
         })
 
@@ -1144,7 +1144,7 @@ class RecommendationEngine:
             'score': round(max(min(s, 100), 0)),
             'description': f'{m["cold_pct"]}% cold tables, {m["total_size_gb"]:.0f} GB total. Serverless Iceberg management without EMR cluster overhead.',
             'components': ['AWS Glue', 'S3 Tables (Iceberg)', 'AWS Glue Data Catalog', 'Lake Formation'],
-            'strengths': ['Serverless ï¿½ no cluster management', 'Schema evolution', 'Lower ops overhead than EMR', 'ACID transactions'],
+            'strengths': ['Serverless -- no cluster management', 'Schema evolution', 'Lower ops overhead than EMR', 'ACID transactions'],
             'limitations': ['Less flexible than full EMR', 'Limited to Glue capabilities', 'Moderate query latency'],
             'cost_profile': 'Serverless pricing, lower ops cost than EMR',
             'best_for': 'Moderate ETL, serverless preference, cold data management',
@@ -1250,7 +1250,7 @@ class RecommendationEngine:
                 overrides_applied.append(f"Golden rule: Athena requires ad-hoc workload (found {m['adhoc_pct']}%)")
             if a['id'] in ('managed_iceberg', 'emr_glue_iceberg') and m['bi_pct'] > 30:
                 a['score'] = 0
-                overrides_applied.append(f"Golden rule: {a['name']} cannot be standalone when BI is {m['bi_pct']}% ï¿½ Redshift required")
+                overrides_applied.append(f"Golden rule: {a['name']} cannot be standalone when BI is {m['bi_pct']}% -- Redshift required")
         archs.sort(key=lambda a: a['score'], reverse=True)
         return archs, overrides_applied
 
@@ -1262,18 +1262,18 @@ class RecommendationEngine:
         insights = []
         sz = m['total_size_gb']
         if sz > 1000: insights.append(f"The dataset is large at {sz:.0f} GB across {m['total_tables']} tables, favoring tiered storage to optimize costs.")
-        elif sz > 100: insights.append(f"The dataset is {sz:.0f} GB across {m['total_tables']} tables ï¿½ a moderate size compatible with most architectures.")
+        elif sz > 100: insights.append(f"The dataset is {sz:.0f} GB across {m['total_tables']} tables -- a moderate size compatible with most architectures.")
         else: insights.append(f"The dataset is compact at {sz:.0f} GB across {m['total_tables']} tables, making a Redshift-centric approach straightforward.")
         if m['bi_pct'] > 60: insights.append(f"The workload is BI-driven ({m['bi_pct']}% scheduled/repeated queries), requiring consistent low-latency performance.")
         elif m['adhoc_pct'] > 60: insights.append(f"The workload is predominantly ad-hoc ({m['adhoc_pct']}% exploratory queries), favoring pay-per-query options.")
-        else: insights.append(f"A mixed workload is observed ï¿½ {m['bi_pct']}% BI/scheduled and {m['adhoc_pct']}% ad-hoc ï¿½ benefiting from a hybrid architecture.")
-        if m['avg_joins'] > 3: insights.append(f"High join complexity detected (avg {m['avg_joins']} joins/query) ï¿½ Redshift's collocation advantage is significant here.")
+        else: insights.append(f"A mixed workload is observed -- {m['bi_pct']}% BI/scheduled and {m['adhoc_pct']}% ad-hoc -- benefiting from a hybrid architecture.")
+        if m['avg_joins'] > 3: insights.append(f"High join complexity detected (avg {m['avg_joins']} joins/query) -- Redshift's collocation advantage is significant here.")
         if m['write_pct'] > 30: insights.append(f"Notable write activity ({m['write_pct']}% writes) indicates active transformation pipelines.")
-        if m['cold_pct'] > 40: insights.append(f"{m['cold_count']} tables ({m['cold_pct']}%) show no recent query activity ï¿½ candidates for S3 cold storage.")
-        if m['hot_pct'] > 0 and m['cold_pct'] > 0: insights.append(f"Clear access pattern: {m['hot_count']} hot, {m['warm_count']} warm, {m['cold_count']} cold tables ï¿½ tiered storage recommended.")
-        if m['unique_users'] > 3: insights.append(f"{m['unique_users']} distinct users with {m['shared_tables']} shared tables ï¿½ data sharing may improve governance.")
-        if m['cache_ratio'] > 50: insights.append(f"A {m['cache_ratio']}% cache hit ratio indicates repeated queries ï¿½ Redshift result caching will provide gains.")
-        if m['etl_pct'] > 20: insights.append(f"{m['etl_pct']}% of queries are ETL/transformation operations ï¿½ dedicated processing (Glue/EMR) recommended.")
+        if m['cold_pct'] > 40: insights.append(f"{m['cold_count']} tables ({m['cold_pct']}%) show no recent query activity -- candidates for S3 cold storage.")
+        if m['hot_pct'] > 0 and m['cold_pct'] > 0: insights.append(f"Clear access pattern: {m['hot_count']} hot, {m['warm_count']} warm, {m['cold_count']} cold tables -- tiered storage recommended.")
+        if m['unique_users'] > 3: insights.append(f"{m['unique_users']} distinct users with {m['shared_tables']} shared tables -- data sharing may improve governance.")
+        if m['cache_ratio'] > 50: insights.append(f"A {m['cache_ratio']}% cache hit ratio indicates repeated queries -- Redshift result caching will provide gains.")
+        if m['etl_pct'] > 20: insights.append(f"{m['etl_pct']}% of queries are ETL/transformation operations -- dedicated processing (Glue/EMR) recommended.")
         return insights
 
     # ------------------------------------------------------------------ #
@@ -1298,7 +1298,7 @@ class RecommendationEngine:
         # Check if combination is needed
         recommended_ids = set()
         if m['bi_pct'] > 20 and m['adhoc_pct'] > 20:
-            # Mixed workload ï¿½ may need combination
+            # Mixed workload -- may need combination
             bi_arch = max((a for a in archs if a['id'] in ('all_redshift','redshift_data_sharing')), key=lambda a: a['score'], default=None)
             adhoc_arch = max((a for a in archs if a['id'] in ('athena_redshift','managed_iceberg')), key=lambda a: a['score'], default=None)
             if bi_arch and adhoc_arch and bi_arch['id'] != adhoc_arch['id']:
