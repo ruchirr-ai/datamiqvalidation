@@ -18,15 +18,18 @@ interface CreateAssessmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  mode?: 'assess' | 'analyze';
 }
 
 export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  mode = 'assess',
 }) => {
   const [name, setName] = useState('');
   const [sourceConnectionId, setSourceConnectionId] = useState<number | null>(null);
+  const [targetDb, setTargetDb] = useState<string>('redshift');
   const [connections, setConnections] = useState<Connection[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +59,12 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
     try {
       setSubmitting(true);
       setError(null);
-      await createAssessment({ name: name.trim(), source_connection_id: sourceConnectionId });
+      await createAssessment({ 
+        name: name.trim(), 
+        source_connection_id: sourceConnectionId,
+        assessment_mode: mode,
+        target_db: mode === 'analyze' ? targetDb : undefined,
+      });
       onSuccess();
       handleClose();
     } catch (err: any) {
@@ -69,6 +77,7 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
   const handleClose = () => {
     setName('');
     setSourceConnectionId(null);
+    setTargetDb('redshift');
     setError(null);
     onClose();
   };
@@ -81,7 +90,7 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
     <div className="modal-overlay" onClick={handleClose}>
       <div className="modal-container" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Create New Assessment</h2>
+          <h2>{mode === 'analyze' ? 'Create New Analysis' : 'Create New Assessment'}</h2>
           <button className="modal-close-btn" onClick={handleClose} aria-label="Close">
             <X size={20} />
           </button>
@@ -101,7 +110,9 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
 
             <div className="form-section">
               <p className="form-description">
-                Create a new assessment to analyze your source database metadata — tables, views, routines, and more.
+                {mode === 'analyze'
+                  ? 'Create a new analysis to assess your source database and generate TCO comparison, migration recommendations, and Redshift sizing.'
+                  : 'Create a new assessment to analyze your source database metadata — tables, views, routines, and more.'}
               </p>
             </div>
 
@@ -133,21 +144,19 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
               )}
             </div>
 
-            <div className="info-box">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="8" cy="8" r="6" />
-                <path d="M8 7v4M8 5h.01" strokeLinecap="round" />
-              </svg>
-              <div>
-                <strong>Assessment will analyze:</strong>
-                <ul>
-                  <li>Datasets, tables, views, routines, ML models</li>
-                  <li>Data types and schema structure</li>
-                  <li>Query patterns and usage insights</li>
-                  <li>Security policies and indexes</li>
-                </ul>
+            {mode === 'analyze' && (
+              <div className="form-group">
+                <label htmlFor="target-db">Target Database <span className="required">*</span></label>
+                <p className="field-hint">Destination database for analysis</p>
+                <Select
+                  value={targetDb}
+                  onChange={(value) => setTargetDb(String(value))}
+                  options={[
+                    { value: 'redshift', label: 'Amazon Redshift' },
+                  ]}
+                />
               </div>
-            </div>
+            )}
           </div>
 
           <div className="modal-footer">

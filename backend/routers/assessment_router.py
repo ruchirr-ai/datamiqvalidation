@@ -33,6 +33,8 @@ class CreateAssessmentRequest(BaseModel):
     name: str
     source_connection_id: int
     target_connection_id: int | None = None
+    assessment_mode: str | None = None  # 'assess' or 'analyze'
+    target_db: str | None = None  # 'redshift' etc.
 
 
 class UpdateAssessmentRequest(BaseModel):
@@ -60,6 +62,7 @@ class AssessmentResponse(BaseModel):
     created_by: str | None
     workspace_id: int
     version: int = 1
+    assessment_data: dict | None = None
 
     class Config:
         from_attributes = True
@@ -138,6 +141,15 @@ async def create_assessment(
             status='pending',
             created_by='current_user'  # TODO: Get from auth context
         )
+        
+        # Store assessment mode in assessment_data if provided
+        if request.assessment_mode:
+            assessment.assessment_data = assessment.assessment_data or {}
+            assessment.assessment_data['mode'] = request.assessment_mode
+            if request.target_db:
+                assessment.assessment_data['target_db'] = request.target_db
+            db.commit()
+            db.refresh(assessment)
         
         # Create initial log entry
         assessment_repo.create_log(
@@ -893,7 +905,8 @@ async def get_assessment_report_summary(assessment_id: int, db: Session = Depend
                 "source_db_type": source_db_type,
                 "trigger_count": trigger_count,
                 "schemas_count": schemas_count,
-                "security_items_count": security_items_count
+                "security_items_count": security_items_count,
+                "assessment_data": assessment.assessment_data or {}
             },
             "datasets": [
                 {

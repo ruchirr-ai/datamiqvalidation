@@ -135,22 +135,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <path d="M7 10l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       ),
-      path: '/assessments',
-      children: [
-        { id: 'assess-3', label: t('nav.assessmentReports'), icon: null, path: '/assessments/reports' }
-      ]
-    },
-    {
-      id: 'analyze',
-      label: t('nav.analyze') || 'Analyze',
-      icon: (
-        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <circle cx="8" cy="8" r="5" />
-          <path d="M12 12l5 5" strokeLinecap="round" />
-          <path d="M8 5v6M5 8h6" strokeLinecap="round" />
-        </svg>
-      ),
-      path: '/analyze'
+      path: '/assessments'
     },
     {
       id: 'migrations',

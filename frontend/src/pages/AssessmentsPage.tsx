@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSearch, Database, Play, FileText, Download, Pencil, Trash2, MoreVertical, ClipboardList } from 'lucide-react';
+import { FileSearch, Database, Play, FileText, Download, Pencil, Trash2, MoreVertical, ClipboardList, TrendingUp } from 'lucide-react';
 import { Button, Badge, Select } from '../components/ui';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/DropdownMenu';
 import { CreateAssessmentModal, EditAssessmentModal, ViewLogsModal } from '../components/assessments';
@@ -31,6 +31,7 @@ export const AssessmentsPage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(15);
+  const [assessmentMode, setAssessmentMode] = useState<'assess' | 'analyze'>('assess');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showLogsModal, setShowLogsModal] = useState(false);
@@ -131,9 +132,9 @@ export const AssessmentsPage: React.FC = () => {
     setShowEditModal(true);
   };
 
-  const handleViewReport = (assessmentId: number) => {
-    // Navigate to report view using React Router
-    navigate(`/assessments/${assessmentId}/report`);
+  const handleViewReport = (assessmentId: number, assessment?: Assessment) => {
+    const isAnalyze = assessment?.assessment_data?.mode === 'analyze';
+    navigate(`/assessments/${assessmentId}/report${isAnalyze ? '?mode=analyze' : ''}`);
   };
 
   const handleDownloadReport = (assessment: Assessment) => {
@@ -250,6 +251,25 @@ export const AssessmentsPage: React.FC = () => {
             Assessments
             <span style={{ fontSize: 13, fontWeight: 400, color: '#6B7280', marginLeft: 8 }}>— {selectedWorkspaceName}</span>
           </h1>
+          <div className="assessments-mode-toggle">
+            <button
+              className={`mode-toggle-btn ${assessmentMode === 'assess' ? 'active' : ''}`}
+              onClick={() => setAssessmentMode('assess')}
+            >
+              <FileSearch size={16} /> Assess
+            </button>
+            <button
+              className={`mode-toggle-btn ${assessmentMode === 'analyze' ? 'active' : ''}`}
+              onClick={() => setAssessmentMode('analyze')}
+            >
+              <TrendingUp size={16} /> Analyze
+            </button>
+          </div>
+          <p className="assessments-mode-desc">
+            {assessmentMode === 'assess'
+              ? 'Collect and review source database metadata — tables, views, queries, and more.'
+              : 'Assess your source database and get TCO comparison, migration recommendations, and Redshift sizing.'}
+          </p>
           <div className="assessments-subheader">
             <span className="assessments-count">{totalAssessments} {t('assessments.title')}</span>
             
@@ -269,7 +289,7 @@ export const AssessmentsPage: React.FC = () => {
               </div>
 
               <Button variant="primary" onClick={() => setShowCreateModal(true)}>
-                {t('assessments.new')}
+                {assessmentMode === 'analyze' ? '+ New Analysis' : '+ New Assessment'}
               </Button>
             </div>
           </div>
@@ -304,6 +324,7 @@ export const AssessmentsPage: React.FC = () => {
             <thead>
               <tr>
                 <th>{t('assessments.name')}</th>
+                <th>TYPE</th>
                 <th>VERSION</th>
                 <th>{t('assessments.status')}</th>
                 <th>{t('assessments.datasets')}</th>
@@ -326,7 +347,7 @@ export const AssessmentsPage: React.FC = () => {
                       {assessment.status?.trim() === 'completed' ? (
                         <span 
                           className="assessment-name assessment-name-link"
-                          onClick={() => handleViewReport(assessment.id)}
+                          onClick={() => handleViewReport(assessment.id, assessment)}
                           title="Click to view report"
                         >
                           {assessment.name}
@@ -335,6 +356,18 @@ export const AssessmentsPage: React.FC = () => {
                         <span className="assessment-name">{assessment.name}</span>
                       )}
                     </div>
+                  </td>
+                  <td>
+                    <span style={{ 
+                      fontSize: '12px', 
+                      fontWeight: 500, 
+                      padding: '2px 8px', 
+                      borderRadius: '4px',
+                      background: assessment.assessment_data?.mode === 'analyze' ? '#EFF6FF' : '#F3F4F6',
+                      color: assessment.assessment_data?.mode === 'analyze' ? '#2563EB' : '#6B7280'
+                    }}>
+                      {assessment.assessment_data?.mode === 'analyze' ? 'Analyze' : 'Assess'}
+                    </span>
                   </td>
                   <td>
                     {hasMultipleVersions ? (
@@ -390,7 +423,7 @@ export const AssessmentsPage: React.FC = () => {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             disabled={assessment.status?.trim() !== 'completed'}
-                            onSelect={() => handleViewReport(assessment.id)}
+                            onSelect={() => handleViewReport(assessment.id, assessment)}
                           >
                             <FileText size={15} /> {t('assessments.viewReport')}
                           </DropdownMenuItem>
@@ -480,6 +513,7 @@ export const AssessmentsPage: React.FC = () => {
           setShowCreateModal(false);
           fetchAssessments();
         }}
+        mode={assessmentMode}
       />
 
       {/* Edit Assessment Modal */}
