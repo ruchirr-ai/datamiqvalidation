@@ -940,27 +940,27 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
       {/* Architecture Recommendation */}
       {arch.architecture_patterns && arch.architecture_patterns.length > 0 && (() => {
         const primary = arch.architecture_patterns.find((p: any) => p.recommended) || arch.architecture_patterns[0];
-        const alternative = arch.architecture_patterns.filter((p: any) => p !== primary && p.score > 0)[0];
-        const hasAlternative = !!alternative;
+        const alternatives = arch.architecture_patterns.filter((p: any) => p !== primary).slice(0, 2);
+        const hasAlternatives = alternatives.length > 0;
         return (
         <div className="rec-section">
           <h3 className="rec-section-title"><Database size={18} /> Architecture Recommendation</h3>
 
-          {/* Primary — always open if no alternative, dropdown if alternative exists */}
-          <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', marginBottom: '12px', cursor: hasAlternative ? 'pointer' : 'default' }} onClick={() => hasAlternative && setExpandedArch(expandedArch === -1 ? null : -1)}>
+          {/* Primary — always open if no alternatives, dropdown if alternatives exist */}
+          <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', marginBottom: '12px', cursor: hasAlternatives ? 'pointer' : 'default' }} onClick={() => hasAlternatives && setExpandedArch(expandedArch === -1 ? null : -1)}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Badge variant="success">Recommended</Badge>
                 <span style={{ fontSize: '16px', fontWeight: 700 }}>{primary.name}</span>
                 {primary.deploy_mode && <Badge variant={primary.deploy_mode === 'Provisioned' ? 'warning' : 'info'}>{primary.deploy_mode}</Badge>}
               </div>
-              {hasAlternative && (
+              {hasAlternatives && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: '#16A34A', transform: (expandedArch === -1 || !hasAlternative) ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}><path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: '#16A34A', transform: (expandedArch === -1 || !hasAlternatives) ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}><path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
               </div>
               )}
             </div>
-            {(expandedArch === -1 || !hasAlternative) && (
+            {(expandedArch === -1 || !hasAlternatives) && (
               <div style={{ padding: '0 20px 20px', borderTop: '1px solid #BBF7D0' }} onClick={e => e.stopPropagation()}>
                 <p style={{ fontSize: '14px', color: 'var(--color-text-primary)', margin: '14px 0' }}>{primary.description}</p>
                 {primary.deploy_mode && (
@@ -990,37 +990,38 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
             )}
           </div>
 
-          {/* Alternative — expandable */}
-          {alternative && (
-            <div style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-divider)', borderRadius: '8px', cursor: 'pointer' }} onClick={() => setExpandedArch(expandedArch === 0 ? null : 0)}>
+          {/* Alternative approaches — expandable */}
+          {alternatives.map((alt: any, idx: number) => (
+            <div key={idx} style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-divider)', borderRadius: '8px', cursor: 'pointer', marginBottom: idx < alternatives.length - 1 ? '10px' : '0' }} onClick={() => setExpandedArch(expandedArch === idx ? null : idx)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Badge variant="default">Alternative</Badge>
-                  <span style={{ fontSize: '14px', fontWeight: 600 }}>{alternative.name}</span>
+                  <span style={{ fontSize: '14px', fontWeight: 600 }}>{alt.name}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: '#9CA3AF', transform: expandedArch === 0 ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}><path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: '#9CA3AF', transform: expandedArch === idx ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}><path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" /></svg>
                 </div>
               </div>
-              {expandedArch === 0 && (
+              {expandedArch === idx && (
                 <div style={{ padding: '0 18px 16px', borderTop: '1px solid var(--color-divider)' }} onClick={e => e.stopPropagation()}>
-                  <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: '12px 0' }}>{alternative.description}</p>
+                  <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: '12px 0' }}>{alt.description}</p>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <div>
                       <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#16A34A' }}>Strengths</div>
-                      {(alternative.strengths || []).map((s: string, j: number) => <div key={j} style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '2px' }}>✓ {s}</div>)}
+                      {(alt.strengths || []).map((s: string, j: number) => <div key={j} style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '2px' }}>✓ {s}</div>)}
                     </div>
                     <div>
                       <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px', color: '#DC2626' }}>Limitations</div>
-                      {(alternative.limitations || []).map((l: string, j: number) => <div key={j} style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '2px' }}>• {l}</div>)}
+                      {(alt.limitations || []).map((l: string, j: number) => <div key={j} style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '2px' }}>• {l}</div>)}
                     </div>
                   </div>
-                  <div style={{ marginTop: '8px', fontSize: '12px' }}><span style={{ fontWeight: 500 }}>Components:</span> <span style={{ color: 'var(--color-text-secondary)' }}>{(alternative.components || []).join(' · ')}</span></div>
-                  <div style={{ marginTop: '4px', fontSize: '12px' }}><span style={{ fontWeight: 500 }}>Best For:</span> <span style={{ color: 'var(--color-text-secondary)' }}>{alternative.best_for}</span></div>
+                  <div style={{ marginTop: '8px', fontSize: '12px' }}><span style={{ fontWeight: 500 }}>Components:</span> <span style={{ color: 'var(--color-text-secondary)' }}>{(alt.components || []).join(' · ')}</span></div>
+                  <div style={{ marginTop: '4px', fontSize: '12px' }}><span style={{ fontWeight: 500 }}>Cost Profile:</span> <span style={{ color: 'var(--color-text-secondary)' }}>{alt.cost_profile}</span></div>
+                  <div style={{ marginTop: '4px', fontSize: '12px' }}><span style={{ fontWeight: 500 }}>Best For:</span> <span style={{ color: 'var(--color-text-secondary)' }}>{alt.best_for}</span></div>
                 </div>
               )}
             </div>
-          )}
+          ))}
         </div>
         );
       })()}

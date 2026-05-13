@@ -1169,7 +1169,16 @@ class RecommendationEngine:
             'cost_profile': 'Pay-per-query (Athena) + Redshift for BI',
             'best_for': 'High ad-hoc %, cost-sensitive, mixed workloads with cold data',
         })
-        archs.sort(key=lambda a: a['score'], reverse=True)
+        # Priority order: Redshift > Data Sharing > Managed Iceberg > EMR/Glue > Athena+Redshift
+        # Only override priority if a lower-priority arch has a strictly higher score
+        priority_order = {
+            'all_redshift': 0,
+            'redshift_data_sharing': 1,
+            'managed_iceberg': 2,
+            'emr_glue_iceberg': 3,
+            'athena_redshift': 4,
+        }
+        archs.sort(key=lambda a: (-a['score'], priority_order.get(a['id'], 99)))
         return archs
 
     # ------------------------------------------------------------------ #
@@ -1251,7 +1260,15 @@ class RecommendationEngine:
             if a['id'] in ('managed_iceberg', 'emr_glue_iceberg') and m['bi_pct'] > 30:
                 a['score'] = 0
                 overrides_applied.append(f"Golden rule: {a['name']} cannot be standalone when BI is {m['bi_pct']}% -- Redshift required")
-        archs.sort(key=lambda a: a['score'], reverse=True)
+        # Maintain priority order: Redshift > Data Sharing > Managed Iceberg > EMR/Glue > Athena+Redshift
+        priority_order = {
+            'all_redshift': 0,
+            'redshift_data_sharing': 1,
+            'managed_iceberg': 2,
+            'emr_glue_iceberg': 3,
+            'athena_redshift': 4,
+        }
+        archs.sort(key=lambda a: (-a['score'], priority_order.get(a['id'], 99)))
         return archs, overrides_applied
 
     # ------------------------------------------------------------------ #
