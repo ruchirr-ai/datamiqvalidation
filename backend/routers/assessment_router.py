@@ -35,6 +35,7 @@ class CreateAssessmentRequest(BaseModel):
     target_connection_id: int | None = None
     assessment_mode: str | None = None  # 'assess' or 'analyze'
     target_db: str | None = None  # 'redshift' etc.
+    landscape: dict | None = None  # Migration landscape questionnaire data
 
 
 class UpdateAssessmentRequest(BaseModel):
@@ -148,6 +149,13 @@ async def create_assessment(
             assessment.assessment_data['mode'] = request.assessment_mode
             if request.target_db:
                 assessment.assessment_data['target_db'] = request.target_db
+            if request.landscape:
+                assessment.assessment_data['landscape'] = request.landscape
+            db.commit()
+            db.refresh(assessment)
+        elif request.landscape:
+            assessment.assessment_data = assessment.assessment_data or {}
+            assessment.assessment_data['landscape'] = request.landscape
             db.commit()
             db.refresh(assessment)
         

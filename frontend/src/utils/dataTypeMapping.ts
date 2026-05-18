@@ -93,3 +93,65 @@ export function isSQLServerAssessment(report: any): boolean {
                              report.routines.some((r: any) => r.routine_metadata);
   return !hasMLModels && hasRoutineMetadata;
 }
+
+
+/**
+ * Get recommended Redshift auto compression encoding for a data type
+ */
+export function getRedshiftCompression(dataType: string): string {
+  const baseType = (dataType || '').toLowerCase().split('(')[0].trim();
+  
+  switch (baseType) {
+    // Integer types → AZ64
+    case 'bigint': case 'int': case 'integer': case 'smallint': case 'tinyint':
+    case 'int64': case 'int32':
+      return 'AZ64';
+    
+    // Decimal/numeric → AZ64
+    case 'decimal': case 'numeric': case 'money': case 'smallmoney':
+    case 'bignumeric':
+      return 'AZ64';
+    
+    // Date/time → AZ64
+    case 'date': case 'datetime': case 'datetime2': case 'smalldatetime':
+    case 'timestamp': case 'datetimeoffset': case 'timestamptz':
+      return 'AZ64';
+    
+    // Float/real → RAW (compression doesn't help much)
+    case 'float': case 'real': case 'double': case 'float64':
+      return 'RAW';
+    
+    // Boolean → RAW
+    case 'boolean': case 'bool': case 'bit':
+      return 'RAW';
+    
+    // String types → LZO
+    case 'varchar': case 'nvarchar': case 'char': case 'nchar':
+    case 'text': case 'ntext': case 'string':
+    case 'uniqueidentifier': case 'xml':
+      return 'LZO';
+    
+    // Binary → LZO
+    case 'binary': case 'varbinary': case 'image': case 'bytes':
+      return 'LZO';
+    
+    // JSON/SUPER → ZSTD
+    case 'json': case 'super':
+      return 'ZSTD';
+    
+    // Complex types → ZSTD
+    case 'array': case 'struct': case 'record':
+      return 'ZSTD';
+    
+    // Geometry → RAW
+    case 'geometry': case 'geography':
+      return 'RAW';
+    
+    // Time → LZO (stored as VARCHAR in Redshift)
+    case 'time':
+      return 'LZO';
+    
+    default:
+      return 'LZO';
+  }
+}

@@ -52,6 +52,7 @@ export const Select: React.FC<SelectProps> = ({
         className="custom-select-trigger"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
+        title={selectedOption?.label || 'Select...'}
       >
         <span className="custom-select-trigger-content">
           {selectedOption?.icon && (

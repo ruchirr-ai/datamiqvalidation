@@ -123,8 +123,8 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
             </div>
 
             <div className="form-group">
-              <label htmlFor="source-connection">Source Connection <span className="required">*</span></label>
-              <p className="field-hint">Source database to analyze</p>
+              <label htmlFor="source-connection">Source Database / Data Warehouse <span className="required">*</span></label>
+              <p className="field-hint">Source database or data warehouse to analyze</p>
               {loading ? (
                 <div className="loading-select">Loading connections...</div>
               ) : sourceConnections.length === 0 ? (
@@ -146,8 +146,8 @@ export const CreateAssessmentModal: React.FC<CreateAssessmentModalProps> = ({
 
             {mode === 'analyze' && (
               <div className="form-group">
-                <label htmlFor="target-db">Target Database <span className="required">*</span></label>
-                <p className="field-hint">Destination database for analysis</p>
+                <label htmlFor="target-db">Target Data Warehouse <span className="required">*</span></label>
+                <p className="field-hint">Destination data warehouse for analysis</p>
                 <Select
                   value={targetDb}
                   onChange={(value) => setTargetDb(String(value))}

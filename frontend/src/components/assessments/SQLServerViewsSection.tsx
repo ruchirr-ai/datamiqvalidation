@@ -70,15 +70,11 @@ export const SQLServerViewsSection: React.FC<SQLServerViewsSectionProps> = ({
 
                 return (
                   <React.Fragment key={index}>
-                    <tr>
+                    <tr style={{ cursor: 'pointer' }} onClick={() => handleViewClick(index)}>
                       <td>
-                        <button
-                          className="table-name-link"
-                          onClick={() => handleViewClick(index)}
-                          title="Click to view details"
-                        >
+                        <span className="table-name-link">
                           {view.view_name}
-                        </button>
+                        </span>
                       </td>
                       <td>
                         <Badge variant={view.view_type === 'MATERIALIZED_VIEW' ? 'info' : 'default'}>

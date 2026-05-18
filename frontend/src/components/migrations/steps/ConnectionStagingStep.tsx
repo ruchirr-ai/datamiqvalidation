@@ -100,7 +100,7 @@ export const ConnectionStagingStep: React.FC<ConnectionStagingStepProps> = ({
           </label>
           <div className="db-type-selection">
             <div className="db-type-group">
-              <label className="db-type-label">Source Database</label>
+              <label className="db-type-label">SOURCE DATABASE</label>
               <Select
                 value={sourceDbType}
                 onChange={(val) => {
@@ -117,7 +117,7 @@ export const ConnectionStagingStep: React.FC<ConnectionStagingStepProps> = ({
               </svg>
             </div>
             <div className="db-type-group">
-              <label className="db-type-label">Target Database</label>
+              <label className="db-type-label">TARGET DATA WAREHOUSE</label>
               <Select
                 value={targetDbType}
                 onChange={(val) => {

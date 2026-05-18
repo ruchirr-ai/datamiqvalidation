@@ -323,7 +323,20 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
 
 
 // ============ BigQuery Summary Section ============
-const BQSummarySection: React.FC<{ assessment: ReportSummary['assessment']; datasets: DatasetSummary[]; setActiveTab: (t: string) => void }> = ({ assessment, setActiveTab }) => (
+const BQSummarySection: React.FC<{ assessment: ReportSummary['assessment']; datasets: DatasetSummary[]; setActiveTab: (t: string) => void }> = ({ assessment, setActiveTab }) => {
+  const landscape = assessment.assessment_data?.landscape;
+  
+  const getLabelForValue = (value: string, options: {value: string; label: string}[]) => {
+    const found = options.find(o => o.value === value);
+    return found ? found.label : value || 'N/A';
+  };
+
+  const sourceTypeLabels: Record<string, string> = { mysql: 'MySQL', postgresql: 'PostgreSQL', oracle: 'Oracle', sqlserver: 'SQL Server', mongodb: 'MongoDB', sap: 'SAP', salesforce: 'Salesforce', api: 'REST API', flat_file: 'Flat Files', gcs: 'Google Cloud Storage', s3: 'Amazon S3', kafka: 'Kafka / Streaming', other: 'Other' };
+  const hostingLabels: Record<string, string> = { on_prem: 'On-Premises', gcp: 'GCP', aws: 'AWS', azure: 'Azure', saas: 'SaaS', hybrid: 'Hybrid', other: 'Other' };
+  const etlToolLabels: Record<string, string> = { airflow: 'Apache Airflow', dbt: 'dbt', dataflow: 'Google Dataflow', dataproc: 'Google Dataproc', composer: 'Cloud Composer', informatica: 'Informatica', fivetran: 'Fivetran', stitch: 'Stitch', talend: 'Talend', glue: 'AWS Glue', custom_scripts: 'Custom Scripts', bigquery_scheduled: 'BQ Scheduled Queries', other: 'Other' };
+  const biToolLabels: Record<string, string> = { looker: 'Looker / Looker Studio', tableau: 'Tableau', powerbi: 'Power BI', metabase: 'Metabase', superset: 'Apache Superset', grafana: 'Grafana', datastudio: 'Google Data Studio', qlik: 'Qlik', custom_app: 'Custom Application', api_consumer: 'API / Service', data_export: 'Scheduled Export', other: 'Other' };
+
+  return (
   <div className="section-content">
     <h2 className="section-heading">Assessment Summary</h2>
     <div className="summary-grid">
@@ -352,6 +365,97 @@ const BQSummarySection: React.FC<{ assessment: ReportSummary['assessment']; data
         <div className="summary-content"><div className="summary-value">{formatSize(assessment.total_size_mb)}</div><div className="summary-label">Total Data Size</div></div>
       </div>
     </div>
+
+    {/* Migration Landscape */}
+    {landscape && (
+      <div className="details-section" style={{ marginTop: '24px' }}>
+        <h3 className="subsection-heading">Migration Landscape</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+          
+          {/* Data Sources Card */}
+          <div style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-divider)', borderRadius: '8px', padding: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <Database size={16} style={{ color: '#2563EB' }} />
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-primary)' }}>Data Sources</span>
+            </div>
+            {landscape.data_sources === 'not_applicable' ? (
+              <Badge variant="default">Not Applicable</Badge>
+            ) : Array.isArray(landscape.data_sources) && landscape.data_sources.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {landscape.data_sources.map((src: any, i: number) => (
+                  <div key={i} style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-divider)', borderRadius: '6px', padding: '10px 12px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}>{src.name || 'Unnamed'}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {src.type && <Badge variant="info">{sourceTypeLabels[src.type] || src.type}</Badge>}
+                      {src.hosting && <Badge variant="default">{hostingLabels[src.hosting] || src.hosting}</Badge>}
+                      {src.volume && <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>{src.volume}</span>}
+                      {(src.refreshFrequency || src.refresh_frequency) && <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>• {src.refreshFrequency || src.refresh_frequency}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>None provided</span>
+            )}
+          </div>
+
+          {/* ETL Pipelines Card */}
+          <div style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-divider)', borderRadius: '8px', padding: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <Activity size={16} style={{ color: '#7C3AED' }} />
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-primary)' }}>ETL / Data Pipelines</span>
+            </div>
+            {landscape.etl_pipelines === 'not_applicable' ? (
+              <Badge variant="default">Not Applicable</Badge>
+            ) : Array.isArray(landscape.etl_pipelines) && landscape.etl_pipelines.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {landscape.etl_pipelines.map((pipe: any, i: number) => (
+                  <div key={i} style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-divider)', borderRadius: '6px', padding: '10px 12px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}>{etlToolLabels[pipe.tool] || pipe.tool || 'Unknown'}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                      {(pipe.transformLocation || pipe.transform_location) && <span>Transform: {pipe.transformLocation || pipe.transform_location}</span>}
+                      {(pipe.pipelineCount || pipe.pipeline_count) && <span>• {pipe.pipelineCount || pipe.pipeline_count} pipelines</span>}
+                      {pipe.scheduling && <span>• {pipe.scheduling}</span>}
+                    </div>
+                    {pipe.notes && <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>{pipe.notes}</div>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>None provided</span>
+            )}
+          </div>
+
+          {/* Downstream Consumers Card */}
+          <div style={{ background: 'var(--color-bg-primary)', border: '1px solid var(--color-divider)', borderRadius: '8px', padding: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+              <BarChart3 size={16} style={{ color: '#16A34A' }} />
+              <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-primary)' }}>Downstream Consumers</span>
+            </div>
+            {landscape.downstream_consumers === 'not_applicable' ? (
+              <Badge variant="default">Not Applicable</Badge>
+            ) : Array.isArray(landscape.downstream_consumers) && landscape.downstream_consumers.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {landscape.downstream_consumers.map((c: any, i: number) => (
+                  <div key={i} style={{ background: 'var(--color-bg-surface)', border: '1px solid var(--color-divider)', borderRadius: '6px', padding: '10px 12px' }}>
+                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}>{biToolLabels[c.tool] || c.tool || 'Unknown'}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                      {(c.dashboardCount || c.dashboard_count) && <span>{c.dashboardCount || c.dashboard_count} dashboards</span>}
+                      {(c.userCount || c.user_count) && <span>• {c.userCount || c.user_count} users</span>}
+                      {(c.connectionType || c.connection_type) && <span>• {c.connectionType || c.connection_type}</span>}
+                    </div>
+                    {c.notes && <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '4px', fontStyle: 'italic' }}>{c.notes}</div>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>None provided</span>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+
     <div className="details-section">
       <h3 className="subsection-heading">Assessment Details</h3>
       <div className="details-grid">
@@ -376,7 +480,8 @@ const BQSummarySection: React.FC<{ assessment: ReportSummary['assessment']; data
       </div>
     </div>
   </div>
-);
+  );
+};
 
 // ============ BigQuery Datasets Section ============
 const BQDatasetsSection: React.FC<{ datasets: DatasetSummary[] }> = ({ datasets }) => (
@@ -419,6 +524,47 @@ const TablesSection: React.FC<{
   const [selectedTable, setSelectedTable] = useState<AssessmentReportTable | null>(null);
   const [showColumnsModal, setShowColumnsModal] = useState(false);
 
+  // Redshift type mapping with recommended auto compression
+  const getRedshiftTypeMapping = (bqType: string): { redshiftType: string; compression: string; incompatible?: boolean; note?: string } => {
+    const t = (bqType || '').toUpperCase().replace(/\(.*\)/, '').trim();
+    switch (t) {
+      case 'STRING': case 'VARCHAR': case 'NVARCHAR': case 'TEXT': case 'CHAR': case 'NCHAR':
+        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO' };
+      case 'INT64': case 'INTEGER': case 'INT': case 'BIGINT':
+        return { redshiftType: 'BIGINT', compression: 'AZ64' };
+      case 'INT32': case 'SMALLINT': case 'TINYINT':
+        return { redshiftType: 'INTEGER', compression: 'AZ64' };
+      case 'FLOAT64': case 'FLOAT': case 'DOUBLE': case 'REAL':
+        return { redshiftType: 'DOUBLE PRECISION', compression: 'RAW' };
+      case 'NUMERIC': case 'DECIMAL': case 'BIGNUMERIC': case 'MONEY':
+        return { redshiftType: 'DECIMAL(38,10)', compression: 'AZ64' };
+      case 'BOOL': case 'BOOLEAN': case 'BIT':
+        return { redshiftType: 'BOOLEAN', compression: 'RAW' };
+      case 'DATE':
+        return { redshiftType: 'DATE', compression: 'AZ64' };
+      case 'DATETIME': case 'TIMESTAMP': case 'DATETIME2': case 'SMALLDATETIME':
+        return { redshiftType: 'TIMESTAMP', compression: 'AZ64' };
+      case 'TIME':
+        return { redshiftType: 'VARCHAR(20)', compression: 'LZO', note: 'Redshift has no native TIME type' };
+      case 'BYTES': case 'BINARY': case 'VARBINARY': case 'IMAGE':
+        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', note: 'Binary stored as hex string' };
+      case 'GEOGRAPHY': case 'GEOMETRY':
+        return { redshiftType: 'GEOMETRY', compression: 'RAW' };
+      case 'JSON':
+        return { redshiftType: 'SUPER', compression: 'ZSTD' };
+      case 'ARRAY': case 'STRUCT': case 'RECORD':
+        return { redshiftType: 'SUPER', compression: 'ZSTD', incompatible: true, note: 'Nested/repeated types require flattening or SUPER type' };
+      case 'XML':
+        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', incompatible: true, note: 'No native XML support in Redshift' };
+      case 'UNIQUEIDENTIFIER':
+        return { redshiftType: 'VARCHAR(36)', compression: 'LZO' };
+      case 'SQL_VARIANT':
+        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', incompatible: true, note: 'No equivalent in Redshift' };
+      default:
+        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', note: 'Unmapped type — defaulting to VARCHAR' };
+    }
+  };
+
   const baseTables = tables.filter(t => t.table_type === 'BASE TABLE');
   const datasetOptions = [
     { value: 'all', label: `All Datasets (${datasets.length})` },
@@ -451,9 +597,9 @@ const TablesSection: React.FC<{
             <thead><tr><th>Dataset Name</th><th>Table Name</th><th>Creation Time</th><th>Row Count</th><th>Size</th><th>Partitioning</th><th>Clustering</th></tr></thead>
             <tbody>
               {baseTables.map(table => (
-                <tr key={table.id}>
+                <tr key={table.id} style={{ cursor: 'pointer' }} onClick={() => { setSelectedTable(table); setShowColumnsModal(true); }}>
                   <td className="font-medium">{table.dataset_name}</td>
-                  <td><button className="table-name-link" onClick={() => { setSelectedTable(table); setShowColumnsModal(true); }} title="Click to view columns">{table.table_name}</button></td>
+                  <td><span className="table-name-link">{table.table_name}</span></td>
                   <td className="text-sm">{formatDate(table.creation_time)}</td>
                   <td className="text-right">{formatNumber(table.row_count)}</td>
                   <td className="text-right">{formatSize(table.size_mb)}</td>
@@ -475,19 +621,27 @@ const TablesSection: React.FC<{
             <div className="modal-body">
               <div className="table-container">
                 <table className="data-table compact">
-                  <thead><tr><th>Column Name</th><th>Data Type</th><th>Nullable</th><th>Position</th><th>Partitioning</th><th>Clustering</th><th>Policy Tags</th></tr></thead>
+                  <thead><tr><th>Column Name</th><th>Data Type</th><th>Redshift Type</th><th>Compression</th><th>Nullable</th><th>Partitioning</th><th>Clustering</th></tr></thead>
                   <tbody>
-                    {columns.filter(c => c.table_id === selectedTable.id).map((column, idx) => (
+                    {columns.filter(c => c.table_id === selectedTable.id).map((column, idx) => {
+                      const rsMapping = getRedshiftTypeMapping(column.data_type);
+                      return (
                       <tr key={idx}>
                         <td className="font-medium">{column.column_name}</td>
                         <td className="font-mono text-sm">{column.data_type}</td>
+                        <td className="text-sm">
+                          {rsMapping.incompatible
+                            ? <Badge variant="error" title={rsMapping.note || ''}>{rsMapping.redshiftType}</Badge>
+                            : <span className="font-mono">{rsMapping.redshiftType}</span>
+                          }
+                        </td>
+                        <td className="text-sm"><Badge variant="default">{rsMapping.compression}</Badge></td>
                         <td className="text-center">{column.is_nullable ? <Badge variant="default">Yes</Badge> : <Badge variant="error">No</Badge>}</td>
-                        <td className="text-center">{column.ordinal_position}</td>
                         <td className="text-center">{column.is_partitioning_column ? <Badge variant="info">Yes</Badge> : <span className="text-muted">-</span>}</td>
                         <td className="text-center">{column.clustering_ordinal_position !== null ? <Badge variant="info">{column.clustering_ordinal_position}</Badge> : <span className="text-muted">-</span>}</td>
-                        <td className="text-sm">{column.policy_tags && column.policy_tags.length > 0 ? formatColumnArray(column.policy_tags) : <span className="text-muted">None</span>}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -545,9 +699,9 @@ const ViewsSection: React.FC<{ views: AssessmentReportView[]; onExportCsv?: () =
                 const viewName = view.view_name?.includes('.') ? view.view_name.split('.').slice(1).join('.') : view.view_name;
                 return (
                   <React.Fragment key={index}>
-                    <tr>
+                    <tr style={{ cursor: 'pointer' }} onClick={() => setExpandedView(isExpanded ? null : index)}>
                       <td className="font-medium">{dataset}</td>
-                      <td><button className="table-name-link" onClick={() => setExpandedView(isExpanded ? null : index)} title="Click to view dependencies">{viewName}</button></td>
+                      <td><span className="table-name-link">{viewName}</span></td>
                       <td><Badge variant={view.view_type === 'MATERIALIZED_VIEW' ? 'info' : 'default'}>{view.view_type === 'MATERIALIZED_VIEW' ? 'Materialized' : 'View'}</Badge></td>
                       <td className="text-sm">{formatDate(view.creation_time)}</td>
                     </tr>
@@ -627,9 +781,9 @@ const RoutinesSection: React.FC<{ routines: AssessmentReportRoutine[]; title: st
                 const routineName = routine.routine_name?.includes('.') ? routine.routine_name.split('.').slice(1).join('.') : routine.routine_name;
                 return (
                   <React.Fragment key={index}>
-                    <tr>
+                    <tr style={{ cursor: 'pointer' }} onClick={() => setExpandedRoutine(isExpanded ? null : index)}>
                       <td className="font-medium">{dataset}</td>
-                      <td><button className="table-name-link" onClick={() => setExpandedRoutine(isExpanded ? null : index)} title="Click to view dependencies">{routineName}</button></td>
+                      <td><span className="table-name-link">{routineName}</span></td>
                       <td><Badge variant="default">{routine.routine_type}</Badge></td>
                       <td>{routine.external_language ? <Badge variant="info">{routine.external_language}</Badge> : <span className="text-muted">SQL</span>}</td>
                       <td className="text-sm">{formatDate(routine.creation_time)}</td>
@@ -1087,6 +1241,27 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
           <div className="tco-cost-card"><div className="tco-cost-label">Redshift Serverless</div><div className="tco-cost-value">{fmt(svls.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{svls.est_rpu_hours_monthly} RPU-hrs/mo</div></div>
         </div>
       </div>
+      {data.migration_costs && (
+        <div className="tco-section">
+          <h3 className="rec-section-title"><ArrowLeft size={18} style={{ transform: 'rotate(180deg)' }} /> One-Time Migration Costs</h3>
+          <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '8px', padding: '16px 20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-primary)' }}>GCP Data Egress</div>
+                <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>Cost to transfer data from Google Cloud to AWS</div>
+              </div>
+              <div style={{ fontSize: '20px', fontWeight: 700, color: '#C2410C' }}>${fmt(data.migration_costs.total)}</div>
+            </div>
+            <div style={{ display: 'flex', gap: '24px', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
+              <span>Data Volume: <strong>{data.migration_costs.data_volume_gb?.toFixed(2)} GB</strong></span>
+              <span>Rate: <strong>${data.migration_costs.rate_per_gb}/GB</strong></span>
+            </div>
+            <div style={{ fontSize: '11px', color: '#92400E', marginTop: '8px', fontStyle: 'italic' }}>
+              This is a one-time cost included in the 3-year TCO comparison above.
+            </div>
+          </div>
+        </div>
+      )}
       <div className="tco-section">
         <h3 className="rec-section-title"><Server size={18} /> Redshift Cost Details</h3>
         <div className="rec-config-grid">
