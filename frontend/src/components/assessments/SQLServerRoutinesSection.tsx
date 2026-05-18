@@ -70,16 +70,11 @@ export const SQLServerRoutinesSection: React.FC<SQLServerRoutinesSectionProps> =
                 
                 return (
                   <React.Fragment key={index}>
-                    <tr>
+                    <tr style={{ cursor: 'pointer' }} onClick={() => handleRoutineClick(index)}>
                       <td style={{ textAlign: 'left' }}>
-                        <button
-                          className="table-name-link"
-                          onClick={() => handleRoutineClick(index)}
-                          title="Click to view details"
-                          style={{ textAlign: 'left' }}
-                        >
+                        <span className="table-name-link" style={{ textAlign: 'left' }}>
                           {routine.routine_name}
-                        </button>
+                        </span>
                       </td>
                       <td style={{ textAlign: 'left' }}>
                         <Badge variant="default">{routine.routine_type}</Badge>

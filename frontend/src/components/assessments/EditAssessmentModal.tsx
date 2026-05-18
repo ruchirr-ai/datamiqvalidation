@@ -168,9 +168,9 @@ export const EditAssessmentModal: React.FC<EditAssessmentModalProps> = ({
 
                 <div className="form-group">
                   <label htmlFor="source-connection">
-                    Source Connection <span className="required">*</span>
+                    Source Database / Data Warehouse <span className="required">*</span>
                   </label>
-                  <p className="field-hint">Source database connection to assess</p>
+                  <p className="field-hint">Source database or data warehouse to assess</p>
                   {sourceConnections.length === 0 ? (
                     <div className="no-connections-message">
                       <p>No source connections found.</p>
@@ -193,9 +193,9 @@ export const EditAssessmentModal: React.FC<EditAssessmentModalProps> = ({
 
                 <div className="form-group">
                   <label htmlFor="target-connection">
-                    Target Connection <span className="required">*</span>
+                    Target Data Warehouse <span className="required">*</span>
                   </label>
-                  <p className="field-hint">Target database connection for migration</p>
+                  <p className="field-hint">Target data warehouse for migration</p>
                   {targetConnections.length === 0 ? (
                     <div className="no-connections-message">
                       <p>No target connections found.</p>

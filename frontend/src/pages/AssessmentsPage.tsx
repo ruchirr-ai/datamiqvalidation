@@ -201,8 +201,16 @@ export const AssessmentsPage: React.FC = () => {
 
   // Group assessments by name, latest version first
   const groupedAssessments = React.useMemo(() => {
+    // Filter by assessment mode
+    const filtered = assessments.filter(a => {
+      const mode = a.assessment_data?.mode;
+      if (assessmentMode === 'analyze') return mode === 'analyze';
+      // 'assess' mode: show assessments with mode='assess' or no mode set
+      return !mode || mode === 'assess';
+    });
+
     const groups: Record<string, Assessment[]> = {};
-    for (const a of assessments) {
+    for (const a of filtered) {
       if (!groups[a.name]) groups[a.name] = [];
       groups[a.name].push(a);
     }
@@ -216,7 +224,7 @@ export const AssessmentsPage: React.FC = () => {
         const bDate = b.versions[0]?.completed_at || b.versions[0]?.started_at || '';
         return bDate.localeCompare(aDate);
       });
-  }, [assessments]);
+  }, [assessments, assessmentMode]);
 
   // Get the currently selected assessment for each group
   const getSelectedAssessment = (group: { name: string; versions: Assessment[] }) => {
@@ -288,7 +296,7 @@ export const AssessmentsPage: React.FC = () => {
                 />
               </div>
 
-              <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+              <Button variant="primary" onClick={() => navigate(`/assessments/new?mode=${assessmentMode}`)}>
                 {assessmentMode === 'analyze' ? '+ New Analysis' : '+ New Assessment'}
               </Button>
             </div>

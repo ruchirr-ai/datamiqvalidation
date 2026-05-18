@@ -11,7 +11,7 @@
 import React, { useState } from 'react';
 import { Table as TableIcon, AlertCircle, CheckCircle, Info, Database, HardDrive } from 'lucide-react';
 import { Badge } from '../ui';
-import { getRedshiftCompatibility } from '../../utils/dataTypeMapping';
+import { getRedshiftCompatibility, getRedshiftCompression } from '../../utils/dataTypeMapping';
 
 interface SQLServerTablesSectionProps {
   tables: any[];
@@ -76,16 +76,12 @@ export const SQLServerTablesSection: React.FC<SQLServerTablesSectionProps> = ({
                 const isPartitioned = table.partition_function || table.partitioning_columns?.length > 0;
                 
                 return (
-                  <tr key={table.id}>
+                  <tr key={table.id} style={{ cursor: 'pointer' }} onClick={() => handleTableClick(table)}>
                     <td className="font-medium">{table.dataset_name}</td>
                     <td>
-                      <button
-                        className="table-name-link"
-                        onClick={() => handleTableClick(table)}
-                        title="Click to view table details"
-                      >
+                      <span className="table-name-link">
                         {table.table_name}
-                      </button>
+                      </span>
                     </td>
                     <td className="timestamp-value">{formatDate(table.creation_time)}</td>
                     <td className="numeric-value">{formatNumber(table.row_count)}</td>
@@ -224,9 +220,9 @@ export const SQLServerTablesSection: React.FC<SQLServerTablesSectionProps> = ({
                         <th>Column Name</th>
                         <th>SQL Server Type</th>
                         <th>Nullable</th>
-                        <th>Position</th>
                         <th>Redshift Compatible</th>
                         <th>Redshift Type</th>
+                        <th>Compression</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -260,7 +256,6 @@ export const SQLServerTablesSection: React.FC<SQLServerTablesSectionProps> = ({
                                 <Badge variant="error">No</Badge>
                               )}
                             </td>
-                            <td>{column.ordinal_position}</td>
                             <td>
                               {compatibility.compatible ? (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -308,6 +303,9 @@ export const SQLServerTablesSection: React.FC<SQLServerTablesSectionProps> = ({
                                   {compatibility.notes}
                                 </div>
                               )}
+                            </td>
+                            <td className="text-sm">
+                              <Badge variant="default">{getRedshiftCompression(column.data_type)}</Badge>
                             </td>
                           </tr>
                         );

@@ -38,6 +38,7 @@ export interface CreateAssessmentRequest {
   target_connection_id?: number;
   assessment_mode?: string;
   target_db?: string;
+  landscape?: Record<string, any>;
 }
 
 export interface UpdateAssessmentRequest {
