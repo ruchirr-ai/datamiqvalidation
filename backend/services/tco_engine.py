@@ -41,6 +41,11 @@ REDSHIFT_PRICING = {
             'ra3.large': 0.543, 'ra3.xlplus': 1.086, 'ra3.4xlarge': 3.26, 'ra3.16xlarge': 13.04,
             'dc2.large': 0.25, 'dc2.8xlarge': 4.80,
         },
+        'rg_provisioned': {
+            'rg.xlarge': 0.76, 'rg.4xlarge': 3.04,
+        },
+        'rg_ri_1yr': {'rg.xlarge': 0.532, 'rg.4xlarge': 2.128},
+        'rg_ri_3yr': {'rg.xlarge': 0.331, 'rg.4xlarge': 1.322},
         'ri_1yr': {'ra3.large': 0.385, 'ra3.xlplus': 0.7602, 'ra3.4xlarge': 2.282, 'ra3.16xlarge': 9.128},
         'ri_3yr': {'ra3.large': 0.239, 'ra3.xlplus': 0.4724, 'ra3.4xlarge': 1.4181, 'ra3.16xlarge': 5.6724},
         'serverless_per_rpu_hour': 0.375,
@@ -162,6 +167,11 @@ REDSHIFT_PRICING = {
             'ra3.large': 0.618, 'ra3.xlplus': 1.235, 'ra3.4xlarge': 3.706, 'ra3.16xlarge': 14.824,
             'dc2.large': 0.25, 'dc2.8xlarge': 4.80,
         },
+        'rg_provisioned': {
+            'rg.xlarge': 0.865, 'rg.4xlarge': 3.46,
+        },
+        'rg_ri_1yr': {'rg.xlarge': 0.606, 'rg.4xlarge': 2.422},
+        'rg_ri_3yr': {'rg.xlarge': 0.376, 'rg.4xlarge': 1.505},
         # Mumbai RI rates confirmed from AWS Calculator (ra3.xlplus verified)
         'ri_1yr': {'ra3.large': 0.618, 'ra3.xlplus': 0.8645, 'ra3.4xlarge': 2.5942, 'ra3.16xlarge': 10.3768},
         'ri_3yr': {'ra3.xlplus': 0.5373, 'ra3.4xlarge': 1.6121, 'ra3.16xlarge': 6.4484},
@@ -405,6 +415,13 @@ class TCOEngine:
             serverless_config, total_size_gb, region_pricing, rpu_hours_monthly
         )
 
+        # 3b. Redshift RG Provisioned costs
+        avg_slots = workload_metrics.get('avg_concurrent_slots', 0) or workload_metrics.get('estimated_avg_concurrent_slots', 1)
+        peak_slots = workload_metrics.get('estimated_peak_slots', avg_slots)
+        rg_provisioned_costs = self._calculate_rg_provisioned_costs(
+            avg_slots, peak_slots, total_size_gb, region_pricing
+        )
+
         # 4. One-time migration costs
         migration_costs = self._calculate_migration_costs(total_size_gb)
 
@@ -413,6 +430,7 @@ class TCOEngine:
         bq_3yr = bq_costs['annual'] * 3
         prov_3yr = provisioned_costs['annual'] * 3 + migration_costs['total']
         svls_3yr = serverless_costs['annual'] * 3 + migration_costs['total']
+        rg_3yr = rg_provisioned_costs['annual'] * 3 + migration_costs['total']
 
         # Check if provisioned is overkill for light workloads
         provisioned_viable = True
@@ -427,6 +445,10 @@ class TCOEngine:
 
         best_redshift = 'serverless' if (svls_3yr < prov_3yr or not provisioned_viable) else 'provisioned'
         best_redshift_3yr = svls_3yr if best_redshift == 'serverless' else prov_3yr
+        # Check if RG is better than current best
+        if rg_3yr < best_redshift_3yr:
+            best_redshift = 'rg_provisioned'
+            best_redshift_3yr = rg_3yr
         savings = bq_3yr - best_redshift_3yr
         savings_pct = (savings / bq_3yr * 100) if bq_3yr > 0 else 0
 
@@ -436,13 +458,17 @@ class TCOEngine:
             'bigquery_costs': bq_costs,
             'provisioned_costs': provisioned_costs,
             'serverless_costs': serverless_costs,
+            'rg_provisioned_costs': rg_provisioned_costs,
             'migration_costs': migration_costs,
             'comparison': {
                 'bq_3yr_tco': round(bq_3yr, 2),
                 'provisioned_3yr_tco': round(prov_3yr, 2),
                 'serverless_3yr_tco': round(svls_3yr, 2),
+                'rg_provisioned_3yr_tco': round(rg_3yr, 2),
                 'provisioned_ri1yr_3yr_tco': round(provisioned_costs['ri_1yr_annual'] * 3 + migration_costs['total'], 2),
                 'provisioned_ri3yr_3yr_tco': round(provisioned_costs['ri_3yr_annual'] * 3 + migration_costs['total'], 2),
+                'rg_ri1yr_3yr_tco': round(rg_provisioned_costs['ri_1yr_annual'] * 3 + migration_costs['total'], 2),
+                'rg_ri3yr_3yr_tco': round(rg_provisioned_costs['ri_3yr_annual'] * 3 + migration_costs['total'], 2),
                 'best_option': best_redshift,
                 'savings_amount': round(savings, 2),
                 'savings_pct': round(savings_pct, 1),
@@ -607,6 +633,68 @@ class TCOEngine:
             result['memory_gb_total'] = config['memory_gb_total']
 
         return result
+
+    def _calculate_rg_provisioned_costs(self, avg_slots: float, peak_slots: float, size_gb: float, pricing: Dict) -> Dict:
+        """Calculate Redshift RG (Graviton) Provisioned cluster costs."""
+        rg_pricing = pricing.get('rg_provisioned')
+        if not rg_pricing:
+            # Region doesn't have RG pricing — estimate from RA3 with 30% discount per vCPU
+            ra3_xlplus_rate = pricing['provisioned'].get('ra3.xlplus', 1.086)
+            ra3_4xl_rate = pricing['provisioned'].get('ra3.4xlarge', 3.26)
+            rg_pricing = {
+                'rg.xlarge': round(ra3_xlplus_rate * 0.70, 3),
+                'rg.4xlarge': round(ra3_4xl_rate * (128/96) * 0.70, 3),  # More memory, 30% off per vCPU
+            }
+
+        # RG node specs: rg.xlarge = 32 GiB, rg.4xlarge = 128 GiB
+        target_memory = max(32, avg_slots * 2)  # 1 BQ slot = 2 GiB
+
+        # Pick best RG node type
+        if target_memory <= 32 * 16:  # Up to 16 rg.xlarge nodes (512 GiB)
+            node_type = 'rg.xlarge'
+            mem_per_node = 32
+        else:
+            node_type = 'rg.4xlarge'
+            mem_per_node = 128
+
+        # Use same node count logic as the cost mapping table (floor-ish, not strict ceil)
+        num_nodes = max(2, math.ceil(target_memory / mem_per_node))
+        # For rg.xlarge, cap at reasonable count; switch to rg.4xlarge if too many
+        if node_type == 'rg.xlarge' and num_nodes > 16:
+            node_type = 'rg.4xlarge'
+            mem_per_node = 128
+            num_nodes = max(2, math.ceil(target_memory / mem_per_node))
+
+        hourly_per_node = rg_pricing.get(node_type, 0.865)
+        total_hourly = hourly_per_node * num_nodes
+        compute_monthly = total_hourly * 730
+        storage_monthly = size_gb * pricing['managed_storage_per_gb_month']
+        total_monthly = compute_monthly + storage_monthly
+        total_annual = total_monthly * 12
+
+        # RI pricing
+        rg_ri_1yr = pricing.get('rg_ri_1yr', {})
+        rg_ri_3yr = pricing.get('rg_ri_3yr', {})
+        ri_1yr_hourly = rg_ri_1yr.get(node_type, hourly_per_node * _RI_1YR_RATIO)
+        ri_3yr_hourly = rg_ri_3yr.get(node_type, hourly_per_node * _RI_3YR_RATIO)
+        ri_1yr_monthly = (ri_1yr_hourly * num_nodes * 730) + storage_monthly
+        ri_3yr_monthly = (ri_3yr_hourly * num_nodes * 730) + storage_monthly
+
+        return {
+            'node_type': node_type,
+            'num_nodes': num_nodes,
+            'hourly_per_node': round(hourly_per_node, 3),
+            'total_hourly': round(total_hourly, 3),
+            'compute_monthly': round(compute_monthly, 2),
+            'storage_monthly': round(storage_monthly, 2),
+            'monthly': round(total_monthly, 2),
+            'annual': round(total_annual, 2),
+            'ri_1yr_monthly': round(ri_1yr_monthly, 2),
+            'ri_1yr_annual': round(ri_1yr_monthly * 12, 2),
+            'ri_3yr_monthly': round(ri_3yr_monthly, 2),
+            'ri_3yr_annual': round(ri_3yr_monthly * 12, 2),
+            'memory_gb_total': num_nodes * mem_per_node,
+        }
 
     def _calculate_serverless_costs(
         self, config: Dict, size_gb: float, pricing: Dict,

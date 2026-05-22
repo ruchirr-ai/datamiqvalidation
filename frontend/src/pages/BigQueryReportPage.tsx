@@ -1206,7 +1206,8 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
   const { bigquery_costs: bq, provisioned_costs: prov, serverless_costs: svls, comparison: cmp, recommendation: rec, workload_summary: wl } = data;
   const ri1yr3yr = cmp.provisioned_ri1yr_3yr_tco ?? cmp.provisioned_3yr_tco;
   const ri3yr3yr = cmp.provisioned_ri3yr_3yr_tco ?? cmp.provisioned_3yr_tco;
-  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco, ri1yr3yr, ri3yr3yr) || 1;
+  const rg3yr = cmp.rg_provisioned_3yr_tco ?? cmp.provisioned_3yr_tco;
+  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco, ri1yr3yr, ri3yr3yr, rg3yr) || 1;
 
   return (
     <div className="section-content">
@@ -1222,7 +1223,7 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <div className="tco-savings-content">
           <div className="tco-savings-title">{cmp.savings_pct > 0 ? `${cmp.savings_pct}% Cost Optimization Opportunity` : 'Cost Comparison'}</div>
           <div className="tco-savings-detail">
-            BigQuery 3-Year: <strong>{fmt(cmp.bq_3yr_tco)}</strong> → Best Redshift ({cmp.best_option}): <strong>{fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.provisioned_3yr_tco)}</strong>
+            BigQuery 3-Year: <strong>{fmt(cmp.bq_3yr_tco)}</strong> → Best Redshift ({cmp.best_option === 'rg_provisioned' ? 'RG Provisioned' : cmp.best_option}): <strong>{fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.best_option === 'rg_provisioned' ? rg3yr : cmp.provisioned_3yr_tco)}</strong>
             {cmp.savings_pct > 0 && <> — Savings: <strong>{fmt(cmp.savings_amount)}</strong></>}
           </div>
         </div>
@@ -1232,7 +1233,8 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <h3 className="rec-section-title"><Database size={18} /> Monthly Cost Summary</h3>
         <div className="tco-cost-grid">
           <div className="tco-cost-card"><div className="tco-cost-label">BigQuery (Current)</div><div className="tco-cost-value">{fmt(bq.monthly)}<span>/mo</span></div><div className="tco-cost-detail">Storage {fmt(bq.storage.monthly)} + Query {fmt(bq.query.monthly)}</div></div>
-          <div className="tco-cost-card"><div className="tco-cost-label">Redshift Provisioned</div><div className="tco-cost-value">{fmt(prov.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{prov.num_nodes}× {prov.node_type}</div></div>
+          <div className="tco-cost-card"><div className="tco-cost-label">Redshift Provisioned (RA3)</div><div className="tco-cost-value">{fmt(prov.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{prov.num_nodes}× {prov.node_type}</div></div>
+          {data.rg_provisioned_costs && <div className="tco-cost-card" style={{ borderColor: '#10B981' }}><div className="tco-cost-label">Redshift Provisioned (RG)</div><div className="tco-cost-value">{fmt(data.rg_provisioned_costs.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{data.rg_provisioned_costs.num_nodes}× {data.rg_provisioned_costs.node_type}</div></div>}
           <div className="tco-cost-card"><div className="tco-cost-label">Redshift Serverless</div><div className="tco-cost-value">{fmt(svls.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{svls.est_rpu_hours_monthly} RPU-hrs/mo</div></div>
         </div>
       </div>
@@ -1303,6 +1305,23 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
               </details>
             )}
           </div>
+          <div className={`rec-config-card ${cmp.best_option === 'rg_provisioned' ? 'rec-config-recommended' : ''}`}>
+            {cmp.best_option === 'rg_provisioned' && <div className="rec-badge">Best Value</div>}
+            <div className="rec-config-header"><Server size={20} /><span>RG Provisioned (Graviton)</span></div>
+            {data.rg_provisioned_costs && (
+            <div className="rec-config-details">
+              <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{data.rg_provisioned_costs.node_type}</span></div>
+              <div className="rec-config-row"><span>Nodes</span><span>{data.rg_provisioned_costs.num_nodes}</span></div>
+              <div className="rec-config-row"><span>Total Memory</span><span>{data.rg_provisioned_costs.memory_gb_total} GB</span></div>
+              <div className="rec-config-row"><span>Compute</span><span>{fmt(data.rg_provisioned_costs.compute_monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Storage</span><span>{fmt(data.rg_provisioned_costs.storage_monthly)}/mo</span></div>
+              <div className="rec-config-row rec-config-row-total"><span>On-Demand</span><span style={{ color: '#10B981' }}>{fmt(data.rg_provisioned_costs.monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Annual (On-Demand)</span><span>{fmt(data.rg_provisioned_costs.annual)}</span></div>
+              <div className="rec-config-row"><span>1-Year RI</span><span>{fmt(data.rg_provisioned_costs.ri_1yr_monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(data.rg_provisioned_costs.ri_3yr_monthly)}/mo</span></div>
+            </div>
+            )}
+          </div>
           <div className={`rec-config-card ${cmp.best_option === 'serverless' ? 'rec-config-recommended' : ''}`}>
             {cmp.best_option === 'serverless' && <div className="rec-badge">Best Value</div>}
             <div className="rec-config-header"><Zap size={20} /><span>Serverless</span></div>
@@ -1324,9 +1343,10 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <div className="tco-bar-chart">
           {[
             { label: 'BigQuery', value: cmp.bq_3yr_tco, color: '#4285F4' },
-            { label: 'Provisioned (On-Demand)', value: cmp.provisioned_3yr_tco, color: '#34A853' },
-            { label: 'Provisioned (1yr RI)', value: ri1yr3yr, color: '#0F9D58' },
-            { label: 'Provisioned (3yr RI)', value: ri3yr3yr, color: '#0B8043' },
+            { label: 'RA3 (On-Demand)', value: cmp.provisioned_3yr_tco, color: '#34A853' },
+            { label: 'RA3 (1yr RI)', value: ri1yr3yr, color: '#0F9D58' },
+            { label: 'RA3 (3yr RI)', value: ri3yr3yr, color: '#0B8043' },
+            { label: 'RG (On-Demand)', value: rg3yr, color: '#10B981' },
             { label: 'Serverless', value: cmp.serverless_3yr_tco, color: '#FBBC04' },
           ].map((item, i) => (
             <div key={i} className="tco-bar-item">
