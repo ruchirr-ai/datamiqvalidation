@@ -1352,23 +1352,53 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
       {wl && (
         <div className="tco-section">
           <h3 className="rec-section-title"><BarChart3 size={18} /> Workload Summary</h3>
-          <div className="tco-workload-grid">
-            <div className="tco-workload-item"><span>Query Time Span</span><span>{wl.query_time_span_days} days</span></div>
-            <div className="tco-workload-item"><span>Monthly Slot Hours</span><span>{wl.monthly_slot_hours?.toLocaleString()}</span></div>
-            <div className="tco-workload-item"><span>Monthly TB Scanned</span><span>{wl.monthly_tb_scanned?.toFixed(2)}</span></div>
-            <div className="tco-workload-item"><span>Total Queries</span><span>{wl.total_queries?.toLocaleString()}</span></div>
-            {wl.avg_concurrent_slots != null && <div className="tco-workload-item"><span>Avg Concurrent Slots</span><span>{wl.avg_concurrent_slots?.toFixed(1)}</span></div>}
-            {wl.estimated_peak_slots != null && <div className="tco-workload-item"><span>Peak Slots</span><span>{wl.estimated_peak_slots?.toLocaleString()}</span></div>}
-            {wl.active_hours_per_day != null && <div className="tco-workload-item"><span>Active Hours/Day</span><span>{wl.active_hours_per_day?.toFixed(1)}</span></div>}
-            <div className="tco-workload-item"><span>Workload Pattern</span><span><Badge variant="info">{wl.workload_type?.label || wl.workload_type?.pattern}</Badge></span></div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Query Time Span</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.query_time_span_days} days</div>
+            </div>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Monthly Slot Hours</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.monthly_slot_hours?.toLocaleString()}</div>
+            </div>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Queries</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.total_queries?.toLocaleString()}</div>
+            </div>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Workload Pattern</div>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#2563EB', marginTop: '6px' }}>{wl.workload_type?.label || wl.workload_type?.pattern || 'N/A'}</div>
+            </div>
+            {wl.avg_concurrent_slots != null && (
+              <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Avg Slots</div>
+                <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.avg_concurrent_slots?.toFixed(1)}</div>
+              </div>
+            )}
+            {wl.estimated_peak_slots != null && (
+              <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Peak Slots</div>
+                <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.estimated_peak_slots?.toLocaleString()}</div>
+              </div>
+            )}
+            {wl.active_hours_per_day != null && (
+              <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active Hours/Day</div>
+                <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.active_hours_per_day?.toFixed(1)}</div>
+              </div>
+            )}
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>TB Scanned/Month</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.monthly_tb_scanned?.toFixed(2)}</div>
+            </div>
           </div>
         </div>
       )}
       {data.cost_notes && data.cost_notes.length > 0 && (
-        <div className="rec-info-box" style={{ marginTop: 'var(--spacing-4)' }}>
-          <div className="rec-info-title"><Info size={16} /> Cost Notes</div>
-          <ul className="rec-info-list">{data.cost_notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
-        </div>
+        <details style={{ marginTop: '16px', fontSize: '12px', color: '#6B7280' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 500, color: '#374151' }}>Cost Calculation Notes</summary>
+          <ul style={{ marginTop: '8px', paddingLeft: '20px', lineHeight: '1.8' }}>{data.cost_notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+        </details>
       )}
     </div>
   );
