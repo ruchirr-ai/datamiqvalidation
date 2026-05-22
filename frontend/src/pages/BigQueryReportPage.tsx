@@ -1227,12 +1227,7 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
           </div>
         </div>
       </div>
-      {cmp.provisioned_viable === false && cmp.provisioned_note && (
-        <div className="rec-info-box" style={{ borderLeft: '4px solid #f59e0b', background: '#fffbeb' }}>
-          <div className="rec-info-title" style={{ color: '#b45309' }}><AlertTriangle size={16} /> Light Workload Detected</div>
-          <p style={{ margin: '4px 0 0', color: '#92400e', fontSize: '13px' }}>{cmp.provisioned_note}</p>
-        </div>
-      )}
+      {/* Light workload note removed — recommendation section handles this */}
       <div className="tco-section">
         <h3 className="rec-section-title"><Database size={18} /> Monthly Cost Summary</h3>
         <div className="tco-cost-grid">
