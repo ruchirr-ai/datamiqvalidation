@@ -656,12 +656,46 @@ class TCOEngine:
         }
 
     def _calculate_migration_costs(self, size_gb: float) -> Dict:
-        """Calculate one-time data transfer costs."""
-        transfer_cost = size_gb * DATA_TRANSFER_PER_GB
+        """Calculate one-time migration costs (data transfer + temporary storage)."""
+        # GCP egress (Standard Tier for bulk transfer)
+        gcp_egress_rate = 0.085  # Standard Tier: $0.085/GB (first 200 GB free)
+        free_tier_gb = 200
+        billable_gb = max(0, size_gb - free_tier_gb)
+        gcp_egress_cost = billable_gb * gcp_egress_rate
+
+        # GCS temporary storage (~1 week staging)
+        gcs_rate_per_gb_month = 0.023
+        gcs_duration_fraction = 7 / 30  # 1 week
+        gcs_staging_cost = size_gb * gcs_rate_per_gb_month * gcs_duration_fraction
+
+        # S3 temporary storage (~1 week staging before COPY to Redshift)
+        s3_rate_per_gb_month = 0.023
+        s3_duration_fraction = 7 / 30
+        s3_staging_cost = size_gb * s3_rate_per_gb_month * s3_duration_fraction
+
+        total = gcp_egress_cost + gcs_staging_cost + s3_staging_cost
+
         return {
             'data_volume_gb': round(size_gb, 2),
-            'rate_per_gb': DATA_TRANSFER_PER_GB,
-            'total': round(transfer_cost, 2),
+            'gcp_egress': {
+                'rate_per_gb': gcp_egress_rate,
+                'free_tier_gb': free_tier_gb,
+                'billable_gb': round(billable_gb, 2),
+                'cost': round(gcp_egress_cost, 2),
+            },
+            'gcs_staging': {
+                'rate_per_gb_month': gcs_rate_per_gb_month,
+                'duration_days': 7,
+                'cost': round(gcs_staging_cost, 2),
+            },
+            's3_staging': {
+                'rate_per_gb_month': s3_rate_per_gb_month,
+                'duration_days': 7,
+                'cost': round(s3_staging_cost, 2),
+            },
+            'total': round(total, 2),
+            # Keep legacy field for backward compatibility
+            'rate_per_gb': gcp_egress_rate,
         }
 
     def _generate_cost_notes(
@@ -678,7 +712,7 @@ class TCOEngine:
             f'Redshift Provisioned shows On-Demand, 1-Year RI (~30% discount), and 3-Year RI (~56.5% discount) pricing.',
             f'Redshift Serverless RPU-hours account for 60-second minimum billing per activation, query concurrency, and a 1.5× overhead factor vs BQ slot-hours.',
             f'Redshift Serverless: {svls.get("est_rpu_hours_monthly", 0):.1f} RPU-hours/month estimated from BQ workload analysis.',
-            f'Data transfer cost (${migration["total"]:.2f}) is a one-time GCP egress expense included in Redshift 3-year TCO.',
+            f'One-time migration cost (${migration["total"]:.2f}) includes GCP egress + temporary GCS/S3 storage, included in Redshift 3-year TCO.',
             f'Pricing for region: {region} ({pricing["label"]}).',
         ]
         if monthly_slot_hours < 10:

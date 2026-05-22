@@ -1245,19 +1245,38 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <div className="tco-section">
           <h3 className="rec-section-title"><ArrowLeft size={18} style={{ transform: 'rotate(180deg)' }} /> One-Time Migration Costs</h3>
           <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '8px', padding: '16px 20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-primary)' }}>GCP Data Egress</div>
-                <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>Cost to transfer data from Google Cloud to AWS</div>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-primary)' }}>Total One-Time Cost</div>
+                <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>Data Volume: {data.migration_costs.data_volume_gb?.toFixed(1)} GB</div>
               </div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color: '#C2410C' }}>${fmt(data.migration_costs.total)}</div>
+              <div style={{ fontSize: '22px', fontWeight: 700, color: '#C2410C' }}>${fmt(data.migration_costs.total)}</div>
             </div>
-            <div style={{ display: 'flex', gap: '24px', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              <span>Data Volume: <strong>{data.migration_costs.data_volume_gb?.toFixed(2)} GB</strong></span>
-              <span>Rate: <strong>${data.migration_costs.rate_per_gb}/GB</strong></span>
-            </div>
-            <div style={{ fontSize: '11px', color: '#92400E', marginTop: '8px', fontStyle: 'italic' }}>
-              This is a one-time cost included in the 3-year TCO comparison above.
+            <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid #FED7AA' }}>
+                  <td style={{ padding: '8px 0', color: 'var(--color-text-primary)' }}>GCP Data Egress (Standard Tier)</td>
+                  <td style={{ padding: '8px 0', color: 'var(--color-text-secondary)', textAlign: 'center' }}>{data.migration_costs.gcp_egress?.billable_gb?.toFixed(0) ?? data.migration_costs.data_volume_gb?.toFixed(0)} GB × ${data.migration_costs.gcp_egress?.rate_per_gb ?? data.migration_costs.rate_per_gb}/GB</td>
+                  <td style={{ padding: '8px 0', fontWeight: 600, textAlign: 'right' }}>${fmt(data.migration_costs.gcp_egress?.cost ?? data.migration_costs.total)}</td>
+                </tr>
+                {data.migration_costs.gcs_staging && (
+                  <tr style={{ borderBottom: '1px solid #FED7AA' }}>
+                    <td style={{ padding: '8px 0', color: 'var(--color-text-primary)' }}>GCS Temporary Storage (~1 week)</td>
+                    <td style={{ padding: '8px 0', color: 'var(--color-text-secondary)', textAlign: 'center' }}>${data.migration_costs.gcs_staging.rate_per_gb_month}/GB/mo × {data.migration_costs.gcs_staging.duration_days} days</td>
+                    <td style={{ padding: '8px 0', fontWeight: 600, textAlign: 'right' }}>${fmt(data.migration_costs.gcs_staging.cost)}</td>
+                  </tr>
+                )}
+                {data.migration_costs.s3_staging && (
+                  <tr>
+                    <td style={{ padding: '8px 0', color: 'var(--color-text-primary)' }}>S3 Temporary Storage (~1 week)</td>
+                    <td style={{ padding: '8px 0', color: 'var(--color-text-secondary)', textAlign: 'center' }}>${data.migration_costs.s3_staging.rate_per_gb_month}/GB/mo × {data.migration_costs.s3_staging.duration_days} days</td>
+                    <td style={{ padding: '8px 0', fontWeight: 600, textAlign: 'right' }}>${fmt(data.migration_costs.s3_staging.cost)}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <div style={{ fontSize: '11px', color: '#92400E', marginTop: '12px', fontStyle: 'italic' }}>
+              This is a one-time cost included in the 3-year TCO comparison above. AWS Data Transfer IN is free.
             </div>
           </div>
         </div>
