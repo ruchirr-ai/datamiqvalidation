@@ -1302,7 +1302,10 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
               {prov.ri_3yr_monthly != null && <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(prov.ri_3yr_monthly)}/mo</span></div>}
             </div>
             {prov.sizing_rationale && prov.sizing_rationale.length > 0 && (
-              <div className="rec-sizing-rationale"><div className="rec-sizing-rationale-title">Sizing Rationale</div><ul className="rec-sizing-rationale-list">{prov.sizing_rationale.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></div>
+              <details style={{ marginTop: '12px', fontSize: '12px', color: '#6B7280' }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 500, color: '#374151', fontSize: '12px' }}>Sizing Rationale</summary>
+                <ul style={{ marginTop: '6px', paddingLeft: '16px', lineHeight: '1.7' }}>{prov.sizing_rationale.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
+              </details>
             )}
           </div>
           <div className={`rec-config-card ${cmp.best_option === 'serverless' ? 'rec-config-recommended' : ''}`}>
