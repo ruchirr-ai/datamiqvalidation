@@ -1283,7 +1283,6 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <div className="rec-config-grid">
           <div className={`rec-config-card ${cmp.best_option === 'provisioned' ? 'rec-config-recommended' : ''}`}>
             {cmp.best_option === 'provisioned' && <div className="rec-badge">Best Value</div>}
-            {cmp.provisioned_viable === false && <div className="rec-badge" style={{ background: '#f59e0b' }}>Not Recommended</div>}
             <div className="rec-config-header"><Server size={20} /><span>Provisioned Cluster</span></div>
             <div className="rec-config-details">
               <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{prov.node_type}</span></div>
