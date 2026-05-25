@@ -499,6 +499,15 @@ async def run_assessment(
             created_by=assessment.created_by
         )
         
+        # Preserve assessment mode from original
+        if assessment.assessment_data and assessment.assessment_data.get('mode'):
+            new_assessment.assessment_data = new_assessment.assessment_data or {}
+            new_assessment.assessment_data['mode'] = assessment.assessment_data['mode']
+            if assessment.assessment_data.get('target_db'):
+                new_assessment.assessment_data['target_db'] = assessment.assessment_data['target_db']
+            db.commit()
+            db.refresh(new_assessment)
+        
         # Create log entry
         assessment_repo.create_log(
             assessment_id=new_assessment.id,
