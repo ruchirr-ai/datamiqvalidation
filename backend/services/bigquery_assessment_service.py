@@ -296,6 +296,25 @@ class BigQueryAssessmentService:
         """
 
         rows = self._run_info_schema_query(query)
+        if rows is None:
+            # TABLE_STORAGE might not be enabled — retry without it
+            query_no_storage = f"""
+            SELECT
+                s.schema_name AS dataset_name,
+                s.creation_time,
+                s.location,
+                COALESCE(tc.table_count, 0) AS table_count,
+                0 AS total_size_bytes
+            FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.SCHEMATA` s
+            LEFT JOIN (
+                SELECT table_schema, COUNT(*) AS table_count
+                FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.TABLES`
+                WHERE table_type = 'BASE TABLE'
+                GROUP BY table_schema
+            ) tc ON s.schema_name = tc.table_schema
+            """
+            print("  ⚠ TABLE_STORAGE not available for datasets, retrying without storage info...")
+            rows = self._run_info_schema_query(query_no_storage)
         if rows is not None:
             print(f"  [INFORMATION_SCHEMA] Collected {len(rows)} datasets")
             datasets = []
@@ -358,6 +377,22 @@ class BigQueryAssessmentService:
         """
 
         rows = self._run_info_schema_query(query)
+        if rows is None:
+            # TABLE_STORAGE might not be enabled — retry without it
+            query_no_storage = f"""
+            SELECT
+                t.table_catalog AS project_id,
+                t.table_schema AS dataset_name,
+                t.table_name,
+                t.table_type,
+                t.creation_time,
+                t.ddl,
+                0 AS row_count,
+                0 AS size_bytes
+            FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.TABLES` t
+            """
+            print("  ⚠ TABLE_STORAGE not available, retrying without storage info...")
+            rows = self._run_info_schema_query(query_no_storage)
         if rows is not None:
             print(f"  [INFORMATION_SCHEMA] Collected {len(rows)} tables")
             tables = []
