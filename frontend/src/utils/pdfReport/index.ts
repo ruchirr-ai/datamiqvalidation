@@ -5,6 +5,7 @@ import jsPDF from 'jspdf';
 import type { PDFGeneratorOptions, PDFContext } from './types';
 import { C } from './types';
 import { getLogoDark, LOGO_ASPECT } from './shellkodeLogo';
+import { registerSatoshiFont } from './fonts';
 
 import { renderSummary } from './sections/summary';
 import { renderDatasets } from './sections/datasets';
@@ -38,13 +39,13 @@ function renderCover(ctx: PDFContext, name: string, projectId: string, status: s
   doc.addImage(logoPng, 'PNG', pageW - margin - coverLogoW, 10, coverLogoW, coverLogoH);
 
   // Brand name — #00ADEF on dark
-  doc.setFont('helvetica', 'bold');
+  doc.setFont('Satoshi', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(...C.PRIMARY);
   doc.text('DataMIQ', margin + 4, 20);
 
   // Tagline
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('Satoshi', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(160, 185, 220);
   doc.text('Data Assessment & Migration Platform', margin + 4, 27);
@@ -60,13 +61,13 @@ function renderCover(ctx: PDFContext, name: string, projectId: string, status: s
   const titleY = pageH * 0.34;
 
   // Label — #00ADEF accent
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('Satoshi', 'normal');
   doc.setFontSize(11);
   doc.setTextColor(...C.PRIMARY);
   doc.text('ASSESSMENT REPORT', margin + 8, titleY - 10);
 
   // Assessment name — large, white, bold
-  doc.setFont('helvetica', 'bold');
+  doc.setFont('Satoshi', 'bold');
   doc.setFontSize(36);
   doc.setTextColor(...C.WHITE);
   const nameLines = doc.splitTextToSize(name, ctx.contentW - 16);
@@ -86,11 +87,11 @@ function renderCover(ctx: PDFContext, name: string, projectId: string, status: s
 
   metaItems.forEach(([label, value], i) => {
     const my = metaY + i * 12;
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('Satoshi', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(120, 150, 190);
     doc.text(label.toUpperCase(), margin + 8, my);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont('Satoshi', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(220, 230, 245);
     doc.text(value, margin + 8, my + 5.5);
@@ -118,11 +119,11 @@ function addPageNumbers(doc: jsPDF): void {
     doc.line(0, pageH - 10, pageW, pageH - 10);
 
     // Left: brand
-    doc.setFont('helvetica', 'bold');
+    doc.setFont('Satoshi', 'bold');
     doc.setFontSize(7);
     doc.setTextColor(...C.PRIMARY);
     doc.text('DataMIQ', 14, pageH - 4);
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('Satoshi', 'normal');
     doc.setTextColor(...C.GRAY_L);
     const bw = doc.getTextWidth('DataMIQ');
     doc.text('  by Shellkode', 14 + bw, pageH - 4);
@@ -138,7 +139,7 @@ function addPageNumbers(doc: jsPDF): void {
     const ptw = doc.getTextWidth(pageText) + 6;
     doc.setFillColor(...C.PRIMARY);
     doc.roundedRect(pageW - 14 - ptw, pageH - 7.5, ptw + 2, 5.5, 1, 1, 'F');
-    doc.setFont('helvetica', 'bold');
+    doc.setFont('Satoshi', 'bold');
     doc.setFontSize(6.5);
     doc.setTextColor(...C.WHITE);
     doc.text(pageText, pageW - 14 - ptw / 2 + 1, pageH - 3.8, { align: 'center' });
@@ -153,6 +154,7 @@ export async function generatePDF(opts: PDFGeneratorOptions): Promise<void> {
   const logoPng = await getLogoDark();
 
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  registerSatoshiFont(doc);
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const margin = 14;
