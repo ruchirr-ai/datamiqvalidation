@@ -2309,7 +2309,7 @@
 /* Config Comparison Grid */
 .rec-config-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: var(--spacing-5);
 }
 

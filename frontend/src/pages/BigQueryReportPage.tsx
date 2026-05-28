@@ -1206,7 +1206,8 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
   const { bigquery_costs: bq, provisioned_costs: prov, serverless_costs: svls, comparison: cmp, recommendation: rec, workload_summary: wl } = data;
   const ri1yr3yr = cmp.provisioned_ri1yr_3yr_tco ?? cmp.provisioned_3yr_tco;
   const ri3yr3yr = cmp.provisioned_ri3yr_3yr_tco ?? cmp.provisioned_3yr_tco;
-  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco, ri1yr3yr, ri3yr3yr) || 1;
+  const rg3yr = cmp.rg_provisioned_3yr_tco ?? cmp.provisioned_3yr_tco;
+  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco, ri1yr3yr, ri3yr3yr, rg3yr) || 1;
 
   return (
     <div className="section-content">
@@ -1222,22 +1223,18 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <div className="tco-savings-content">
           <div className="tco-savings-title">{cmp.savings_pct > 0 ? `${cmp.savings_pct}% Cost Optimization Opportunity` : 'Cost Comparison'}</div>
           <div className="tco-savings-detail">
-            BigQuery 3-Year: <strong>{fmt(cmp.bq_3yr_tco)}</strong> → Best Redshift ({cmp.best_option}): <strong>{fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.provisioned_3yr_tco)}</strong>
+            BigQuery 3-Year: <strong>{fmt(cmp.bq_3yr_tco)}</strong> → Best Redshift ({cmp.best_option === 'rg_provisioned' ? 'RG Provisioned' : cmp.best_option}): <strong>{fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.best_option === 'rg_provisioned' ? rg3yr : cmp.provisioned_3yr_tco)}</strong>
             {cmp.savings_pct > 0 && <> — Savings: <strong>{fmt(cmp.savings_amount)}</strong></>}
           </div>
         </div>
       </div>
-      {cmp.provisioned_viable === false && cmp.provisioned_note && (
-        <div className="rec-info-box" style={{ borderLeft: '4px solid #f59e0b', background: '#fffbeb' }}>
-          <div className="rec-info-title" style={{ color: '#b45309' }}><AlertTriangle size={16} /> Light Workload Detected</div>
-          <p style={{ margin: '4px 0 0', color: '#92400e', fontSize: '13px' }}>{cmp.provisioned_note}</p>
-        </div>
-      )}
+      {/* Light workload note removed — recommendation section handles this */}
       <div className="tco-section">
         <h3 className="rec-section-title"><Database size={18} /> Monthly Cost Summary</h3>
         <div className="tco-cost-grid">
           <div className="tco-cost-card"><div className="tco-cost-label">BigQuery (Current)</div><div className="tco-cost-value">{fmt(bq.monthly)}<span>/mo</span></div><div className="tco-cost-detail">Storage {fmt(bq.storage.monthly)} + Query {fmt(bq.query.monthly)}</div></div>
-          <div className="tco-cost-card"><div className="tco-cost-label">Redshift Provisioned</div><div className="tco-cost-value">{fmt(prov.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{prov.num_nodes}× {prov.node_type}</div></div>
+          <div className="tco-cost-card"><div className="tco-cost-label">Redshift Provisioned (RA3)</div><div className="tco-cost-value">{fmt(prov.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{prov.num_nodes}× {prov.node_type}</div></div>
+          {data.rg_provisioned_costs && <div className="tco-cost-card" style={{ borderColor: '#10B981' }}><div className="tco-cost-label">Redshift Provisioned (RG)</div><div className="tco-cost-value">{fmt(data.rg_provisioned_costs.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{data.rg_provisioned_costs.num_nodes}× {data.rg_provisioned_costs.node_type}</div></div>}
           <div className="tco-cost-card"><div className="tco-cost-label">Redshift Serverless</div><div className="tco-cost-value">{fmt(svls.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{svls.est_rpu_hours_monthly} RPU-hrs/mo</div></div>
         </div>
       </div>
@@ -1245,19 +1242,38 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <div className="tco-section">
           <h3 className="rec-section-title"><ArrowLeft size={18} style={{ transform: 'rotate(180deg)' }} /> One-Time Migration Costs</h3>
           <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '8px', padding: '16px 20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-primary)' }}>GCP Data Egress</div>
-                <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>Cost to transfer data from Google Cloud to AWS</div>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-primary)' }}>Total One-Time Cost</div>
+                <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>Data Volume: {data.migration_costs.data_volume_gb?.toFixed(1)} GB</div>
               </div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color: '#C2410C' }}>${fmt(data.migration_costs.total)}</div>
+              <div style={{ fontSize: '22px', fontWeight: 700, color: '#C2410C' }}>${fmt(data.migration_costs.total)}</div>
             </div>
-            <div style={{ display: 'flex', gap: '24px', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              <span>Data Volume: <strong>{data.migration_costs.data_volume_gb?.toFixed(2)} GB</strong></span>
-              <span>Rate: <strong>${data.migration_costs.rate_per_gb}/GB</strong></span>
-            </div>
-            <div style={{ fontSize: '11px', color: '#92400E', marginTop: '8px', fontStyle: 'italic' }}>
-              This is a one-time cost included in the 3-year TCO comparison above.
+            <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' }}>
+              <tbody>
+                <tr style={{ borderBottom: '1px solid #FED7AA' }}>
+                  <td style={{ padding: '8px 0', color: 'var(--color-text-primary)' }}>GCP Data Egress (Standard Tier)</td>
+                  <td style={{ padding: '8px 0', color: 'var(--color-text-secondary)', textAlign: 'center' }}>{data.migration_costs.gcp_egress?.billable_gb?.toFixed(0) ?? data.migration_costs.data_volume_gb?.toFixed(0)} GB × ${data.migration_costs.gcp_egress?.rate_per_gb ?? data.migration_costs.rate_per_gb}/GB</td>
+                  <td style={{ padding: '8px 0', fontWeight: 600, textAlign: 'right' }}>${fmt(data.migration_costs.gcp_egress?.cost ?? data.migration_costs.total)}</td>
+                </tr>
+                {data.migration_costs.gcs_staging && (
+                  <tr style={{ borderBottom: '1px solid #FED7AA' }}>
+                    <td style={{ padding: '8px 0', color: 'var(--color-text-primary)' }}>GCS Temporary Storage (~1 week)</td>
+                    <td style={{ padding: '8px 0', color: 'var(--color-text-secondary)', textAlign: 'center' }}>${data.migration_costs.gcs_staging.rate_per_gb_month}/GB/mo × {data.migration_costs.gcs_staging.duration_days} days</td>
+                    <td style={{ padding: '8px 0', fontWeight: 600, textAlign: 'right' }}>${fmt(data.migration_costs.gcs_staging.cost)}</td>
+                  </tr>
+                )}
+                {data.migration_costs.s3_staging && (
+                  <tr>
+                    <td style={{ padding: '8px 0', color: 'var(--color-text-primary)' }}>S3 Temporary Storage (~1 week)</td>
+                    <td style={{ padding: '8px 0', color: 'var(--color-text-secondary)', textAlign: 'center' }}>${data.migration_costs.s3_staging.rate_per_gb_month}/GB/mo × {data.migration_costs.s3_staging.duration_days} days</td>
+                    <td style={{ padding: '8px 0', fontWeight: 600, textAlign: 'right' }}>${fmt(data.migration_costs.s3_staging.cost)}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            <div style={{ fontSize: '11px', color: '#92400E', marginTop: '12px', fontStyle: 'italic' }}>
+              This is a one-time cost included in the 3-year TCO comparison above. AWS Data Transfer IN is free.
             </div>
           </div>
         </div>
@@ -1267,7 +1283,6 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <div className="rec-config-grid">
           <div className={`rec-config-card ${cmp.best_option === 'provisioned' ? 'rec-config-recommended' : ''}`}>
             {cmp.best_option === 'provisioned' && <div className="rec-badge">Best Value</div>}
-            {cmp.provisioned_viable === false && <div className="rec-badge" style={{ background: '#f59e0b' }}>Not Recommended</div>}
             <div className="rec-config-header"><Server size={20} /><span>Provisioned Cluster</span></div>
             <div className="rec-config-details">
               <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{prov.node_type}</span></div>
@@ -1283,7 +1298,27 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
               {prov.ri_3yr_monthly != null && <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(prov.ri_3yr_monthly)}/mo</span></div>}
             </div>
             {prov.sizing_rationale && prov.sizing_rationale.length > 0 && (
-              <div className="rec-sizing-rationale"><div className="rec-sizing-rationale-title">Sizing Rationale</div><ul className="rec-sizing-rationale-list">{prov.sizing_rationale.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></div>
+              <details style={{ marginTop: '12px', fontSize: '12px', color: '#6B7280' }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 500, color: '#374151', fontSize: '12px' }}>Sizing Rationale</summary>
+                <ul style={{ marginTop: '6px', paddingLeft: '16px', lineHeight: '1.7' }}>{prov.sizing_rationale.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
+              </details>
+            )}
+          </div>
+          <div className={`rec-config-card ${cmp.best_option === 'rg_provisioned' ? 'rec-config-recommended' : ''}`}>
+            {cmp.best_option === 'rg_provisioned' && <div className="rec-badge">Best Value</div>}
+            <div className="rec-config-header"><Server size={20} /><span>RG Provisioned (Graviton)</span></div>
+            {data.rg_provisioned_costs && (
+            <div className="rec-config-details">
+              <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{data.rg_provisioned_costs.node_type}</span></div>
+              <div className="rec-config-row"><span>Nodes</span><span>{data.rg_provisioned_costs.num_nodes}</span></div>
+              <div className="rec-config-row"><span>Total Memory</span><span>{data.rg_provisioned_costs.memory_gb_total} GB</span></div>
+              <div className="rec-config-row"><span>Compute</span><span>{fmt(data.rg_provisioned_costs.compute_monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Storage</span><span>{fmt(data.rg_provisioned_costs.storage_monthly)}/mo</span></div>
+              <div className="rec-config-row rec-config-row-total"><span>On-Demand</span><span style={{ color: '#10B981' }}>{fmt(data.rg_provisioned_costs.monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Annual (On-Demand)</span><span>{fmt(data.rg_provisioned_costs.annual)}</span></div>
+              <div className="rec-config-row"><span>1-Year RI</span><span>{fmt(data.rg_provisioned_costs.ri_1yr_monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(data.rg_provisioned_costs.ri_3yr_monthly)}/mo</span></div>
+            </div>
             )}
           </div>
           <div className={`rec-config-card ${cmp.best_option === 'serverless' ? 'rec-config-recommended' : ''}`}>
@@ -1307,9 +1342,10 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <div className="tco-bar-chart">
           {[
             { label: 'BigQuery', value: cmp.bq_3yr_tco, color: '#4285F4' },
-            { label: 'Provisioned (On-Demand)', value: cmp.provisioned_3yr_tco, color: '#34A853' },
-            { label: 'Provisioned (1yr RI)', value: ri1yr3yr, color: '#0F9D58' },
-            { label: 'Provisioned (3yr RI)', value: ri3yr3yr, color: '#0B8043' },
+            { label: 'RA3 (On-Demand)', value: cmp.provisioned_3yr_tco, color: '#34A853' },
+            { label: 'RA3 (1yr RI)', value: ri1yr3yr, color: '#0F9D58' },
+            { label: 'RA3 (3yr RI)', value: ri3yr3yr, color: '#0B8043' },
+            { label: 'RG (On-Demand)', value: rg3yr, color: '#10B981' },
             { label: 'Serverless', value: cmp.serverless_3yr_tco, color: '#FBBC04' },
           ].map((item, i) => (
             <div key={i} className="tco-bar-item">
@@ -1333,23 +1369,53 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
       {wl && (
         <div className="tco-section">
           <h3 className="rec-section-title"><BarChart3 size={18} /> Workload Summary</h3>
-          <div className="tco-workload-grid">
-            <div className="tco-workload-item"><span>Query Time Span</span><span>{wl.query_time_span_days} days</span></div>
-            <div className="tco-workload-item"><span>Monthly Slot Hours</span><span>{wl.monthly_slot_hours?.toLocaleString()}</span></div>
-            <div className="tco-workload-item"><span>Monthly TB Scanned</span><span>{wl.monthly_tb_scanned?.toFixed(2)}</span></div>
-            <div className="tco-workload-item"><span>Total Queries</span><span>{wl.total_queries?.toLocaleString()}</span></div>
-            {wl.avg_concurrent_slots != null && <div className="tco-workload-item"><span>Avg Concurrent Slots</span><span>{wl.avg_concurrent_slots?.toFixed(1)}</span></div>}
-            {wl.estimated_peak_slots != null && <div className="tco-workload-item"><span>Peak Slots</span><span>{wl.estimated_peak_slots?.toLocaleString()}</span></div>}
-            {wl.active_hours_per_day != null && <div className="tco-workload-item"><span>Active Hours/Day</span><span>{wl.active_hours_per_day?.toFixed(1)}</span></div>}
-            <div className="tco-workload-item"><span>Workload Pattern</span><span><Badge variant="info">{wl.workload_type?.label || wl.workload_type?.pattern}</Badge></span></div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Query Time Span</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.query_time_span_days} days</div>
+            </div>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Monthly Slot Hours</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.monthly_slot_hours?.toLocaleString()}</div>
+            </div>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Queries</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.total_queries?.toLocaleString()}</div>
+            </div>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Workload Pattern</div>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#2563EB', marginTop: '6px' }}>{wl.workload_type?.label || wl.workload_type?.pattern || 'N/A'}</div>
+            </div>
+            {wl.avg_concurrent_slots != null && (
+              <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Avg Slots</div>
+                <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.avg_concurrent_slots?.toFixed(1)}</div>
+              </div>
+            )}
+            {wl.estimated_peak_slots != null && (
+              <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Peak Slots</div>
+                <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.estimated_peak_slots?.toLocaleString()}</div>
+              </div>
+            )}
+            {wl.active_hours_per_day != null && (
+              <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active Hours/Day</div>
+                <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.active_hours_per_day?.toFixed(1)}</div>
+              </div>
+            )}
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>TB Scanned/Month</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.monthly_tb_scanned?.toFixed(2)}</div>
+            </div>
           </div>
         </div>
       )}
       {data.cost_notes && data.cost_notes.length > 0 && (
-        <div className="rec-info-box" style={{ marginTop: 'var(--spacing-4)' }}>
-          <div className="rec-info-title"><Info size={16} /> Cost Notes</div>
-          <ul className="rec-info-list">{data.cost_notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
-        </div>
+        <details style={{ marginTop: '16px', fontSize: '12px', color: '#6B7280' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 500, color: '#374151' }}>Cost Calculation Notes</summary>
+          <ul style={{ marginTop: '8px', paddingLeft: '20px', lineHeight: '1.8' }}>{data.cost_notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
+        </details>
       )}
     </div>
   );

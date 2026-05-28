@@ -296,6 +296,9 @@ class BigQueryAssessmentService:
         """
 
         rows = self._run_info_schema_query(query)
+        if rows is None:
+            # TABLE_STORAGE not available — fall through to REST API
+            print("  ⚠ TABLE_STORAGE not available for datasets, falling back to REST API...")
         if rows is not None:
             print(f"  [INFORMATION_SCHEMA] Collected {len(rows)} datasets")
             datasets = []
@@ -358,6 +361,9 @@ class BigQueryAssessmentService:
         """
 
         rows = self._run_info_schema_query(query)
+        if rows is None:
+            # TABLE_STORAGE not available — fall through to REST API which has num_bytes
+            print("  ⚠ TABLE_STORAGE not available, falling back to REST API for table sizes...")
         if rows is not None:
             print(f"  [INFORMATION_SCHEMA] Collected {len(rows)} tables")
             tables = []
