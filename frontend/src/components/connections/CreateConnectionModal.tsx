@@ -3,7 +3,7 @@ import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
-import { Database, Check, X, AlertCircle, ExternalLink } from 'lucide-react';
+import { Database, Check, X, AlertCircle, ExternalLink, Zap } from 'lucide-react';
 import { SiMongodb, SiAmazondocumentdb, SiPostgresql, SiMysql, SiOracle, SiGooglecloud, SiAmazonredshift, SiSap } from 'react-icons/si';
 import { DynamicField } from '../fieldConfig/DynamicField';
 import { fieldConfigApi } from '../../services/fieldConfigApi';
@@ -63,6 +63,7 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
     { value: 'oracle', label: 'Oracle', icon: <SiOracle size={16} /> },
     { value: 'sqlserver', label: 'SQL Server', icon: <Database size={16} /> },
     { value: 'bigquery', label: 'BigQuery', icon: <SiGooglecloud size={16} /> },
+    { value: 'clickhouse', label: 'ClickHouse', icon: <Zap size={16} /> },
     { value: 'sybase', label: 'SAP Sybase', icon: <SiSap size={16} /> },
     { value: 'db2', label: 'IBM Db2', icon: <Db2Icon size={16} /> },
   ];
@@ -75,6 +76,7 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
     { value: 'oracle', label: 'Oracle', icon: <SiOracle size={16} /> },
     { value: 'sqlserver', label: 'SQL Server', icon: <Database size={16} /> },
     { value: 'redshift', label: 'Amazon Redshift', icon: <SiAmazonredshift size={16} /> },
+    { value: 'clickhouse', label: 'ClickHouse', icon: <Zap size={16} /> },
     { value: 'sybase', label: 'SAP Sybase', icon: <SiSap size={16} /> },
     { value: 'db2', label: 'IBM Db2', icon: <Db2Icon size={16} /> },
   ];
@@ -216,7 +218,10 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
       
       // Extract all dynamic field values
       fieldConfigs.forEach(config => {
-        if (formData[config.name]) {
+        if (config.type === 'checkbox') {
+          // Always send checkbox values (even when unchecked)
+          connectionParams[config.name] = formData[config.name] || 'false';
+        } else if (formData[config.name]) {
           connectionParams[config.name] = formData[config.name];
         }
       });

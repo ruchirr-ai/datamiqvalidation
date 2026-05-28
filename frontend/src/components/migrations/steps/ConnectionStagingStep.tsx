@@ -22,6 +22,7 @@ const DB_OPTIONS = [
   { value: 'documentdb', label: 'Amazon DocumentDB' },
   { value: 'db2', label: 'IBM Db2' },
   { value: 'sybase', label: 'SAP Sybase' },
+  { value: 'clickhouse', label: 'ClickHouse' },
 ];
 
 export const ConnectionStagingStep: React.FC<ConnectionStagingStepProps> = ({

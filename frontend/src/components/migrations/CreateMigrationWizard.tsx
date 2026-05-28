@@ -7,6 +7,7 @@ import { StrategySelectionStep } from './steps/StrategySelectionStep';
 import { ConfigurationSetupStep } from './steps/ConfigurationSetupStep';
 import { SchedulingMonitoringStep } from './steps/SchedulingMonitoringStep';
 import { bqRedshiftApi } from '../../services/bqRedshiftApi';
+import { clickhouseMigrationApi } from '../../services/clickhouseMigrationApi';
 import './CreateMigrationWizard.css';
 
 export interface MigrationFormData {
@@ -429,6 +430,47 @@ export const CreateMigrationWizard: React.FC = () => {
     
     // Call API to create or update migration
     try {
+      if (formData.targetDbType === 'clickhouse') {
+        // ClickHouse migration — only start on final submit (Step 5)
+        if (!isFinalSubmit) {
+          // Just save locally — don't call API yet
+          console.log('ClickHouse config saved locally (not final submit)');
+          return;
+        }
+        // Final submit — use dedicated ClickHouse API
+        const clickhouseData = {
+          name: formData.migrationName,
+          source_connection_id: formData.sourceConnectionId,
+          target_connection_id: formData.targetConnectionId,
+          selected_tables: (formData.selectedTables || []).map((t: any) => ({
+            table_name: typeof t === 'string' ? (t.includes('.') ? t.split('.')[1] : t) : (t.table_name || t.name),
+            dataset_name: typeof t === 'string' ? (t.includes('.') ? t.split('.')[0] : (formData.sourceDataset || '')) : (t.dataset_name || formData.sourceDataset || ''),
+            columns: t.columns || [],
+            row_count: t.row_count || 0,
+            partitioning_columns: t.partitioning_columns || [],
+            clustering_columns: t.clustering_columns || [],
+          })),
+          config: {
+            gcsBucket: (formData.gcsBucket || '').replace('gs://', '').replace(/\/+$/, ''),
+            gcsPathPrefix: formData.gcsPrefix || 'migrations',
+            gcsRegion: formData.gcsRegion || 'us-central1',
+            gcsHmacAccessKey: formData.gcsHmacAccessKey || '',
+            gcsHmacSecretKey: formData.gcsHmacSecretKey || '',
+            clickhouseDatabase: formData.clickhouseDatabase || 'default',
+            clickhouseEngine: formData.clickhouseEngine || 'MergeTree',
+            clickhouseOrderBy: formData.clickhouseOrderBy || 'auto',
+            exportFormat: formData.exportFormat || 'PARQUET',
+            compression: formData.compression || 'SNAPPY',
+          },
+        };
+        console.log('Starting ClickHouse migration:', clickhouseData);
+        const result = await clickhouseMigrationApi.startMigration(clickhouseData);
+        console.log('ClickHouse migration started:', result);
+        navigate('/migrations');
+        return;
+      }
+
+      // Redshift migration — use existing BQ-Redshift API
       if (isEditMode && editMigrationId) {
         console.log('Updating migration:', editMigrationId);
         const result = await bqRedshiftApi.updateMigration(editMigrationId, migrationData as any);

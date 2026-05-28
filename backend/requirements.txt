@@ -54,3 +54,4 @@ google-auth
 pymongo
 pymysql
 pyodbc
+clickhouse-connect

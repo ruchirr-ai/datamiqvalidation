@@ -81,6 +81,47 @@ const PATHWAYS: PathwayOption[] = [
   },
 ];
 
+const CLICKHOUSE_PATHWAYS: PathwayOption[] = [
+  {
+    id: 'A',
+    name: 'GCS Export + s3Cluster',
+    tag: 'Recommended',
+    tagColor: 'success',
+    description: 'Export BigQuery tables to GCS as Parquet, then import into ClickHouse using the s3() table function',
+    flow: 'BigQuery → GCS (Parquet) → ClickHouse s3()',
+    pros: [
+      'Simple and reliable — no middleware needed',
+      'Parallel import via s3Cluster for multi-node',
+      'Parquet preserves column types',
+      'Free GCS export (up to 50TB/day)',
+    ],
+    cons: [
+      'Requires GCS HMAC keys for ClickHouse access',
+      'Intermediate storage in GCS',
+    ],
+    bestFor: 'All migration sizes — recommended default approach',
+  },
+  {
+    id: 'B',
+    name: 'AWS Glue ETL',
+    tag: 'Coming Soon',
+    tagColor: 'default',
+    description: 'Use AWS Glue to read from BigQuery and write to ClickHouse via JDBC',
+    flow: 'BigQuery → AWS Glue (ETL) → ClickHouse',
+    pros: [
+      'Managed ETL service',
+      'Built-in transformations',
+      'Good for complex data reshaping',
+    ],
+    cons: [
+      'Requires ClickHouse on AWS',
+      'JDBC overhead — slower than file-based',
+      'Additional Glue costs',
+    ],
+    bestFor: 'When ClickHouse is on AWS and transformations are needed',
+  },
+];
+
 export const StrategySelectionStep: React.FC<StrategySelectionStepProps> = ({
   formData,
   updateFormData,
@@ -107,6 +148,7 @@ export const StrategySelectionStep: React.FC<StrategySelectionStepProps> = ({
   };
 
   const stats = getEstimatedStats();
+  const pathways = formData.targetDbType === 'clickhouse' ? CLICKHOUSE_PATHWAYS : PATHWAYS;
 
   return (
     <div className="step-container">
@@ -132,7 +174,7 @@ export const StrategySelectionStep: React.FC<StrategySelectionStepProps> = ({
 
         {/* Pathway Options */}
         <div className="pathway-grid">
-          {PATHWAYS.map(pathway => {
+          {pathways.map(pathway => {
             const isSelected = formData.pathway === pathway.id;
 
             return (
