@@ -552,6 +552,9 @@ export interface TCOComparison {
   provisioned_ri1yr_3yr_tco?: number;
   provisioned_ri3yr_3yr_tco?: number;
   serverless_3yr_tco: number;
+  rg_provisioned_3yr_tco?: number;
+  rg_ri1yr_3yr_tco?: number;
+  rg_ri3yr_3yr_tco?: number;
   best_option: string;
   savings_amount: number;
   savings_pct: number;
@@ -576,17 +579,48 @@ export interface TCORecommendation {
   workload_pattern: WorkloadType;
 }
 
+export interface RGProvisionedCosts {
+  node_type: string;
+  num_nodes: number;
+  hourly_per_node: number;
+  total_hourly: number;
+  compute_monthly: number;
+  storage_monthly: number;
+  monthly: number;
+  annual: number;
+  ri_1yr_monthly: number;
+  ri_1yr_annual: number;
+  ri_3yr_monthly: number;
+  ri_3yr_annual: number;
+  memory_gb_total: number;
+}
+
+export interface MigrationCostTier {
+  rate_per_gb?: number;
+  rate_per_gb_month?: number;
+  free_tier_gb?: number;
+  billable_gb?: number;
+  duration_days?: number;
+  cost: number;
+}
+
+export interface MigrationCosts {
+  data_volume_gb: number;
+  rate_per_gb: number;
+  total: number;
+  gcp_egress?: MigrationCostTier;
+  gcs_staging?: MigrationCostTier;
+  s3_staging?: MigrationCostTier;
+}
+
 export interface TCOData {
   aws_region: string;
   region_label: string;
   bigquery_costs: BQCosts;
   provisioned_costs: ProvisionedCosts;
   serverless_costs: ServerlessCosts;
-  migration_costs: {
-    data_volume_gb: number;
-    rate_per_gb: number;
-    total: number;
-  };
+  rg_provisioned_costs?: RGProvisionedCosts;
+  migration_costs: MigrationCosts;
   comparison: TCOComparison;
   workload_summary?: {
     query_time_span_days: number;

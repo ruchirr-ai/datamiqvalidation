@@ -19,10 +19,14 @@ class SQLDependencyParser:
             r'(?:FROM|JOIN|INTO)\s+`?([a-zA-Z0-9_-]+)`?(?:\s+(?:AS\s+)?[a-zA-Z0-9_]+)?',  # Single names with optional alias
         ]
         
-        self.function_patterns = [
-            # Function calls
-            r'([a-zA-Z0-9_]+)\s*\(',
-        ]
+        # Dataset/project-qualified function calls are a strong UDF signal in BigQuery
+        # (e.g. `mydataset.my_udf(...)` or `myproject.mydataset.my_udf(...)`).
+        # Built-in/system functions are always unqualified (e.g. CONCAT(...)).
+        self.qualified_function_pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)\s*\('
+        # Unqualified call — only treated as a UDF when it is not a known system
+        # function/keyword. Negative lookbehind avoids re-capturing the trailing
+        # segment of an already-matched qualified name.
+        self.unqualified_function_pattern = r'(?<![\w.])([a-zA-Z_][a-zA-Z0-9_]*)\s*\('
         
         # BigQuery system functions to exclude
         self.system_functions = {
@@ -155,24 +159,42 @@ class SQLDependencyParser:
         return tables
     
     def _extract_functions(self, sql: str) -> Set[str]:
-        """Extract user-defined function references from SQL"""
+        """Extract user-defined function references from SQL.
+
+        Strategy:
+        - Dataset/project-qualified calls (e.g. ``mydataset.my_udf(...)``) are
+          always treated as user-defined functions — BigQuery built-ins are never
+          qualified with a dataset name.
+        - Unqualified calls (e.g. ``CONCAT(...)``) are only kept when they are not
+          a known system function or SQL keyword.
+        """
         functions = set()
-        
+
         # Remove comments
         sql = self._remove_comments(sql)
-        
+
         # Remove string literals
         sql = re.sub(r"'[^']*'", "''", sql)
         sql = re.sub(r'"[^"]*"', '""', sql)
-        
-        for pattern in self.function_patterns:
-            matches = re.findall(pattern, sql, re.IGNORECASE)
-            for match in matches:
-                func_name = match.upper()
-                # Exclude system functions
-                if func_name not in self.system_functions:
-                    functions.add(match)
-        
+
+        # Remove backticks so `dataset`.`func`( and `dataset.func`( both normalize
+        sql = sql.replace('`', '')
+
+        # 1) Qualified function calls → always user-defined functions
+        for match in re.finditer(self.qualified_function_pattern, sql):
+            qualified = match.group(1)
+            last_segment = qualified.split('.')[-1].upper()
+            # Defensive: skip dotted accessors whose final segment is a built-in
+            if last_segment in self.system_functions:
+                continue
+            functions.add(qualified)
+
+        # 2) Unqualified function calls → only if not a system function/keyword
+        for match in re.finditer(self.unqualified_function_pattern, sql):
+            name = match.group(1)
+            if name.upper() not in self.system_functions:
+                functions.add(name)
+
         return functions
     
     def _remove_comments(self, sql: str) -> str:

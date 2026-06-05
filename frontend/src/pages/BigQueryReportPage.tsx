@@ -313,7 +313,7 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
           <TabSpinner message="Loading security data..." />
         )}
         {showAnalysis && activeTab === 'recommendations' && <RecommendationsSection assessmentId={id} />}
-        {showAnalysis && activeTab === 'tco' && <TCOAnalysisSection assessmentId={id} />}
+        {showAnalysis && activeTab === 'tco' && <TCOAnalysisSection assessmentId={id} datasets={summary.datasets} />}
       </div>
 
       <DownloadReportModal isOpen={showDownloadModal} onClose={() => setShowDownloadModal(false)} assessmentName={summary.assessment.name} onDownload={handleDownloadPDF} downloading={downloading} />
@@ -1190,10 +1190,50 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
 
 
 // ============ TCO Analysis Section (self-fetching) ============
-export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }) => {
+// Map a BigQuery dataset location to the closest AWS region that we have
+// Redshift pricing for. Falls back to 'us-east-1' when unknown.
+const BQ_TO_AWS_REGION: Record<string, string> = {
+  // BigQuery multi-regions
+  'us': 'us-east-1',
+  'eu': 'eu-west-1',
+  // Americas
+  'us-east1': 'us-east-1', 'us-east4': 'us-east-1', 'us-east5': 'us-east-1',
+  'us-central1': 'us-east-2', 'us-south1': 'us-east-1',
+  'us-west1': 'us-west-1', 'us-west2': 'us-west-1', 'us-west3': 'us-west-2', 'us-west4': 'us-west-2',
+  'northamerica-northeast1': 'ca-central-1', 'northamerica-northeast2': 'ca-central-1',
+  'southamerica-east1': 'sa-east-1', 'southamerica-west1': 'sa-east-1',
+  // Europe
+  'europe-west1': 'eu-west-1', 'europe-west2': 'eu-west-2', 'europe-west3': 'eu-central-1',
+  'europe-west4': 'eu-west-1', 'europe-west6': 'eu-central-1', 'europe-west8': 'eu-south-1',
+  'europe-west9': 'eu-west-3', 'europe-north1': 'eu-north-1', 'europe-central2': 'eu-central-1',
+  'europe-southwest1': 'eu-south-1',
+  // Asia Pacific
+  'asia-south1': 'ap-south-1', 'asia-south2': 'ap-south-1',
+  'asia-southeast1': 'ap-southeast-1', 'asia-southeast2': 'ap-southeast-3',
+  'asia-east1': 'ap-east-1', 'asia-east2': 'ap-east-1',
+  'asia-northeast1': 'ap-northeast-1', 'asia-northeast2': 'ap-northeast-1', 'asia-northeast3': 'ap-northeast-2',
+  'australia-southeast1': 'ap-southeast-2', 'australia-southeast2': 'ap-southeast-2',
+};
+
+const mapBQLocationToAWS = (datasets?: DatasetSummary[]): string => {
+  if (!datasets || datasets.length === 0) return 'us-east-1';
+  // Pick the location holding the most data (fallback to most tables / first).
+  const byLocation: Record<string, number> = {};
+  for (const ds of datasets) {
+    const loc = (ds.location || '').toLowerCase();
+    if (!loc) continue;
+    byLocation[loc] = (byLocation[loc] || 0) + (ds.total_size_mb || 0) + (ds.table_count || 0) * 0.001;
+  }
+  const locations = Object.keys(byLocation);
+  if (locations.length === 0) return 'us-east-1';
+  const dominant = locations.sort((a, b) => byLocation[b] - byLocation[a])[0];
+  return BQ_TO_AWS_REGION[dominant] || 'us-east-1';
+};
+
+export const TCOAnalysisSection: React.FC<{ assessmentId: number; datasets?: DatasetSummary[] }> = ({ assessmentId, datasets }) => {
   const [data, setData] = useState<TCOData | null>(null);
   const [regions, setRegions] = useState<AWSRegion[]>([]);
-  const [selectedRegion, setSelectedRegion] = useState('us-east-1');
+  const [selectedRegion, setSelectedRegion] = useState(() => mapBQLocationToAWS(datasets));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1237,9 +1277,9 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <h3 className="rec-section-title"><Database size={18} /> Monthly Cost Summary</h3>
         <div className="tco-cost-grid">
           <div className="tco-cost-card"><div className="tco-cost-label">BigQuery (Current)</div><div className="tco-cost-value">{fmt(bq.monthly)}<span>/mo</span></div><div className="tco-cost-detail">Storage {fmt(bq.storage.monthly)} + Query {fmt(bq.query.monthly)}</div></div>
-          <div className="tco-cost-card"><div className="tco-cost-label">Redshift Provisioned (RA3)</div><div className="tco-cost-value">{fmt(prov.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{prov.num_nodes}× {prov.node_type}</div></div>
-          {data.rg_provisioned_costs && <div className="tco-cost-card" style={{ borderColor: '#10B981' }}><div className="tco-cost-label">Redshift Provisioned (RG)</div><div className="tco-cost-value">{fmt(data.rg_provisioned_costs.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{data.rg_provisioned_costs.num_nodes}× {data.rg_provisioned_costs.node_type}</div></div>}
-          <div className="tco-cost-card"><div className="tco-cost-label">Redshift Serverless</div><div className="tco-cost-value">{fmt(svls.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{svls.est_rpu_hours_monthly} RPU-hrs/mo</div></div>
+          <div className={`tco-cost-card${cmp.best_option === 'provisioned' ? ' tco-cost-card-best' : ''}`}>{cmp.best_option === 'provisioned' && <div className="tco-cost-best-badge">Best Value</div>}<div className="tco-cost-label">Redshift Provisioned (RA3)</div><div className="tco-cost-value">{fmt(prov.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{prov.num_nodes}× {prov.node_type}</div></div>
+          {data.rg_provisioned_costs && <div className={`tco-cost-card${cmp.best_option === 'rg_provisioned' ? ' tco-cost-card-best' : ''}`}>{cmp.best_option === 'rg_provisioned' && <div className="tco-cost-best-badge">Best Value</div>}<div className="tco-cost-label">Redshift Provisioned (RG)</div><div className="tco-cost-value">{fmt(data.rg_provisioned_costs.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{data.rg_provisioned_costs.num_nodes}× {data.rg_provisioned_costs.node_type}</div></div>}
+          <div className={`tco-cost-card${cmp.best_option === 'serverless' ? ' tco-cost-card-best' : ''}`}>{cmp.best_option === 'serverless' && <div className="tco-cost-best-badge">Best Value</div>}<div className="tco-cost-label">Redshift Serverless</div><div className="tco-cost-value">{fmt(svls.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{svls.est_rpu_hours_monthly} RPU-hrs/mo</div></div>
         </div>
       </div>
       {data.migration_costs && (
