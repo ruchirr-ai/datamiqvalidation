@@ -571,7 +571,7 @@ const TablesSection: React.FC<{
 
   const baseTables = tables.filter(t => t.table_type === 'BASE TABLE');
   const datasetOptions = [
-    { value: 'all', label: `All Datasets (${datasets.length})` },
+    { value: 'all', label: `All Datasets` },
     ...datasets.map(ds => ({ value: ds, label: ds })),
   ];
 
@@ -666,12 +666,12 @@ const ViewsSection: React.FC<{ views: AssessmentReportView[]; onExportCsv?: () =
 
   const getDataset = (v: any) => { const name = v.view_name || ''; return name.includes('.') ? name.split('.')[0] : 'Unknown'; };
   const datasetOptions = [
-    { value: 'all', label: `All Datasets (${views.length})` },
-    ...Array.from(new Set(views.map(v => getDataset(v)))).sort().map((ds: any) => ({ value: ds, label: `${ds} (${views.filter(v => getDataset(v) === ds).length})` })),
+    { value: 'all', label: `All Datasets` },
+    ...Array.from(new Set(views.map(v => getDataset(v)))).sort().map((ds: any) => ({ value: ds, label: ds })),
   ];
   const viewTypeOptions = [
-    { value: 'all', label: `All Types (${views.length})` },
-    ...Array.from(new Set(views.map(v => v.view_type || 'VIEW'))).sort().map((vt: any) => ({ value: vt, label: `${vt === 'MATERIALIZED_VIEW' ? 'Materialized View' : 'View'} (${views.filter(v => (v.view_type || 'VIEW') === vt).length})` })),
+    { value: 'all', label: `All Types` },
+    ...Array.from(new Set(views.map(v => v.view_type || 'VIEW'))).sort().map((vt: any) => ({ value: vt, label: `${vt === 'MATERIALIZED_VIEW' ? 'Materialized View' : 'View'}` })),
   ];
   const filteredViews = views.filter(v => {
     const dsMatch = selectedDataset === 'all' || getDataset(v) === selectedDataset;
@@ -757,8 +757,8 @@ const RoutinesSection: React.FC<{ routines: AssessmentReportRoutine[]; title: st
 
   const getDataset = (r: any) => { const name = r.routine_name || ''; return name.includes('.') ? name.split('.')[0] : 'Unknown'; };
   const datasetOptions = [
-    { value: 'all', label: `All Datasets (${routines.length})` },
-    ...Array.from(new Set(routines.map(r => getDataset(r)))).sort().map((ds: any) => ({ value: ds, label: `${ds} (${routines.filter(r => getDataset(r) === ds).length})` })),
+    { value: 'all', label: `All Datasets` },
+    ...Array.from(new Set(routines.map(r => getDataset(r)))).sort().map((ds: any) => ({ value: ds, label: ds })),
   ];
   const filteredRoutines = selectedDataset === 'all' ? routines : routines.filter(r => getDataset(r) === selectedDataset);
 
@@ -1029,9 +1029,9 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
   const { query_classification: qc, dist_sort_keys: dsk, architecture: arch } = data;
   const getDatasetFromTable = (name: string) => name.includes('.') ? name.split('.')[0] : 'Unknown';
   const dskDatasets = Array.from(new Set(dsk.map(r => getDatasetFromTable(r.table_name)))).sort();
-  const datasetOptions = [{ value: 'all', label: `All Datasets (${dskDatasets.length})` }, ...dskDatasets.map(ds => ({ value: ds, label: ds }))];
+  const datasetOptions = [{ value: 'all', label: `All Datasets` }, ...dskDatasets.map(ds => ({ value: ds, label: ds }))];
   const filteredDsk = dsk.filter(r => { const ds = getDatasetFromTable(r.table_name); return (selectedDataset === 'all' || ds === selectedDataset) && (selectedTable === 'all' || r.table_name === selectedTable); });
-  const tableOptions = [{ value: 'all', label: `All Tables (${(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset)).length})` }, ...(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset)).map(r => ({ value: r.table_name, label: r.table_name }))];
+  const tableOptions = [{ value: 'all', label: `All Tables` }, ...(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset)).map(r => ({ value: r.table_name, label: r.table_name }))];
 
   return (
     <div className="section-content">
