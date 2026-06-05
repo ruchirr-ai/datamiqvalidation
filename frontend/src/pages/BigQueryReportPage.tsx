@@ -529,7 +529,7 @@ const TablesSection: React.FC<{
     const t = (bqType || '').toUpperCase().replace(/\(.*\)/, '').trim();
     switch (t) {
       case 'STRING': case 'VARCHAR': case 'NVARCHAR': case 'TEXT': case 'CHAR': case 'NCHAR':
-        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO' };
+        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', note: 'BQ STRING is unlimited; Redshift max is 65535 bytes. Truncation risk for very large values.' };
       case 'INT64': case 'INTEGER': case 'INT': case 'BIGINT':
         return { redshiftType: 'BIGINT', compression: 'AZ64' };
       case 'INT32': case 'SMALLINT': case 'TINYINT':
@@ -545,23 +545,27 @@ const TablesSection: React.FC<{
       case 'DATETIME': case 'TIMESTAMP': case 'DATETIME2': case 'SMALLDATETIME':
         return { redshiftType: 'TIMESTAMP', compression: 'AZ64' };
       case 'TIME':
-        return { redshiftType: 'VARCHAR(20)', compression: 'LZO', note: 'Redshift has no native TIME type' };
+        return { redshiftType: 'VARCHAR(20)', compression: 'LZO', note: 'Redshift TIME type available but limited precision' };
+      case 'INTERVAL':
+        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', note: 'No native INTERVAL type in Redshift. Store as string or decompose.' };
       case 'BYTES': case 'BINARY': case 'VARBINARY': case 'IMAGE':
-        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', note: 'Binary stored as hex string' };
+        return { redshiftType: 'VARBYTE(65535)', compression: 'LZO', note: 'Use VARBYTE for binary data' };
       case 'GEOGRAPHY': case 'GEOMETRY':
         return { redshiftType: 'GEOMETRY', compression: 'RAW' };
       case 'JSON':
         return { redshiftType: 'SUPER', compression: 'ZSTD' };
       case 'ARRAY': case 'STRUCT': case 'RECORD':
         return { redshiftType: 'SUPER', compression: 'ZSTD', incompatible: true, note: 'Nested/repeated types require flattening or SUPER type' };
+      case 'RANGE':
+        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', note: 'No native RANGE type in Redshift. Store as string or decompose into start/end columns.' };
       case 'XML':
-        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', incompatible: true, note: 'No native XML support in Redshift' };
+        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', incompatible: true, note: 'No native XML support. Store as text or use SUPER.' };
       case 'UNIQUEIDENTIFIER':
         return { redshiftType: 'VARCHAR(36)', compression: 'LZO' };
       case 'SQL_VARIANT':
-        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', incompatible: true, note: 'No equivalent in Redshift' };
+        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', incompatible: true, note: 'No equivalent in Redshift' };
       default:
-        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', note: 'Unmapped type — defaulting to VARCHAR' };
+        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', note: `Unmapped type '${bqType}' — defaulting to VARCHAR(65535)` };
     }
   };
 

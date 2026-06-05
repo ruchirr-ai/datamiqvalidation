@@ -230,7 +230,7 @@ class BigQueryAssessmentService:
                 total_views=len(views_data),
                 total_routines=len(routines_data),
                 total_ml_models=len(ml_models_data),
-                total_size_mb=int(total_size_mb)
+                total_size_mb=round(total_size_mb, 2)
             )
             _step_times['14_totals'] = round(_time.time() - _ts, 1)
 

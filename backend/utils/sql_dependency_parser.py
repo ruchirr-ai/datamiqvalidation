@@ -26,23 +26,63 @@ class SQLDependencyParser:
         
         # BigQuery system functions to exclude
         self.system_functions = {
-            'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'CAST', 'COALESCE', 'IFNULL',
-            'CONCAT', 'SUBSTR', 'LENGTH', 'UPPER', 'LOWER', 'TRIM', 'LTRIM', 'RTRIM',
+            # Aggregate functions
+            'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'ANY_VALUE', 'ARRAY_AGG',
+            'ARRAY_CONCAT_AGG', 'STRING_AGG', 'APPROX_COUNT_DISTINCT', 'APPROX_QUANTILES',
+            'COUNTIF', 'LOGICAL_AND', 'LOGICAL_OR', 'BIT_AND', 'BIT_OR', 'BIT_XOR',
+            # String functions
+            'CONCAT', 'SUBSTR', 'SUBSTRING', 'LENGTH', 'UPPER', 'LOWER', 'TRIM',
+            'LTRIM', 'RTRIM', 'LPAD', 'RPAD', 'REPLACE', 'REGEXP_EXTRACT',
+            'REGEXP_REPLACE', 'REGEXP_CONTAINS', 'SPLIT', 'STRPOS', 'STARTS_WITH',
+            'ENDS_WITH', 'FORMAT', 'REPEAT', 'REVERSE', 'CHAR_LENGTH', 'BYTE_LENGTH',
+            'LEFT', 'RIGHT', 'INITCAP', 'NORMALIZE', 'TO_CODE_POINTS', 'CODE_POINTS_TO_STRING',
+            # Casting and conversion
+            'CAST', 'SAFE_CAST', 'COALESCE', 'IFNULL', 'NULLIF', 'IF', 'IIF',
+            'PARSE_DATE', 'PARSE_TIMESTAMP', 'PARSE_DATETIME', 'PARSE_TIME',
+            'PARSE_NUMERIC', 'PARSE_BIGNUMERIC', 'PARSE_JSON',
+            # Date/time functions
             'DATE', 'TIMESTAMP', 'DATETIME', 'TIME', 'EXTRACT', 'DATE_ADD', 'DATE_SUB',
-            'TIMESTAMP_ADD', 'TIMESTAMP_SUB', 'FORMAT_DATE', 'FORMAT_TIMESTAMP',
+            'DATE_DIFF', 'DATE_TRUNC', 'DATETIME_ADD', 'DATETIME_SUB', 'DATETIME_DIFF',
+            'DATETIME_TRUNC', 'TIMESTAMP_ADD', 'TIMESTAMP_SUB', 'TIMESTAMP_DIFF',
+            'TIMESTAMP_TRUNC', 'TIME_ADD', 'TIME_SUB', 'TIME_DIFF', 'TIME_TRUNC',
+            'FORMAT_DATE', 'FORMAT_TIMESTAMP', 'FORMAT_DATETIME', 'FORMAT_TIME',
             'CURRENT_DATE', 'CURRENT_TIMESTAMP', 'CURRENT_TIME', 'CURRENT_DATETIME',
-            'ARRAY_AGG', 'ARRAY_LENGTH', 'ARRAY_CONCAT', 'ARRAY_TO_STRING',
-            'STRUCT', 'JSON_EXTRACT', 'JSON_EXTRACT_SCALAR', 'TO_JSON_STRING',
-            'SAFE_CAST', 'SAFE_DIVIDE', 'SAFE_SUBTRACT', 'SAFE_ADD', 'SAFE_MULTIPLY',
+            'UNIX_DATE', 'UNIX_SECONDS', 'UNIX_MILLIS', 'UNIX_MICROS',
+            'TIMESTAMP_SECONDS', 'TIMESTAMP_MILLIS', 'TIMESTAMP_MICROS',
+            'LAST_DAY', 'GENERATE_DATE_ARRAY', 'GENERATE_TIMESTAMP_ARRAY',
+            # Array functions
+            'ARRAY', 'ARRAY_LENGTH', 'ARRAY_CONCAT', 'ARRAY_TO_STRING',
+            'ARRAY_REVERSE', 'GENERATE_ARRAY', 'UNNEST', 'OFFSET', 'ORDINAL',
+            'SAFE_OFFSET', 'SAFE_ORDINAL',
+            # Struct and JSON
+            'STRUCT', 'JSON_EXTRACT', 'JSON_EXTRACT_SCALAR', 'JSON_EXTRACT_ARRAY',
+            'JSON_VALUE', 'JSON_QUERY', 'JSON_QUERY_ARRAY', 'TO_JSON_STRING', 'TO_JSON',
+            # Math functions
+            'ROUND', 'CEIL', 'CEILING', 'FLOOR', 'ABS', 'SIGN', 'MOD', 'DIV',
+            'POWER', 'POW', 'SQRT', 'LOG', 'LOG10', 'LN', 'EXP', 'GREATEST', 'LEAST',
+            'SAFE_DIVIDE', 'SAFE_SUBTRACT', 'SAFE_ADD', 'SAFE_MULTIPLY', 'SAFE_NEGATE',
+            'IEEE_DIVIDE', 'RAND', 'TRUNC',
+            # Window functions
             'ROW_NUMBER', 'RANK', 'DENSE_RANK', 'NTILE', 'LAG', 'LEAD',
-            'FIRST_VALUE', 'LAST_VALUE', 'NTH_VALUE',
-            'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'IF', 'NULLIF',
-            'ROUND', 'CEIL', 'FLOOR', 'ABS', 'SIGN', 'MOD', 'DIV',
-            'STRING_AGG', 'APPROX_COUNT_DISTINCT', 'APPROX_QUANTILES',
-            'ANY_VALUE', 'ARRAY', 'GENERATE_ARRAY', 'GENERATE_DATE_ARRAY',
-            'UNNEST', 'OFFSET', 'ORDINAL', 'SAFE_OFFSET', 'SAFE_ORDINAL',
+            'FIRST_VALUE', 'LAST_VALUE', 'NTH_VALUE', 'PERCENT_RANK', 'CUME_DIST',
+            'PERCENTILE_CONT', 'PERCENTILE_DISC',
+            # SQL keywords that match function pattern (word followed by parenthesis)
+            'OVER', 'PARTITION', 'AS', 'WITH', 'WITHIN', 'RESPECT', 'IGNORE',
+            'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'AND', 'OR', 'NOT', 'IN',
+            'EXISTS', 'BETWEEN', 'LIKE', 'IS', 'HAVING', 'WHERE', 'FROM',
+            'GROUP', 'ORDER', 'BY', 'LIMIT', 'UNION', 'INTERSECT', 'EXCEPT',
             'VALUES', 'INSERT', 'UPDATE', 'DELETE', 'SELECT', 'CREATE', 'DROP',
-            'ALTER', 'TRUNCATE', 'REPLACE', 'MERGE', 'DECLARE', 'SET',
+            'ALTER', 'TRUNCATE', 'MERGE', 'DECLARE', 'SET', 'BEGIN', 'CALL',
+            'RETURNS', 'LANGUAGE', 'OPTIONS', 'USING', 'ON', 'INTO', 'TABLE',
+            # Conditional / type functions
+            'TYPEOF', 'HASH', 'FARM_FINGERPRINT', 'MD5', 'SHA1', 'SHA256', 'SHA512',
+            'TO_HEX', 'FROM_HEX', 'TO_BASE64', 'FROM_BASE64',
+            # Geography
+            'ST_GEOGPOINT', 'ST_MAKELINE', 'ST_MAKEPOLYGON', 'ST_DISTANCE',
+            'ST_AREA', 'ST_LENGTH', 'ST_INTERSECTS', 'ST_CONTAINS', 'ST_WITHIN',
+            'ST_ASTEXT', 'ST_GEOGFROMTEXT', 'ST_ASGEOJSON', 'ST_GEOGFROMGEOJSON',
+            # Net functions
+            'NET', 'ERROR', 'RAISE',
         }
     
     def parse_dependencies(self, sql: str) -> Dict[str, List[str]]:
