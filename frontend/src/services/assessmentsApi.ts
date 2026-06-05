@@ -220,6 +220,9 @@ export interface AssessmentFullReport {
     total_ml_models: number;
     total_size_mb: number;
     source_db_type?: string;
+    version?: number;
+    created_by?: string;
+    workspace_id?: number;
     assessment_data?: Record<string, any>;
   };
   datasets: DatasetSummary[];

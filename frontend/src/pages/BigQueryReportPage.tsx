@@ -1341,12 +1341,6 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number; datasets?: Dat
               {prov.ri_1yr_monthly != null && <div className="rec-config-row"><span>1-Year RI</span><span>{fmt(prov.ri_1yr_monthly)}/mo</span></div>}
               {prov.ri_3yr_monthly != null && <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(prov.ri_3yr_monthly)}/mo</span></div>}
             </div>
-            {prov.sizing_rationale && prov.sizing_rationale.length > 0 && (
-              <details style={{ marginTop: '12px', fontSize: '12px', color: '#6B7280' }}>
-                <summary style={{ cursor: 'pointer', fontWeight: 500, color: '#374151', fontSize: '12px' }}>Sizing Rationale</summary>
-                <ul style={{ marginTop: '6px', paddingLeft: '16px', lineHeight: '1.7' }}>{prov.sizing_rationale.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
-              </details>
-            )}
           </div>
           <div className={`rec-config-card ${cmp.best_option === 'rg_provisioned' ? 'rec-config-recommended' : ''}`}>
             {cmp.best_option === 'rg_provisioned' && <div className="rec-badge">Best Value</div>}
@@ -1454,12 +1448,6 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number; datasets?: Dat
             </div>
           </div>
         </div>
-      )}
-      {data.cost_notes && data.cost_notes.length > 0 && (
-        <details style={{ marginTop: '16px', fontSize: '12px', color: '#6B7280' }}>
-          <summary style={{ cursor: 'pointer', fontWeight: 500, color: '#374151' }}>Cost Calculation Notes</summary>
-          <ul style={{ marginTop: '8px', paddingLeft: '20px', lineHeight: '1.8' }}>{data.cost_notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
-        </details>
       )}
     </div>
   );
