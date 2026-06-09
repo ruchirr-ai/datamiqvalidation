@@ -73,6 +73,21 @@ class BigQueryAssessmentService:
             print(f"INFORMATION_SCHEMA query failed: {e}")
             return None
 
+    @staticmethod
+    def _extract_max_length_from_type(data_type: str) -> Optional[int]:
+        """Extract max_length from parameterized BQ types like STRING(100) or BYTES(500).
+
+        BigQuery allows parameterized STRING/BYTES: STRING(100) means max 100 characters.
+        For unbounded STRING (no parens), returns None.
+        """
+        if not data_type:
+            return None
+        import re
+        match = re.match(r'^(?:STRING|BYTES)\((\d+)\)$', data_type.strip(), re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+        return None
+
     # ─── Main Assessment Pipeline ───────────────────────────────────────
 
     async def run_full_assessment(self, assessment_id: int, db: Session):
@@ -466,8 +481,7 @@ class BigQueryAssessmentService:
             is_nullable,
             ordinal_position,
             is_partitioning_column,
-            clustering_ordinal_position,
-            character_maximum_length
+            clustering_ordinal_position
         FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.COLUMNS`
         ORDER BY table_schema, table_name, ordinal_position
         """
@@ -504,13 +518,8 @@ class BigQueryAssessmentService:
                     except (ValueError, TypeError):
                         clust_pos = None
 
-                # Parse character_maximum_length (available for STRING columns with declared max)
-                max_len = None
-                if hasattr(row, 'character_maximum_length') and row.character_maximum_length is not None:
-                    try:
-                        max_len = int(row.character_maximum_length)
-                    except (ValueError, TypeError):
-                        max_len = None
+                # Extract max_length from parameterized data_type (e.g. "STRING(100)" → 100)
+                max_len = self._extract_max_length_from_type(row.data_type)
 
                 columns.append({
                     'table_id': table_id,
@@ -573,7 +582,7 @@ class BigQueryAssessmentService:
                         'is_partitioning_column': is_partitioning,
                         'clustering_ordinal_position': clustering_position,
                         'policy_tags': list(field.policy_tags.names) if field.policy_tags else [],
-                        'max_length': field.max_length if hasattr(field, 'max_length') else None
+                        'max_length': getattr(field, 'max_length', None) or self._extract_max_length_from_type(field.field_type)
                     })
         return columns
 
