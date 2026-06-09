@@ -428,7 +428,7 @@ class RecommendationEngine:
                     read_count += 1
 
         # Repeated queries (>3 times) are likely BI
-        repeated_fps = {fp for fp, cnt in query_fingerprints.items() if cnt >= 3}
+        repeated_fps = {fp for fp, cnt in query_fingerprints.items() if cnt >= 10}
         for idx, q in enumerate(query_stats):
             text = (q.get('query_text') or '').lower()
             fp = ''.join(text.split())[:100]
