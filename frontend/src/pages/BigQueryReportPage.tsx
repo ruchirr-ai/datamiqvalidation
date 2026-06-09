@@ -528,7 +528,7 @@ const TablesSection: React.FC<{
   // When max_length is known from BigQuery schema, use it to size VARCHAR appropriately.
   // When unknown (null), default to VARCHAR(65535) as a safe ceiling.
   const getRedshiftTypeMapping = (bqType: string, maxLength?: number | null): { redshiftType: string; compression: string; incompatible?: boolean; note?: string } => {
-    const t = (bqType || '').toUpperCase().replace(/\(.*\)/, '').trim();
+    const t = (bqType || '').toUpperCase().replace(/[<(].*/, '').trim();
 
     // Helper: determine VARCHAR size from known max_length
     const varcharSize = (fallback: number = 65535): number => {
