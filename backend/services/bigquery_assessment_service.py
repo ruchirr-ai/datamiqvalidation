@@ -466,7 +466,8 @@ class BigQueryAssessmentService:
             is_nullable,
             ordinal_position,
             is_partitioning_column,
-            clustering_ordinal_position
+            clustering_ordinal_position,
+            character_maximum_length
         FROM `{self.project_id}.region-{region}.INFORMATION_SCHEMA.COLUMNS`
         ORDER BY table_schema, table_name, ordinal_position
         """
@@ -503,6 +504,14 @@ class BigQueryAssessmentService:
                     except (ValueError, TypeError):
                         clust_pos = None
 
+                # Parse character_maximum_length (available for STRING columns with declared max)
+                max_len = None
+                if hasattr(row, 'character_maximum_length') and row.character_maximum_length is not None:
+                    try:
+                        max_len = int(row.character_maximum_length)
+                    except (ValueError, TypeError):
+                        max_len = None
+
                 columns.append({
                     'table_id': table_id,
                     'column_name': row.column_name,
@@ -512,7 +521,7 @@ class BigQueryAssessmentService:
                     'is_partitioning_column': is_part,
                     'clustering_ordinal_position': clust_pos,
                     'policy_tags': [],
-                    'max_length': None
+                    'max_length': max_len
                 })
             return columns
 
@@ -564,7 +573,7 @@ class BigQueryAssessmentService:
                         'is_partitioning_column': is_partitioning,
                         'clustering_ordinal_position': clustering_position,
                         'policy_tags': list(field.policy_tags.names) if field.policy_tags else [],
-                        'max_length': None
+                        'max_length': field.max_length if hasattr(field, 'max_length') else None
                     })
         return columns
 

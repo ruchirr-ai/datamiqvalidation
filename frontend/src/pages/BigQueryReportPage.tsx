@@ -525,11 +525,29 @@ const TablesSection: React.FC<{
   const [showColumnsModal, setShowColumnsModal] = useState(false);
 
   // Redshift type mapping with recommended auto compression
-  const getRedshiftTypeMapping = (bqType: string): { redshiftType: string; compression: string; incompatible?: boolean; note?: string } => {
+  // When max_length is known from BigQuery schema, use it to size VARCHAR appropriately.
+  // When unknown (null), default to VARCHAR(65535) as a safe ceiling.
+  const getRedshiftTypeMapping = (bqType: string, maxLength?: number | null): { redshiftType: string; compression: string; incompatible?: boolean; note?: string } => {
     const t = (bqType || '').toUpperCase().replace(/\(.*\)/, '').trim();
+
+    // Helper: determine VARCHAR size from known max_length
+    const varcharSize = (fallback: number = 65535): number => {
+      if (maxLength && maxLength > 0) {
+        // Add 20% buffer, round up to nearest power-of-2 friendly value, cap at 65535
+        const buffered = Math.min(Math.ceil(maxLength * 1.2), 65535);
+        // Round to common sizes: 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65535
+        const sizes = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65535];
+        return sizes.find(s => s >= buffered) || 65535;
+      }
+      return fallback;
+    };
+
     switch (t) {
-      case 'STRING': case 'VARCHAR': case 'NVARCHAR': case 'TEXT': case 'CHAR': case 'NCHAR':
-        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', note: 'BQ STRING is unlimited; Redshift max is 65535 bytes. Truncation risk for very large values.' };
+      case 'STRING': case 'VARCHAR': case 'NVARCHAR': case 'TEXT': case 'CHAR': case 'NCHAR': {
+        const size = varcharSize();
+        const note = maxLength ? undefined : 'BQ STRING is unlimited; Redshift max is 65535 bytes. Run ANALYZE COMPRESSION post-migration to optimize.';
+        return { redshiftType: `VARCHAR(${size})`, compression: 'LZO', note };
+      }
       case 'INT64': case 'INTEGER': case 'INT': case 'BIGINT':
         return { redshiftType: 'BIGINT', compression: 'AZ64' };
       case 'INT32': case 'SMALLINT': case 'TINYINT':
@@ -547,9 +565,9 @@ const TablesSection: React.FC<{
       case 'TIME':
         return { redshiftType: 'VARCHAR(20)', compression: 'LZO', note: 'Redshift TIME type available but limited precision' };
       case 'INTERVAL':
-        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', note: 'No native INTERVAL type in Redshift. Store as string or decompose.' };
+        return { redshiftType: `VARCHAR(${varcharSize(128)})`, compression: 'LZO', note: 'No native INTERVAL type in Redshift. Store as string or decompose.' };
       case 'BYTES': case 'BINARY': case 'VARBINARY': case 'IMAGE':
-        return { redshiftType: 'VARBYTE(65535)', compression: 'LZO', note: 'Use VARBYTE for binary data' };
+        return { redshiftType: `VARBYTE(${varcharSize()})`, compression: 'LZO', note: 'Use VARBYTE for binary data' };
       case 'GEOGRAPHY': case 'GEOMETRY':
         return { redshiftType: 'GEOMETRY', compression: 'RAW' };
       case 'JSON':
@@ -557,15 +575,15 @@ const TablesSection: React.FC<{
       case 'ARRAY': case 'STRUCT': case 'RECORD':
         return { redshiftType: 'SUPER', compression: 'ZSTD', incompatible: true, note: 'Nested/repeated types require flattening or SUPER type' };
       case 'RANGE':
-        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', note: 'No native RANGE type in Redshift. Store as string or decompose into start/end columns.' };
+        return { redshiftType: `VARCHAR(${varcharSize(256)})`, compression: 'LZO', note: 'No native RANGE type in Redshift. Store as string or decompose into start/end columns.' };
       case 'XML':
-        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', incompatible: true, note: 'No native XML support. Store as text or use SUPER.' };
+        return { redshiftType: `VARCHAR(${varcharSize()})`, compression: 'LZO', incompatible: true, note: 'No native XML support. Store as text or use SUPER.' };
       case 'UNIQUEIDENTIFIER':
         return { redshiftType: 'VARCHAR(36)', compression: 'LZO' };
       case 'SQL_VARIANT':
-        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', incompatible: true, note: 'No equivalent in Redshift' };
+        return { redshiftType: `VARCHAR(${varcharSize()})`, compression: 'LZO', incompatible: true, note: 'No equivalent in Redshift' };
       default:
-        return { redshiftType: 'VARCHAR(65535)', compression: 'LZO', note: `Unmapped type '${bqType}' — defaulting to VARCHAR(65535)` };
+        return { redshiftType: `VARCHAR(${varcharSize()})`, compression: 'LZO', note: `Unmapped type '${bqType}' — defaulting to VARCHAR(${varcharSize()})` };
     }
   };
 
@@ -628,7 +646,7 @@ const TablesSection: React.FC<{
                   <thead><tr><th>Column Name</th><th>Data Type</th><th>Redshift Type</th><th>Compression</th><th>Nullable</th><th>Partitioning</th><th>Clustering</th></tr></thead>
                   <tbody>
                     {columns.filter(c => c.table_id === selectedTable.id).map((column, idx) => {
-                      const rsMapping = getRedshiftTypeMapping(column.data_type);
+                      const rsMapping = getRedshiftTypeMapping(column.data_type, column.max_length);
                       return (
                       <tr key={idx}>
                         <td className="font-medium">{column.column_name}</td>
