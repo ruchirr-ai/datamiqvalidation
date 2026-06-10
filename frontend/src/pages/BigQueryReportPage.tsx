@@ -659,8 +659,8 @@ const TablesSection: React.FC<{
                         </td>
                         <td className="text-sm"><Badge variant="default">{rsMapping.compression}</Badge></td>
                         <td className="text-center">{column.is_nullable ? <Badge variant="default">Yes</Badge> : <Badge variant="error">No</Badge>}</td>
-                        <td className="text-center">{column.is_partitioning_column ? <Badge variant="info">Yes</Badge> : <span className="text-muted">-</span>}</td>
-                        <td className="text-center">{column.clustering_ordinal_position !== null ? <Badge variant="info">{column.clustering_ordinal_position}</Badge> : <span className="text-muted">-</span>}</td>
+                        <td className="text-center">{column.is_partitioning_column ? <Badge variant="info" title={`Partition column: ${column.column_name}${selectedTable.partitioning_columns?.length ? '\nTable partitioned by: ' + selectedTable.partitioning_columns.join(', ') : ''}`}>Yes</Badge> : <span className="text-muted">-</span>}</td>
+                        <td className="text-center">{column.clustering_ordinal_position !== null ? <Badge variant="info" title={`Clustering order: ${column.clustering_ordinal_position}${selectedTable.clustering_columns?.length ? '\nClustering columns: ' + selectedTable.clustering_columns.join(', ') : ''}`}>{column.clustering_ordinal_position}</Badge> : <span className="text-muted">-</span>}</td>
                       </tr>
                       );
                     })}

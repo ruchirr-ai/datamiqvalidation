@@ -206,12 +206,12 @@ class BigQueryAssessmentService:
             _step_times['9_sharded'] = round(_time.time() - _ts, 1)
             print(f"✓ Detected {len(sharded_data)} sharded table groups ({_step_times['9_sharded']}s)")
 
-            # 10. Analyze large STRING columns (derived from cached columns — no API calls)
+            # 10. Profile STRING column max lengths (runs queries against tables)
             _ts = _time.time()
-            print("Step 10/14: Analyzing large STRING columns...")
-            large_strings = await self.analyze_large_strings()
-            _step_times['10_large_strings'] = round(_time.time() - _ts, 1)
-            print(f"✓ Found {len(large_strings)} tables with large STRING columns ({_step_times['10_large_strings']}s)")
+            print("Step 10/14: Profiling STRING column max lengths...")
+            profiled_count = await self.profile_string_max_lengths(assessment_id, db)
+            _step_times['10_string_profiling'] = round(_time.time() - _ts, 1)
+            print(f"✓ Profiled max lengths for {profiled_count} STRING columns ({_step_times['10_string_profiling']}s)")
 
             # 11. Calculate update frequency
             _ts = _time.time()
@@ -1316,24 +1316,74 @@ class BigQueryAssessmentService:
 
         return shard_summaries
 
-    # ─── Step 10: Large STRING Columns (derived from cached columns) ────
+    # ─── Step 10: Profile STRING column max lengths ───────────────────
 
-    async def analyze_large_strings(self) -> Dict[str, List[str]]:
-        """Detect tables with STRING columns — derived from cached table data."""
-        large_string_tables = {}
+    async def profile_string_max_lengths(self, assessment_id: int, db: Session) -> int:
+        """Profile actual MAX(LENGTH(col)) for STRING columns to size VARCHAR accurately.
 
-        # If we used INFORMATION_SCHEMA for columns, we already have the data
-        # Just check cached tables for STRING columns from the columns step
-        # For simplicity, use cached tables list and mark all STRING columns
-        for t in self._cached_tables:
-            key = f"{t['dataset_name']}.{t['table_name']}"
-            # We don't re-fetch — the column data is already in the DB
-            # This step just identifies tables that MIGHT have large strings
-            # The actual column types were already collected in step 3
-            large_string_tables[key] = []  # Will be populated from DB if needed
+        Runs one query per table (batching all STRING columns) against the live data.
+        Updates max_length in the database for each column.
+        Limits to tables with <10M rows to keep profiling fast.
+        """
+        from models.assessment import AssessmentColumn, AssessmentTable
 
-        # If no cached tables, return empty (data already in DB from step 3)
-        return large_string_tables
+        # Get all STRING columns for this assessment
+        string_columns = db.query(AssessmentColumn).join(AssessmentTable).filter(
+            AssessmentTable.assessment_id == assessment_id,
+            AssessmentColumn.data_type.ilike('%STRING%'),
+            AssessmentColumn.max_length.is_(None)
+        ).all()
+
+        if not string_columns:
+            return 0
+
+        # Group columns by table
+        table_columns: Dict[int, List] = {}
+        for col in string_columns:
+            table_columns.setdefault(col.table_id, []).append(col)
+
+        # Get table info for building queries
+        table_ids = list(table_columns.keys())
+        tables = db.query(AssessmentTable).filter(AssessmentTable.id.in_(table_ids)).all()
+        table_lookup = {t.id: t for t in tables}
+
+        profiled_count = 0
+        for table_id, cols in table_columns.items():
+            table = table_lookup.get(table_id)
+            if not table:
+                continue
+
+            # Skip very large tables (>10M rows) to keep profiling fast
+            if table.row_count and table.row_count > 10_000_000:
+                print(f"    Skipping {table.dataset_name}.{table.table_name} ({table.row_count:,} rows — too large for profiling)")
+                continue
+
+            # Build query: MAX(LENGTH(col1)), MAX(LENGTH(col2)), ...
+            # Limit to first 20 STRING cols per table to avoid query complexity
+            cols_batch = cols[:20]
+            select_parts = [
+                f"MAX(LENGTH(CAST(`{c.column_name}` AS STRING))) AS max_len_{i}"
+                for i, c in enumerate(cols_batch)
+            ]
+            full_table = f"`{self.project_id}.{table.dataset_name}.{table.table_name}`"
+            query = f"SELECT {', '.join(select_parts)} FROM {full_table}"
+
+            try:
+                job = self.client.query(query)
+                rows = list(job.result())
+                if rows:
+                    row = rows[0]
+                    for i, col in enumerate(cols_batch):
+                        max_val = getattr(row, f'max_len_{i}', None)
+                        if max_val is not None and max_val > 0:
+                            col.max_length = int(max_val)
+                            profiled_count += 1
+                    db.commit()
+            except Exception as e:
+                print(f"    Warning: Could not profile {table.dataset_name}.{table.table_name}: {e}")
+                continue
+
+        return profiled_count
 
     # ─── Step 11: Update Frequency ──────────────────────────────────────
 
