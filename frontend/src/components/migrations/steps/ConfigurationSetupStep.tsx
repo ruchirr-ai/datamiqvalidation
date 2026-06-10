@@ -367,6 +367,32 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
                 { value: 'custom', label: 'Custom (specify per table)' },
               ]} />
               <p className="form-help">ORDER BY determines data sort order on disk — affects query performance and compression</p>
+
+              {formData.clickhouseOrderBy === 'custom' && formData.selectedTables && formData.selectedTables.length > 0 && (
+                <div style={{ marginTop: '12px', border: '1px solid var(--color-divider)', borderRadius: '6px', padding: '12px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Specify ORDER BY columns per table:</div>
+                  {formData.selectedTables.map((t: any, idx: number) => {
+                    const tableName = typeof t === 'string' ? (t.includes('.') ? t.split('.')[1] : t) : (t.table_name || t.name || '');
+                    const customOrderByMap = formData.customOrderByMap || {};
+                    return (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 500, minWidth: '150px' }}>{tableName}</span>
+                        <Input
+                          type="text"
+                          placeholder="e.g., customer_id, order_date"
+                          value={customOrderByMap[tableName] || ''}
+                          onChange={(e) => updateFormData({
+                            customOrderByMap: { ...customOrderByMap, [tableName]: e.target.value }
+                          })}
+                        />
+                      </div>
+                    );
+                  })}
+                  <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '8px' }}>
+                    Enter column names separated by commas. Leave empty to use tuple() (no ordering).
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="info-box">

@@ -163,6 +163,7 @@ def run_clickhouse_migration_background(
             'clickhouse_database': config.get('clickhouseDatabase', 'default'),
             'clickhouse_engine': config.get('clickhouseEngine', 'MergeTree'),
             'clickhouse_order_by': config.get('clickhouseOrderBy', 'auto'),
+            'custom_order_by_map': config.get('customOrderByMap', {}),
             'export_format': config.get('exportFormat', 'PARQUET'),
             'compression': config.get('compression', 'SNAPPY'),
         }
