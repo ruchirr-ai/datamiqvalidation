@@ -28,7 +28,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 const SOURCE_DIALECT_OPTIONS = ['BigQuery', 'SQL Server', 'Redshift', 'Sybase', 'IBM Db2'];
 
 /** Restricted target dialect options (Req 3.2) */
-const TARGET_DIALECT_OPTIONS = ['Redshift', 'SQL Server', 'BigQuery'];
+const TARGET_DIALECT_OPTIONS = ['Redshift', 'ClickHouse', 'SQL Server', 'BigQuery'];
 
 /** Asset type options with QUERY first/default (Req 5.1, 5.2) */
 const ASSET_TYPE_OPTIONS: { value: string; label: string }[] = [
