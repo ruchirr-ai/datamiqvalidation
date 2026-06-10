@@ -443,6 +443,17 @@ class ClickHouseMigrationService:
         if strategy == 'tuple':
             return 'tuple()'
 
+        if strategy == 'custom':
+            # Use per-table custom ORDER BY from user input
+            custom_map = self.config.get('custom_order_by_map', {})
+            table_name = table.get('table_name', '')
+            custom_value = custom_map.get(table_name, '').strip()
+            if custom_value:
+                cols = [f'`{c.strip()}`' for c in custom_value.split(',') if c.strip()]
+                if cols:
+                    return f'({", ".join(cols)})'
+            return 'tuple()'
+
         if strategy == 'auto':
             # Use clustering columns first, then partitioning
             clustering = table.get('clustering_columns') or []

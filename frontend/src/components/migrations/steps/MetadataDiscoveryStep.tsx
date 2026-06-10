@@ -261,7 +261,13 @@ export const MetadataDiscoveryStep: React.FC<MetadataDiscoveryStepProps> = ({
         const updated = { ...prev };
         // data.tables is Record<string, BigQueryTable[]>, so get the array for this dataset
         if (data.tables && data.tables[datasetId]) {
-          updated[datasetId] = data.tables[datasetId];
+          // Filter out views — only show base tables for migration
+          updated[datasetId] = data.tables[datasetId].filter(
+            (t: any) => {
+              const tType = (t.table_type || t.type || '').toUpperCase();
+              return tType !== 'VIEW' && tType !== 'MATERIALIZED_VIEW' && tType !== 'EXTERNAL';
+            }
+          );
         } else {
           updated[datasetId] = [];
         }
