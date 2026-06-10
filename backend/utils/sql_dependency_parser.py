@@ -87,6 +87,8 @@ class SQLDependencyParser:
             'ST_ASTEXT', 'ST_GEOGFROMTEXT', 'ST_ASGEOJSON', 'ST_GEOGFROMGEOJSON',
             # Net functions
             'NET', 'ERROR', 'RAISE',
+            # Session / system info functions
+            'SESSION_USER', 'CURRENT_USER', 'CURRENT_CATALOG', 'CURRENT_SCHEMA',
         }
     
     def parse_dependencies(self, sql: str) -> Dict[str, List[str]]:
