@@ -1,0 +1,260 @@
+/* StructureReviewTable */
+.structure-review-table {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Section Titles */
+.structure-review-table__section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+  margin: 0 0 12px 0;
+}
+
+/* Glue ID Section */
+.structure-review-table__glue-section {
+  border: 1px solid var(--color-divider, #E5E7EB);
+}
+
+.structure-review-table__glue-header {
+  margin-bottom: 8px;
+}
+
+.structure-review-table__glue-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.structure-review-table__glue-value {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  background: var(--color-bg-primary, #FAFAFA);
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-divider, #E5E7EB);
+  color: var(--color-text-primary, #1F2937);
+}
+
+.structure-review-table__validation-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+}
+
+/* Tables Section */
+.structure-review-table__tables {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.structure-review-table__table-card {
+  border: 1px solid var(--color-divider, #E5E7EB);
+}
+
+.structure-review-table__table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-divider, #E5E7EB);
+}
+
+.structure-review-table__table-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+  margin: 0;
+  font-family: 'Courier New', monospace;
+}
+
+.structure-review-table__table-meta {
+  font-size: 12px;
+  color: var(--color-text-secondary, #66748C);
+}
+
+/* Field Rows */
+.structure-review-table__field {
+  margin-bottom: 12px;
+}
+
+.structure-review-table__field:last-child {
+  margin-bottom: 0;
+}
+
+.structure-review-table__field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #66748C);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Partition Transforms */
+.structure-review-table__partition-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.structure-review-table__partition-value {
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  background: var(--color-bg-primary, #FAFAFA);
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-divider, #E5E7EB);
+  color: var(--color-primary, #2A6BDB);
+}
+
+/* Compaction Info */
+.structure-review-table__compaction-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.structure-review-table__compaction-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary, #66748C);
+}
+
+/* Sort Columns */
+.structure-review-table__sort-columns {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.structure-review-table__sort-label {
+  font-size: 12px;
+  color: var(--color-text-secondary, #66748C);
+}
+
+.structure-review-table__sort-column {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  background: var(--color-bg-primary, #FAFAFA);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--color-divider, #E5E7EB);
+}
+
+/* Recommendation */
+.structure-review-table__recommendation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #66748C);
+  padding: 6px 8px;
+  background: var(--color-hover-bg, #EFF5FF);
+  border-radius: 6px;
+}
+
+.structure-review-table__recommendation svg {
+  flex-shrink: 0;
+  color: var(--color-primary, #2A6BDB);
+}
+
+/* Lake Formation Prerequisites */
+.structure-review-table__lf-section {
+  padding: 16px;
+  border: 1px solid var(--color-divider, #E5E7EB);
+  border-radius: 8px;
+  background: var(--color-bg-surface, #FFFFFF);
+}
+
+.structure-review-table__lf-desc {
+  font-size: 13px;
+  color: var(--color-text-secondary, #66748C);
+  margin: 0 0 12px 0;
+}
+
+.structure-review-table__lf-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.structure-review-table__lf-item {
+  padding: 10px 12px;
+  border: 1px solid var(--color-divider, #E5E7EB);
+  border-radius: 6px;
+  background: var(--color-bg-primary, #FAFAFA);
+}
+
+.structure-review-table__lf-item-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.structure-review-table__lf-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--color-text-secondary, #66748C);
+}
+
+.structure-review-table__lf-description {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.structure-review-table__lf-permission {
+  display: block;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: var(--color-text-secondary, #66748C);
+  padding: 4px 8px;
+  background: var(--color-bg-surface, #FFFFFF);
+  border-radius: 4px;
+  border: 1px solid var(--color-divider, #E5E7EB);
+  margin-left: 24px;
+  word-break: break-all;
+}
+
+/* Responsive */
+@media (max-width: 767px) {
+  .structure-review-table__table-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .structure-review-table__glue-content {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .structure-review-table__compaction-info {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .structure-review-table__lf-permission {
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 1023px) and (min-width: 768px) {
+  .structure-review-table__lf-permission {
+    margin-left: 24px;
+  }
+}

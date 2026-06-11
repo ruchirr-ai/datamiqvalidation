@@ -148,6 +148,11 @@ export const MigrationsPage: React.FC = () => {
     navigate('/migrations/create');
   };
 
+  const handleCreateIcebergMigration = () => {
+    setShowCreateMenu(false);
+    navigate('/migrations/bq-iceberg');
+  };
+
   const handleRunMigration = async (migration: Migration) => {
     setOpenMenuId(null);
     
@@ -449,12 +454,50 @@ export const MigrationsPage: React.FC = () => {
                 align="right"
               >
                 <DropdownItem onClick={handleCreateMigration}>
-                  Create
+                  BQ → Redshift
+                </DropdownItem>
+                <DropdownItem onClick={handleCreateIcebergMigration}>
+                  BQ → Iceberg
                 </DropdownItem>
               </Dropdown>
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Migration Type Hub */}
+      <div className="migrations-hub">
+        <button className="migrations-hub__card" onClick={() => navigate('/migrations/bq-redshift')}>
+          <div className="migrations-hub__card-icon">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <rect x="2" y="5" width="7" height="12" rx="2"/>
+              <rect x="13" y="5" width="7" height="12" rx="2"/>
+              <path d="M9 11h4M11 9l2 2-2 2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <div className="migrations-hub__card-body">
+            <span className="migrations-hub__card-title">BigQuery → Redshift</span>
+            <span className="migrations-hub__card-desc">GCS/S3 transfer with checkpointing</span>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="M5 3l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <button className="migrations-hub__card migrations-hub__card--iceberg" onClick={() => navigate('/migrations/bq-iceberg')}>
+          <div className="migrations-hub__card-icon">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d="M4 18l7-14 7 14H4z" strokeLinejoin="round"/>
+              <path d="M4 18h14M7 12h8" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <div className="migrations-hub__card-body">
+            <span className="migrations-hub__card-title">BigQuery → Iceberg</span>
+            <span className="migrations-hub__card-desc">Apache Iceberg on S3 or S3 Tables</span>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="M5 3l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
       </div>
 
       {/* Table */}

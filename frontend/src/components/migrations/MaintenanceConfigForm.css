@@ -1,0 +1,50 @@
+/* MaintenanceConfigForm Styles */
+
+.maintenance-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px;
+  background: var(--color-bg-secondary, #F7F7F7);
+  border: 1px solid var(--color-divider, #E5E7EB);
+  border-radius: 8px;
+}
+
+.maintenance-config-header h4 {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.maintenance-config-description {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary, #66748C);
+  line-height: 1.4;
+}
+
+.maintenance-config-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Responsive: stack fields on mobile */
+@media (min-width: 768px) {
+  .maintenance-config-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+}
+
+@media (max-width: 767px) {
+  .maintenance-config-form {
+    padding: 16px;
+  }
+
+  .maintenance-config-fields {
+    grid-template-columns: 1fr;
+  }
+}

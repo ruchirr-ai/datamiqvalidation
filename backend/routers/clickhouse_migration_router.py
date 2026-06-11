@@ -163,6 +163,7 @@ def run_clickhouse_migration_background(
             'clickhouse_database': config.get('clickhouseDatabase', 'default'),
             'clickhouse_engine': config.get('clickhouseEngine', 'MergeTree'),
             'clickhouse_order_by': config.get('clickhouseOrderBy', 'auto'),
+            'custom_order_by_map': config.get('customOrderByMap', {}),
             'export_format': config.get('exportFormat', 'PARQUET'),
             'compression': config.get('compression', 'SNAPPY'),
         }
@@ -196,7 +197,8 @@ def run_clickhouse_migration_background(
             logger.info(f"Using assessment {latest_assessment.id} ({latest_assessment.name}) for table metadata")
             # Get all tables and columns from the assessment
             assessment_tables = db.query(AssessmentTable).filter(
-                AssessmentTable.assessment_id == latest_assessment.id
+                AssessmentTable.assessment_id == latest_assessment.id,
+                AssessmentTable.table_type == 'BASE TABLE',  # Exclude views
             ).all()
             assessment_columns = db.query(AssessmentColumn).filter(
                 AssessmentColumn.assessment_id == latest_assessment.id
@@ -244,6 +246,11 @@ def run_clickhouse_migration_background(
                 try:
                     bq_table_ref = f'{project_id_for_query}.{table_dataset}.{table_name}'
                     bq_table = bq_client.get_table(bq_table_ref)
+                    # Skip views — only migrate base tables
+                    if bq_table.table_type == 'VIEW':
+                        logger.info(f"  {table_name}: skipping (VIEW, not a table)")
+                        table['_skip'] = True
+                        continue
                     table['columns'] = [
                         {
                             'column_name': field.name,
@@ -257,6 +264,9 @@ def run_clickhouse_migration_background(
                 except Exception as e:
                     logger.error(f"Failed to fetch schema for {table_name}: {e}")
                     table['columns'] = []
+
+        # Filter out views from selected_tables
+        selected_tables = [t for t in selected_tables if not t.get('_skip')]
 
         # Run migration
         total = len(selected_tables)

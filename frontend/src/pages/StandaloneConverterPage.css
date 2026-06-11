@@ -463,3 +463,145 @@
   padding: 0;
   overflow: hidden;
 }
+
+/* --- Analysis panels (Risks & Optimizations) --- */
+.converter-analysis-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.analysis-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+  border-bottom: 1px solid var(--color-divider, #E5E7EB);
+  background: var(--color-bg-secondary, #F7F7F7);
+}
+
+.analysis-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.analysis-item {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-divider, #E5E7EB);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.analysis-item:last-child {
+  border-bottom: none;
+}
+
+.analysis-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.analysis-item-type {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-secondary, #66748C);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.analysis-item-desc {
+  margin: 0 0 6px;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.analysis-item-action {
+  margin: 0;
+  color: var(--color-text-secondary, #66748C);
+  font-size: 0.8rem;
+}
+
+/* Risk severity badges */
+.risk-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.risk-badge--high {
+  background: #FEE2E2;
+  color: #DC2626;
+}
+
+.risk-badge--medium {
+  background: #FEF3C7;
+  color: #D97706;
+}
+
+.risk-badge--low {
+  background: #DCFCE7;
+  color: #16A34A;
+}
+
+.risk-badge--info {
+  background: #DBEAFE;
+  color: #2563EB;
+}
+
+/* Left border accent by severity */
+.analysis-item.risk-high {
+  border-left: 3px solid #DC2626;
+}
+
+.analysis-item.risk-medium {
+  border-left: 3px solid #D97706;
+}
+
+.analysis-item.risk-low {
+  border-left: 3px solid #16A34A;
+}
+
+.analysis-item.analysis-item--rec {
+  border-left: 3px solid #2563EB;
+}
+
+/* Accuracy score colors */
+.status-warning {
+  color: #D97706;
+}
+
+/* --- Analysis count & toggle --- */
+.analysis-count {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--color-text-secondary, #66748C);
+}
+
+.analysis-toggle-btn {
+  width: 100%;
+  padding: 10px 16px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--color-divider, #E5E7EB);
+  color: var(--color-primary, #2A6BDB);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s ease;
+}
+
+.analysis-toggle-btn:hover {
+  background: var(--color-hover-bg, #EFF5FF);
+}

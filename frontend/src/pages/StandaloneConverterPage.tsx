@@ -24,11 +24,64 @@ import {
 import './StandaloneConverterPage.css';
 import { useLanguage } from '../contexts/LanguageContext';
 
+// ---------------------------------------------------------------------------
+// Structured Bedrock response types
+// ---------------------------------------------------------------------------
+interface ConversionRisk {
+  severity: 'High' | 'Medium' | 'Low';
+  issue_type: string;
+  description: string;
+  suggested_action: string;
+}
+
+interface OptimizationRec {
+  category: string;
+  recommendation: string;
+}
+
+interface StructuredConversionResult {
+  converted_sql: string;
+  accuracy_score: number;
+  risks_and_issues: ConversionRisk[];
+  optimization_recommendations: OptimizationRec[];
+}
+
+/** Try to parse target_code as structured JSON from our ClickHouse prompt.
+ *  Returns null if it's plain SQL (other prompts return raw SQL). */
+function parseStructuredResult(raw: string | null): StructuredConversionResult | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    // First attempt: direct parse
+    const parsed = JSON.parse(trimmed);
+    if (parsed.converted_sql !== undefined) return parsed as StructuredConversionResult;
+  } catch {
+    // JSON may contain unescaped control characters in string values (backend unescape issue)
+    // Fix by replacing literal control chars inside JSON string values
+    try {
+      const sanitized = trimmed
+        // Replace literal newlines/tabs inside JSON string values with escaped versions
+        .replace(/("(?:[^"\\]|\\.)*")/gs, (match) =>
+          match
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t')
+        );
+      const parsed = JSON.parse(sanitized);
+      if (parsed.converted_sql !== undefined) return parsed as StructuredConversionResult;
+    } catch {
+      // Still failed — treat as plain SQL
+    }
+  }
+  return null;
+}
+
 /** Restricted source dialect options (Req 3.1) */
 const SOURCE_DIALECT_OPTIONS = ['BigQuery', 'SQL Server', 'Redshift', 'Sybase', 'IBM Db2'];
 
 /** Restricted target dialect options (Req 3.2) */
-const TARGET_DIALECT_OPTIONS = ['Redshift', 'SQL Server', 'BigQuery'];
+const TARGET_DIALECT_OPTIONS = ['Redshift', 'SQL Server', 'BigQuery', 'ClickHouse'];
 
 /** Asset type options with QUERY first/default (Req 5.1, 5.2) */
 const ASSET_TYPE_OPTIONS: { value: string; label: string }[] = [
@@ -44,6 +97,83 @@ const ASSET_TYPE_OPTIONS: { value: string; label: string }[] = [
 const ACCEPTED_FILE_EXTENSIONS = ['.txt', '.sql', '.csv', '.json', '.xml'];
 const ACCEPTED_FILE_TYPES = ACCEPTED_FILE_EXTENSIONS.join(',');
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+
+// ---------------------------------------------------------------------------
+// Collapsible Risks panel — shows High by default, rest behind toggle
+// ---------------------------------------------------------------------------
+const RisksPanel: React.FC<{ risks: ConversionRisk[] }> = ({ risks }) => {
+  const [showAll, setShowAll] = React.useState(false);
+  const high = risks.filter(r => r.severity === 'High');
+  const rest = risks.filter(r => r.severity !== 'High');
+  const visible = showAll ? risks : high;
+
+  return (
+    <Card className="converter-analysis-card">
+      <div className="analysis-section-header">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+          <path d="M8 1l7 14H1L8 1z" strokeLinejoin="round"/>
+          <path d="M8 6v4M8 11.5v.5" strokeLinecap="round"/>
+        </svg>
+        <span>Risks &amp; Issues</span>
+        <span className="analysis-count">{high.length} High{rest.length > 0 ? `, ${rest.length} other` : ''}</span>
+      </div>
+      <div className="analysis-items">
+        {visible.map((risk, i) => (
+          <div key={i} className={`analysis-item risk-${risk.severity.toLowerCase()}`}>
+            <div className="analysis-item-header">
+              <span className={`risk-badge risk-badge--${risk.severity.toLowerCase()}`}>{risk.severity}</span>
+              <span className="analysis-item-type">{risk.issue_type}</span>
+            </div>
+            <p className="analysis-item-desc">{risk.description}</p>
+            <p className="analysis-item-action"><strong>Fix:</strong> {risk.suggested_action}</p>
+          </div>
+        ))}
+      </div>
+      {rest.length > 0 && (
+        <button className="analysis-toggle-btn" onClick={() => setShowAll(v => !v)}>
+          {showAll ? `Hide ${rest.length} lower-priority items` : `Show ${rest.length} more (Medium / Low)`}
+        </button>
+      )}
+    </Card>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Optimizations panel — shows top 3 by default, rest behind toggle
+// ---------------------------------------------------------------------------
+const OPTS_DEFAULT_COUNT = 3;
+const OptimizationsPanel: React.FC<{ recs: OptimizationRec[] }> = ({ recs }) => {
+  const [showAll, setShowAll] = React.useState(false);
+  const visible = showAll ? recs : recs.slice(0, OPTS_DEFAULT_COUNT);
+  const hidden = recs.length - OPTS_DEFAULT_COUNT;
+
+  return (
+    <Card className="converter-analysis-card">
+      <div className="analysis-section-header">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+          <path d="M8 2l1.5 3 3.5.5-2.5 2.5.5 3.5L8 10l-3 1.5.5-3.5L3 5.5l3.5-.5z" strokeLinejoin="round"/>
+        </svg>
+        <span>Optimizations</span>
+        <span className="analysis-count">Top {Math.min(OPTS_DEFAULT_COUNT, recs.length)} of {recs.length}</span>
+      </div>
+      <div className="analysis-items">
+        {visible.map((rec, i) => (
+          <div key={i} className="analysis-item analysis-item--rec">
+            <div className="analysis-item-header">
+              <span className="risk-badge risk-badge--info">{rec.category}</span>
+            </div>
+            <p className="analysis-item-desc">{rec.recommendation}</p>
+          </div>
+        ))}
+      </div>
+      {hidden > 0 && (
+        <button className="analysis-toggle-btn" onClick={() => setShowAll(v => !v)}>
+          {showAll ? `Show less` : `Show ${hidden} more recommendations`}
+        </button>
+      )}
+    </Card>
+  );
+};
 
 export const StandaloneConverterPage: React.FC = () => {
   const { t } = useLanguage();
@@ -77,6 +207,10 @@ export const StandaloneConverterPage: React.FC = () => {
   const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
   const [showTooltip, setShowTooltip] = useState(false);
 
+  // --- Derived: parse structured JSON response from Bedrock ---
+  const structuredResult = parseStructuredResult(result?.target_code ?? null);
+  const displayCode = structuredResult ? structuredResult.converted_sql : (result?.target_code ?? '');
+
   // --- Load prompt templates on mount ---
   useEffect(() => {
     const fetchTemplates = async () => {
@@ -96,6 +230,21 @@ export const StandaloneConverterPage: React.FC = () => {
     };
     fetchTemplates();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Auto-select matching template when source/target dialect changes ---
+  useEffect(() => {
+    if (templates.length === 0 || showCustomInput) return;
+    const srcKey = sourceDialect.toLowerCase().replace(/\s+/g, '');
+    const tgtKey = targetDialect.toLowerCase().replace(/\s+/g, '');
+    // Look for a template whose filename contains both dialect slugs
+    const match = templates.find((t) => {
+      const pathLower = t.path.toLowerCase();
+      return pathLower.includes(srcKey) && pathLower.includes(tgtKey);
+    });
+    if (match) {
+      setPromptTemplatePath(match.path);
+    }
+  }, [sourceDialect, targetDialect, templates, showCustomInput]);
 
   // --- Load Bedrock models when region changes ---
   const fetchModels = useCallback(async (region: string) => {
@@ -226,8 +375,8 @@ export const StandaloneConverterPage: React.FC = () => {
 
   // --- Export .sql handler ---
   const handleExportSql = useCallback(() => {
-    if (!result?.target_code) return;
-    const blob = new Blob([result.target_code], { type: 'application/sql' });
+    if (!displayCode) return;
+    const blob = new Blob([displayCode], { type: 'application/sql' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -236,9 +385,7 @@ export const StandaloneConverterPage: React.FC = () => {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-  }, [result, targetDialect]);
-
-  // --- History row click handler ---
+  }, [displayCode, targetDialect]);
   const handleSelectHistoryJob = useCallback(
     (job: ConversionJob) => {
       setResult(job);
@@ -663,7 +810,7 @@ export const StandaloneConverterPage: React.FC = () => {
             )}
           </div>
           <CodePane
-            code={result?.target_code || ''}
+            code={displayCode}
             title=""
             language={targetDialect}
             showLineNumbers
@@ -679,18 +826,37 @@ export const StandaloneConverterPage: React.FC = () => {
             Status:{' '}
             <strong className={`status-${result.status}`}>{result.status}</strong>
           </span>
+          {structuredResult && (
+            <span className="meta-item">
+              Accuracy:{' '}
+              <strong className={
+                structuredResult.accuracy_score >= 90 ? 'status-completed' :
+                structuredResult.accuracy_score >= 70 ? 'status-warning' : 'status-failed'
+              }>
+                {structuredResult.accuracy_score}%
+              </strong>
+            </span>
+          )}
           {result.use_sqlglot && (
             <span className="meta-item">
               SQLGlot:{' '}
-              <strong>
-                {result.sqlglot_success ? 'Success' : 'Fallback to raw'}
-              </strong>
+              <strong>{result.sqlglot_success ? 'Success' : 'Fallback to raw'}</strong>
             </span>
           )}
           <span className="meta-item">
             Retries: <strong>{result.retry_count}</strong>
           </span>
         </div>
+      )}
+
+      {/* Risks & Issues panel */}
+      {structuredResult && structuredResult.risks_and_issues.length > 0 && (
+        <RisksPanel risks={structuredResult.risks_and_issues} />
+      )}
+
+      {/* Optimization Recommendations panel */}
+      {structuredResult && structuredResult.optimization_recommendations.length > 0 && (
+        <OptimizationsPanel recs={structuredResult.optimization_recommendations} />
       )}
 
       {/* Conversion history */}

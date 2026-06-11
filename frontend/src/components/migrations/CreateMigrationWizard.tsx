@@ -459,6 +459,7 @@ export const CreateMigrationWizard: React.FC = () => {
             clickhouseDatabase: formData.clickhouseDatabase || 'default',
             clickhouseEngine: formData.clickhouseEngine || 'MergeTree',
             clickhouseOrderBy: formData.clickhouseOrderBy || 'auto',
+            customOrderByMap: formData.customOrderByMap || {},
             exportFormat: formData.exportFormat || 'PARQUET',
             compression: formData.compression || 'SNAPPY',
           },

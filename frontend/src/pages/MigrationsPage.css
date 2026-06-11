@@ -1015,3 +1015,94 @@
     transform: translateY(0);
   }
 }
+
+/* ---- Migration Type Hub Cards ---- */
+
+.migrations-hub {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.migrations-hub__card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--color-bg-surface, #fff);
+  border: 1px solid var(--color-divider, #E5E7EB);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  flex: 1;
+  min-width: 240px;
+  max-width: 380px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.migrations-hub__card:hover {
+  border-color: var(--color-primary, #2A6BDB);
+  box-shadow: 0 2px 8px rgba(42, 107, 219, 0.12);
+  background: var(--color-hover-bg, #EFF5FF);
+}
+
+.migrations-hub__card--iceberg {
+  border-color: #A7F3D0;
+}
+
+.migrations-hub__card--iceberg:hover {
+  border-color: #059669;
+  box-shadow: 0 2px 8px rgba(5, 150, 105, 0.12);
+  background: #F0FDF4;
+}
+
+.migrations-hub__card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--color-selected-bg, #D4E4FC);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary, #2A6BDB);
+  flex-shrink: 0;
+}
+
+.migrations-hub__card--iceberg .migrations-hub__card-icon {
+  background: #D1FAE5;
+  color: #059669;
+}
+
+.migrations-hub__card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.migrations-hub__card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.migrations-hub__card-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary, #66748C);
+}
+
+.migrations-hub__card > svg:last-child {
+  color: var(--color-text-secondary, #66748C);
+  flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+  .migrations-hub {
+    flex-direction: column;
+  }
+  .migrations-hub__card {
+    max-width: unset;
+  }
+}

@@ -48,7 +48,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 const SOURCE_DIALECT_OPTIONS = ['BigQuery', 'SQL Server', 'Redshift', 'Sybase', 'IBM Db2'];
 
 /** Restricted target dialect options (Req 3.4) */
-const TARGET_DIALECT_OPTIONS = ['Redshift', 'SQL Server', 'BigQuery'];
+const TARGET_DIALECT_OPTIONS = ['Redshift', 'SQL Server', 'BigQuery', 'ClickHouse'];
 
 /** Asset type options with Query first/default (Req 5.1, 5.2) */
 const ASSET_TYPE_OPTIONS = [
@@ -255,6 +255,20 @@ export const BatchConverterPage: React.FC<BatchConverterPageProps> = ({
     };
     fetchTemplates();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Auto-select matching template when source/target dialect changes ---
+  useEffect(() => {
+    if (templates.length === 0 || showCustomInput) return;
+    const srcKey = sourceDialect.toLowerCase().replace(/\s+/g, '');
+    const tgtKey = targetDialect.toLowerCase().replace(/\s+/g, '');
+    const match = templates.find((t) => {
+      const pathLower = t.path.toLowerCase();
+      return pathLower.includes(srcKey) && pathLower.includes(tgtKey);
+    });
+    if (match) {
+      setPromptTemplatePath(match.path);
+    }
+  }, [sourceDialect, targetDialect, templates, showCustomInput]);
 
   // --- Load completed assessments on mount ---
   useEffect(() => {

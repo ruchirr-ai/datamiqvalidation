@@ -16,6 +16,9 @@ def unescape_code_output(text: str) -> str:
     NOT actual escape characters. This fixes Bedrock model responses
     that return literal ``\\n`` instead of real newlines.
 
+    Skips unescaping when the response is a JSON object (structured
+    prompt responses) to avoid corrupting valid JSON escape sequences.
+
     Args:
         text: The raw text potentially containing literal escape sequences.
 
@@ -24,6 +27,13 @@ def unescape_code_output(text: str) -> str:
         actual newline, tab, and carriage-return characters.
     """
     if not text:
+        return text
+
+    # If the response is a JSON object (structured prompt output like ClickHouse
+    # converter), do NOT unescape — the \\n sequences inside JSON string values
+    # are valid JSON escapes and must stay as-is.
+    stripped = text.strip()
+    if stripped.startswith('{') and stripped.endswith('}'):
         return text
 
     result = text.replace("\\n", "\n")

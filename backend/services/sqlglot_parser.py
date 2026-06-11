@@ -67,6 +67,7 @@ class SQLGlotParser:
         'oracle',
         'mssql',
         'tsql',
+        'clickhouse',
     ]
     
     def __init__(self):
@@ -326,6 +327,7 @@ DIALECT_MAP: Dict[str, str] = {
     "mssql": "tsql",
     "sqlserver": "tsql",
     "sql server": "tsql",
+    "clickhouse": "clickhouse",
 }
 
 # Dialects that sqlglot cannot handle (NoSQL / non-SQL engines).
