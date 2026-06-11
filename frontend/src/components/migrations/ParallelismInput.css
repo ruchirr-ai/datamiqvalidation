@@ -1,0 +1,38 @@
+/* ParallelismInput Component Styles */
+
+.parallelism-input {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.parallelism-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  background: #FEF3C7;
+  border: 1px solid #FCD34D;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #92400E;
+}
+
+.parallelism-warning svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #D97706;
+}
+
+.parallelism-warning span {
+  flex: 1;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .parallelism-warning {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+}

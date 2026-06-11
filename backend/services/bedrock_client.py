@@ -44,6 +44,46 @@ class BedrockModel:
     provider: str
 
 
+def _get_aws_session(region: str) -> boto3.Session:
+    """Build a boto3 Session using explicit credentials from environment variables.
+
+    Precedence:
+    1. AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN env vars
+    2. AWS default credential chain (IAM role, ~/.aws/credentials, etc.)
+
+    The Bedrock region falls back to AWS_BEDROCK_REGION → AWS_REGION → the
+    ``region`` argument supplied by the caller.
+    """
+    access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+    session_token = os.getenv("AWS_SESSION_TOKEN")
+
+    # Prefer the Bedrock-specific region override when available.
+    effective_region = (
+        os.getenv("AWS_BEDROCK_REGION")
+        or os.getenv("AWS_REGION")
+        or region
+    )
+
+    if access_key and secret_key:
+        logger.debug(
+            "Building AWS session with explicit credentials from environment",
+            extra={"region": effective_region},
+        )
+        return boto3.Session(
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            aws_session_token=session_token,
+            region_name=effective_region,
+        )
+
+    logger.debug(
+        "No explicit AWS credentials found; falling back to default credential chain",
+        extra={"region": effective_region},
+    )
+    return boto3.Session(region_name=effective_region)
+
+
 class BedrockClient:
     """Client for AWS Bedrock model invocation and S3 prompt template retrieval."""
 
@@ -112,7 +152,8 @@ class BedrockClient:
         key = match.group(2)
 
         try:
-            s3_client = boto3.client("s3", region_name=region)
+            session = _get_aws_session(region)
+            s3_client = session.client("s3")
             response = s3_client.get_object(Bucket=bucket, Key=key)
             template = response["Body"].read().decode("utf-8")
             logger.info(
@@ -185,7 +226,9 @@ class BedrockClient:
         """Invoke a Bedrock model with exponential backoff retry."""
         if self.demo_mode:
             return self._demo_invoke(prompt)
-        bedrock_runtime = boto3.client("bedrock-runtime", region_name=region)
+
+        session = _get_aws_session(region)
+        bedrock_runtime = session.client("bedrock-runtime")
 
         last_exception: Optional[Exception] = None
 
@@ -194,7 +237,7 @@ class BedrockClient:
             try:
                 body = json.dumps({
                     "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 4096,
+                    "max_tokens": 8192,
                     "messages": [
                         {"role": "user", "content": prompt},
                     ],

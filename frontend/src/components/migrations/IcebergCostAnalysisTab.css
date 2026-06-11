@@ -1,0 +1,227 @@
+/* Cost Analysis Tab */
+.cost-analysis-tab {
+  padding: 0;
+}
+
+.cost-analysis-tab__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--color-text-secondary, #66748C);
+  font-size: 14px;
+}
+
+.cost-analysis-tab__header {
+  margin-bottom: 20px;
+}
+
+.cost-analysis-tab__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+  margin: 0 0 4px 0;
+}
+
+.cost-analysis-tab__subtitle {
+  font-size: 13px;
+  color: var(--color-text-secondary, #66748C);
+  margin: 0;
+}
+
+.cost-analysis-tab__section {
+  margin-bottom: 16px;
+}
+
+.cost-analysis-tab__section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+  margin: 0 0 8px 0;
+}
+
+.cost-analysis-tab__section-desc {
+  font-size: 13px;
+  color: var(--color-text-secondary, #66748C);
+  margin: 0 0 12px 0;
+}
+
+/* Cost Grid */
+.cost-analysis-tab__cost-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cost-analysis-tab__cost-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--color-bg-primary, #FAFAFA);
+}
+
+.cost-analysis-tab__cost-item--total {
+  background: var(--color-selected-bg, #D4E4FC);
+  font-weight: 600;
+}
+
+.cost-analysis-tab__cost-label {
+  font-size: 13px;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.cost-analysis-tab__cost-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary, #1F2937);
+  font-family: monospace;
+}
+
+/* Slider */
+.cost-analysis-tab__slider-container {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.cost-analysis-tab__slider {
+  flex: 1;
+  height: 4px;
+  appearance: none;
+  background: var(--color-divider, #E5E7EB);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.cost-analysis-tab__slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-primary, #2A6BDB);
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.cost-analysis-tab__slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--color-primary, #2A6BDB);
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.cost-analysis-tab__slider-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary, #1F2937);
+  min-width: 120px;
+}
+
+.cost-analysis-tab__recalculating {
+  font-size: 12px;
+  color: var(--color-text-secondary, #66748C);
+  font-weight: 400;
+}
+
+/* Projections Table */
+.cost-analysis-tab__projections-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.cost-analysis-tab__projections-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #66748C);
+  border-bottom: 1px solid var(--color-divider, #E5E7EB);
+  background: var(--color-bg-primary, #FAFAFA);
+}
+
+.cost-analysis-tab__projections-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-divider, #E5E7EB);
+  color: var(--color-text-primary, #1F2937);
+}
+
+.cost-analysis-tab__projection-optimistic {
+  color: #059669;
+  font-weight: 500;
+  font-family: monospace;
+}
+
+.cost-analysis-tab__projection-conservative {
+  color: #D97706;
+  font-weight: 500;
+  font-family: monospace;
+}
+
+/* TCO Comparison */
+.tco-comparison__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+.tco-comparison__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: var(--color-bg-primary, #FAFAFA);
+  border: 1px solid var(--color-divider, #E5E7EB);
+}
+
+.tco-comparison__item--savings {
+  background: #ECFDF5;
+  border-color: #A7F3D0;
+}
+
+.tco-comparison__item--increase {
+  background: #FEF2F2;
+  border-color: #FECACA;
+}
+
+.tco-comparison__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #66748C);
+}
+
+.tco-comparison__value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+  font-family: monospace;
+}
+
+.tco-comparison__percentage {
+  font-size: 13px;
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+/* Responsive */
+@media (max-width: 767px) {
+  .tco-comparison__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cost-analysis-tab__slider-container {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .cost-analysis-tab__slider {
+    width: 100%;
+  }
+}

@@ -1,0 +1,262 @@
+/**
+ * Styles for CompactionStrategySelector component
+ * Follows the project design system with clean, minimal Snowflake-inspired UI
+ */
+
+.compaction-strategy-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.compaction-strategy-selector__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.compaction-strategy-selector__label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.compaction-strategy-selector__recommendation {
+  margin-bottom: 4px;
+}
+
+.compaction-strategy-selector__recommendation code {
+  font-family: 'Courier New', monospace;
+  font-size: 0.8125rem;
+  background: rgba(42, 107, 219, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.compaction-strategy-selector__select {
+  max-width: 280px;
+}
+
+/* Strategy descriptions list */
+.compaction-strategy-selector__descriptions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: var(--color-bg-primary, #FAFAFA);
+  border: 1px solid var(--color-divider, #E5E7EB);
+  border-radius: 6px;
+}
+
+.compaction-strategy-selector__description {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #66748C);
+  line-height: 1.4;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.compaction-strategy-selector__description--active {
+  background: var(--color-selected-bg, #D4E4FC);
+  color: var(--color-text-primary, #1F2937);
+}
+
+.compaction-strategy-selector__description-name {
+  font-weight: 500;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.compaction-strategy-selector__description--active .compaction-strategy-selector__description-name {
+  color: var(--color-primary, #2A6BDB);
+}
+
+.compaction-strategy-selector__description-text {
+  color: inherit;
+}
+
+/* Sort columns section */
+.compaction-strategy-selector__sort-columns {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-divider, #E5E7EB);
+}
+
+.compaction-strategy-selector__sort-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.compaction-strategy-selector__sort-label .required {
+  color: var(--color-error, #DC2626);
+}
+
+.compaction-strategy-selector__sort-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.compaction-strategy-selector__column-select {
+  flex: 1;
+  min-width: 180px;
+}
+
+.compaction-strategy-selector__or-text {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #66748C);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.compaction-strategy-selector__manual-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 180px;
+}
+
+.compaction-strategy-selector__text-input {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 0.8125rem;
+  border: 1px solid var(--color-divider, #E5E7EB);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color 0.15s ease;
+  font-family: inherit;
+}
+
+.compaction-strategy-selector__text-input:focus {
+  border-color: var(--color-primary, #2A6BDB);
+  box-shadow: 0 0 0 2px var(--color-focus-ring, rgba(42, 107, 219, 0.3));
+}
+
+.compaction-strategy-selector__text-input::placeholder {
+  color: var(--color-text-disabled, #9AA6B2);
+}
+
+.compaction-strategy-selector__add-btn {
+  padding: 6px 12px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-primary, #2A6BDB);
+  background: transparent;
+  border: 1px solid var(--color-primary, #2A6BDB);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.compaction-strategy-selector__add-btn:hover:not(:disabled) {
+  background: var(--color-hover-bg, #EFF5FF);
+}
+
+.compaction-strategy-selector__add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Validation error */
+.compaction-strategy-selector__error {
+  font-size: 0.75rem;
+  color: var(--color-error, #DC2626);
+  margin: 0;
+}
+
+/* Selected columns tags */
+.compaction-strategy-selector__selected-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.compaction-strategy-selector__column-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--color-selected-bg, #D4E4FC);
+  border: 1px solid rgba(42, 107, 219, 0.2);
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.compaction-strategy-selector__column-order {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background: var(--color-primary, #2A6BDB);
+  color: #fff;
+  border-radius: 50%;
+}
+
+.compaction-strategy-selector__column-name {
+  font-family: 'Courier New', monospace;
+  font-size: 0.8125rem;
+}
+
+.compaction-strategy-selector__column-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: var(--color-text-secondary, #66748C);
+  transition: all 0.15s ease;
+}
+
+.compaction-strategy-selector__column-remove:hover {
+  color: var(--color-error, #DC2626);
+  background: var(--color-error-bg, #FEE2E2);
+}
+
+/* Help text */
+.compaction-strategy-selector__help {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #66748C);
+  margin: 0;
+}
+
+/* Responsive */
+@media (max-width: 767px) {
+  .compaction-strategy-selector__sort-input-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .compaction-strategy-selector__or-text {
+    text-align: center;
+  }
+
+  .compaction-strategy-selector__manual-input {
+    min-width: unset;
+  }
+
+  .compaction-strategy-selector__column-select {
+    min-width: unset;
+  }
+}
+
+@media (max-width: 1023px) and (min-width: 768px) {
+  .compaction-strategy-selector__select {
+    max-width: 240px;
+  }
+}

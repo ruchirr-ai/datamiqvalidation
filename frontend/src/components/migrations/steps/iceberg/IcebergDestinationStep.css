@@ -1,0 +1,292 @@
+/* Iceberg Destination Step Styles */
+
+.iceberg-destination-step {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Destination Cards */
+.destination-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.destination-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--color-divider, #E5E7EB);
+  border-radius: 8px;
+  background: var(--color-bg-surface, #FFFFFF);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.destination-card:hover:not(.disabled) {
+  border-color: var(--color-primary, #2A6BDB);
+  background: var(--color-hover-bg, #EFF5FF);
+}
+
+.destination-card.selected {
+  border-color: var(--color-primary, #2A6BDB);
+  background: var(--color-hover-bg, #EFF5FF);
+  box-shadow: 0 0 0 1px var(--color-primary, #2A6BDB);
+}
+
+.destination-card.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.destination-card-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--color-bg-secondary, #F7F7F7);
+  color: var(--color-text-secondary, #66748C);
+  flex-shrink: 0;
+}
+
+.destination-card-icon.iceberg {
+  background: #E8F4FD;
+  color: var(--color-primary, #2A6BDB);
+}
+
+.destination-card-content h4 {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.destination-card-content p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary, #66748C);
+  line-height: 1.4;
+}
+
+.destination-card-check {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-primary, #2A6BDB);
+  color: white;
+}
+
+/* Sub-type Toggle */
+.iceberg-subtype-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.subtype-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.subtype-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--color-divider, #E5E7EB);
+  border-radius: 8px;
+  background: var(--color-bg-surface, #FFFFFF);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.subtype-option:hover {
+  border-color: var(--color-primary, #2A6BDB);
+  background: var(--color-hover-bg, #EFF5FF);
+}
+
+.subtype-option.active {
+  border-color: var(--color-primary, #2A6BDB);
+  background: var(--color-selected-bg, #D4E4FC);
+}
+
+.subtype-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.subtype-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary, #66748C);
+}
+
+/* Configuration Fields */
+.iceberg-config-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px;
+  background: var(--color-bg-secondary, #F7F7F7);
+  border-radius: 8px;
+  border: 1px solid var(--color-divider, #E5E7EB);
+}
+
+/* Authentication Section */
+.auth-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-divider, #E5E7EB);
+}
+
+.auth-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.auth-header h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.auth-toggle {
+  display: flex;
+  border: 1px solid var(--color-divider, #E5E7EB);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.auth-method-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  background: var(--color-bg-surface, #FFFFFF);
+  color: var(--color-text-secondary, #66748C);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.auth-method-btn:not(:last-child) {
+  border-right: 1px solid var(--color-divider, #E5E7EB);
+}
+
+.auth-method-btn.active {
+  background: var(--color-primary, #2A6BDB);
+  color: white;
+}
+
+.auth-method-btn:hover:not(.active) {
+  background: var(--color-hover-bg, #EFF5FF);
+}
+
+/* Validate Button */
+.iceberg-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
+.btn-validate {
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--color-primary, #2A6BDB);
+  border-radius: 6px;
+  background: var(--color-bg-surface, #FFFFFF);
+  color: var(--color-primary, #2A6BDB);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-validate:hover {
+  background: var(--color-primary, #2A6BDB);
+  color: white;
+}
+
+/* Summary Panel */
+.iceberg-summary-panel {
+  padding: 20px;
+  background: #F0FDF4;
+  border: 1px solid #86EFAC;
+  border-radius: 8px;
+}
+
+.iceberg-summary-panel h4 {
+  margin: 0 0 16px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #065F46;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summary-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6B7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summary-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary, #1F2937);
+}
+
+.summary-value--mono {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .destination-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .subtype-toggle {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+}

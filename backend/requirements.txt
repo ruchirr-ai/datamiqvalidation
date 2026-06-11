@@ -19,6 +19,9 @@ pytest-cov
 boto3
 botocore
 
+# Apache Iceberg
+pyiceberg[glue]>=0.7.0
+
 # Security & Encryption
 cryptography
 python-jose[cryptography]

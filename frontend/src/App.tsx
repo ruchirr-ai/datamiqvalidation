@@ -21,6 +21,8 @@ import { CreateAssessmentPage } from './pages/CreateAssessmentPage';
 import { CompatibilityCheckPage } from './pages/assessments/CompatibilityCheckPage';
 import { AssessmentReportsPage } from './pages/assessments/AssessmentReportsPage';
 import { BQRedshiftMigrationsPage } from './pages/migrations/BQRedshiftMigrationsPage';
+import { BQIcebergMigrationsPage } from './pages/migrations/BQIcebergMigrationsPage';
+import { IcebergStructureReviewPage } from './pages/migrations/IcebergStructureReviewPage';
 import { CreateMigrationWizard } from './components/migrations/CreateMigrationWizard';
 import { PathwayATestPage } from './pages/PathwayATestPage';
 import { BQExportTestPage } from './pages/BQExportTestPage';
@@ -190,6 +192,9 @@ const AppContent: React.FC = () => {
                   <Route path="/assessments/reports" element={<AssessmentReportsPage />} />
                   <Route path="/migrations" element={<MigrationsPage />} />
                   <Route path="/migrations/bq-redshift" element={<BQRedshiftMigrationsPage />} />
+                  <Route path="/migrations/bq-iceberg" element={<BQIcebergMigrationsPage />} />
+                  <Route path="/migrations/bq-iceberg/:migrationId/structure-review" element={<IcebergStructureReviewPage />} />
+                  <Route path="/migrations/bq-iceberg/:migrationId" element={<BQIcebergMigrationsPage />} />
                   <Route path="/migrations/create" element={<CreateMigrationWizard />} />
                   <Route path="/migrations/pathway-a-test" element={<PathwayATestPage />} />
                   <Route path="/migrations/bq-export-test" element={<BQExportTestPage />} />

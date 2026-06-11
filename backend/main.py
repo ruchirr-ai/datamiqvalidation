@@ -14,6 +14,7 @@ from routers.auth_router import router as auth_router
 from routers.connections_router import router as connections_router
 from routers.field_config_router import router as field_config_router
 from routers.bq_redshift_migration import router as bq_redshift_router
+from routers.bq_iceberg_migration import router as bq_iceberg_router, connection_test_router as bq_iceberg_connection_test_router
 from routers.pathway_a_test_router import router as pathway_a_test_router
 from routers.bq_export_test_router import router as bq_export_test_router
 from routers.assessment_router import router as assessment_router
@@ -182,6 +183,8 @@ app.include_router(auth_router)
 app.include_router(connections_router)
 app.include_router(field_config_router)
 app.include_router(bq_redshift_router)
+app.include_router(bq_iceberg_router)
+app.include_router(bq_iceberg_connection_test_router)
 app.include_router(pathway_a_test_router)
 app.include_router(bq_export_test_router)
 app.include_router(assessment_router)

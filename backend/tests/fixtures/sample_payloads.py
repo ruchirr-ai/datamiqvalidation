@@ -256,6 +256,177 @@ VALID_STANDALONE_WITH_CONTEXT = {
     "use_sqlglot": False,
 }
 
+# ---------------------------------------------------------------------------
+# ClickHouse conversion payloads
+# ---------------------------------------------------------------------------
+
+# BigQuery → ClickHouse: basic SELECT query
+VALID_BQ_TO_CLICKHOUSE_QUERY = {
+    "source_code": (
+        "SELECT user_id, TIMESTAMP_TRUNC(event_time, DAY) AS event_day, "
+        "COUNT(DISTINCT session_id) AS sessions, "
+        "STRING_AGG(event_name, ', ' ORDER BY event_time) AS event_list "
+        "FROM `my_project.analytics.events` "
+        "WHERE DATE(event_time) >= '2024-01-01' "
+        "GROUP BY 1, 2"
+    ),
+    "source_dialect": "Bigquery",
+    "target_dialect": "ClickHouse",
+    "asset_type": "QUERY",
+    "asset_name": "daily_session_summary",
+    "aws_region": "us-east-1",
+    "bedrock_model": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "prompt_template_path": "prompts/bigquery-to-clickhouse-conversion.txt",
+    "max_retries": 3,
+    "use_sqlglot": False,
+}
+
+# BigQuery → ClickHouse: TABLE DDL with PARTITION BY and CLUSTER BY
+VALID_BQ_TO_CLICKHOUSE_TABLE_DDL = {
+    "source_code": (
+        "CREATE OR REPLACE TABLE `my_project.analytics.user_events` (\n"
+        "  user_id INT64 NOT NULL,\n"
+        "  session_id STRING,\n"
+        "  event_name STRING,\n"
+        "  event_time TIMESTAMP,\n"
+        "  properties JSON,\n"
+        "  tags ARRAY<STRING>,\n"
+        "  location STRUCT<city STRING, country STRING>,\n"
+        "  revenue NUMERIC(18, 4)\n"
+        ")\n"
+        "PARTITION BY DATE(event_time)\n"
+        "CLUSTER BY user_id, event_name\n"
+        "OPTIONS (partition_expiration_days=90)"
+    ),
+    "source_dialect": "Bigquery",
+    "target_dialect": "ClickHouse",
+    "asset_type": "TABLE_DDL",
+    "asset_name": "user_events",
+    "aws_region": "us-east-1",
+    "bedrock_model": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "prompt_template_path": "prompts/bigquery-to-clickhouse-conversion.txt",
+    "max_retries": 3,
+    "use_sqlglot": False,
+}
+
+# BigQuery → ClickHouse: VIEW with window function and QUALIFY
+VALID_BQ_TO_CLICKHOUSE_VIEW = {
+    "source_code": (
+        "CREATE OR REPLACE VIEW `my_project.analytics.latest_user_events` AS\n"
+        "SELECT * FROM (\n"
+        "  SELECT *, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY event_time DESC) AS rn\n"
+        "  FROM `my_project.analytics.user_events`\n"
+        ")\n"
+        "WHERE rn = 1"
+    ),
+    "source_dialect": "Bigquery",
+    "target_dialect": "ClickHouse",
+    "asset_type": "VIEW",
+    "asset_name": "latest_user_events",
+    "aws_region": "us-east-1",
+    "bedrock_model": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "prompt_template_path": "prompts/bigquery-to-clickhouse-conversion.txt",
+    "max_retries": 3,
+    "use_sqlglot": False,
+}
+
+# BigQuery → ClickHouse: SQLGlot pre-processing enabled
+VALID_BQ_TO_CLICKHOUSE_SQLGLOT = {
+    **VALID_BQ_TO_CLICKHOUSE_QUERY,
+    "use_sqlglot": True,
+    "asset_name": "daily_session_summary_sqlglot",
+}
+
+# BigQuery → ClickHouse: ARRAY / UNNEST patterns
+VALID_BQ_TO_CLICKHOUSE_ARRAY_QUERY = {
+    "source_code": (
+        "SELECT t.user_id, item\n"
+        "FROM `my_project.analytics.user_events` AS t,\n"
+        "UNNEST(t.tags) AS item\n"
+        "WHERE ARRAY_LENGTH(t.tags) > 0"
+    ),
+    "source_dialect": "Bigquery",
+    "target_dialect": "ClickHouse",
+    "asset_type": "QUERY",
+    "asset_name": "unnested_tags",
+    "aws_region": "us-east-1",
+    "bedrock_model": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "prompt_template_path": "prompts/bigquery-to-clickhouse-conversion.txt",
+    "max_retries": 2,
+    "use_sqlglot": False,
+}
+
+# BigQuery → ClickHouse: STORED PROCEDURE (unsupported — should produce High risk flags)
+VALID_BQ_TO_CLICKHOUSE_STORED_PROCEDURE = {
+    "source_code": (
+        "CREATE OR REPLACE PROCEDURE `my_project.analytics.refresh_daily_stats`()\n"
+        "BEGIN\n"
+        "  DECLARE cutoff_date DATE DEFAULT DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY);\n"
+        "  DELETE FROM `my_project.analytics.daily_stats` WHERE stat_date < cutoff_date;\n"
+        "  INSERT INTO `my_project.analytics.daily_stats`\n"
+        "  SELECT DATE(event_time), COUNT(*) FROM `my_project.analytics.user_events`\n"
+        "  WHERE DATE(event_time) >= cutoff_date\n"
+        "  GROUP BY 1;\n"
+        "END"
+    ),
+    "source_dialect": "Bigquery",
+    "target_dialect": "ClickHouse",
+    "asset_type": "STORED_PROCEDURE",
+    "asset_name": "refresh_daily_stats",
+    "aws_region": "us-east-1",
+    "bedrock_model": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "prompt_template_path": "prompts/bigquery-to-clickhouse-conversion.txt",
+    "max_retries": 3,
+    "use_sqlglot": False,
+}
+
+# BigQuery → ClickHouse: batch conversion payload
+VALID_BQ_TO_CLICKHOUSE_BATCH = {
+    "migration_project_id": 1,
+    "source_connection_id": 10,
+    "target_connection_id": 20,
+    "batch_name": "BQ to ClickHouse Analytics Migration",
+    "assets": [
+        {
+            "asset_type": "TABLE_DDL",
+            "asset_name": "user_events",
+            "source_code": (
+                "CREATE TABLE `my_project.analytics.user_events` (\n"
+                "  user_id INT64,\n"
+                "  event_time TIMESTAMP,\n"
+                "  event_name STRING\n"
+                ") PARTITION BY DATE(event_time) CLUSTER BY user_id"
+            ),
+        },
+        {
+            "asset_type": "VIEW",
+            "asset_name": "active_users",
+            "source_code": (
+                "CREATE VIEW `my_project.analytics.active_users` AS\n"
+                "SELECT DISTINCT user_id FROM `my_project.analytics.user_events`\n"
+                "WHERE event_time >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)"
+            ),
+        },
+        {
+            "asset_type": "QUERY",
+            "asset_name": "daily_revenue",
+            "source_code": (
+                "SELECT DATE_TRUNC(event_time, DAY) AS day,\n"
+                "SUM(SAFE_DIVIDE(revenue, 100.0)) AS total_revenue\n"
+                "FROM `my_project.analytics.user_events`\n"
+                "GROUP BY 1 ORDER BY 1 DESC"
+            ),
+        },
+    ],
+    "source_dialect": "Bigquery",
+    "target_dialect": "ClickHouse",
+    "aws_region": "us-east-1",
+    "bedrock_model": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "prompt_template_path": "prompts/bigquery-to-clickhouse-conversion.txt",
+    "max_retries": 3,
+    "use_sqlglot": False,
+}
+
 # Invalid dialect payload
 INVALID_DIALECT_PAYLOAD = {
     "source_code": "SELECT 1",
@@ -497,4 +668,147 @@ INVALID_CREATE_VALIDATION_RUN_RUN_NAME_TOO_LONG = {
     "source_connection_id": 100,
     "target_connection_id": 200,
     "run_name": "A" * 256,
+}
+
+# ---------------------------------------------------------------------------
+# BQ-to-Iceberg Migration Model payloads
+# ---------------------------------------------------------------------------
+
+# MigrationBQIceberg model payloads
+VALID_BQ_ICEBERG_MIGRATION_S3 = {
+    "workspace_id": 1,
+    "migration_name": "BQ to Iceberg S3 Migration",
+    "pathway": "A",
+    "source_connection_id": 10,
+    "source_project_id": "my-gcp-project",
+    "source_dataset": "analytics",
+    "source_tables": ["users", "orders", "events"],
+    "target_connection_id": 20,
+    "destination_type": "iceberg_s3",
+    "s3_bucket": "my-data-lake-bucket",
+    "s3_path_prefix": "iceberg/analytics/",
+    "aws_region": "us-east-1",
+    "glue_database_name": "analytics_db",
+    "dataset_to_db_mapping": {"analytics": "analytics_db", "reporting": "reporting_db"},
+    "aws_access_key_id": "AKIAIOSFODNN7EXAMPLE",
+    "aws_secret_access_key_encrypted": "encrypted-secret-key-value",
+    "gcs_bucket": "my-gcs-export-bucket",
+    "gcs_path": "exports/analytics/",
+    "gcs_region": "us-central1",
+    "export_format": "PARQUET",
+    "compression": "ZSTD",
+    "load_type": "full",
+    "table_load_configs": {
+        "users": {"priority": 1, "batch_size": 10000},
+        "orders": {"priority": 2, "batch_size": 50000},
+    },
+    "parallelism": 4,
+    "enable_load_stage_verification": False,
+    "status": "pending",
+    "current_stage": None,
+    "created_by": 1,
+}
+
+VALID_BQ_ICEBERG_MIGRATION_S3_TABLES = {
+    "workspace_id": 2,
+    "migration_name": "BQ to S3 Tables Migration",
+    "pathway": "B",
+    "source_connection_id": 11,
+    "source_project_id": "another-gcp-project",
+    "source_dataset": "warehouse",
+    "source_tables": ["products", "inventory"],
+    "target_connection_id": 21,
+    "destination_type": "iceberg_s3_tables",
+    "table_bucket_arn": "arn:aws:s3tables:us-east-1:123456789012:bucket/my-table-bucket",
+    "s3_tables_namespace": "warehouse_ns",
+    "aws_region": "us-east-1",
+    "glue_database_name": "warehouse_db",
+    "aws_role_arn": "arn:aws:iam::123456789012:role/DataMIQIcebergRole",
+    "gcs_bucket": "gcs-export-bucket",
+    "gcs_path": "exports/warehouse/",
+    "gcs_region": "us-central1",
+    "export_format": "PARQUET",
+    "compression": "ZSTD",
+    "load_type": "incremental",
+    "parallelism": 8,
+    "enable_load_stage_verification": True,
+    "status": "pending",
+    "created_by": 2,
+}
+
+VALID_BQ_ICEBERG_MIGRATION_MINIMAL = {
+    "workspace_id": 1,
+    "migration_name": "Minimal Migration",
+    "pathway": "C",
+    "destination_type": "iceberg_s3",
+    "aws_region": "eu-west-1",
+    "glue_database_name": "default_db",
+}
+
+VALID_BQ_ICEBERG_MIGRATION_PATHWAY_C = {
+    "workspace_id": 3,
+    "migration_name": "Direct Pathway Migration",
+    "pathway": "C",
+    "destination_type": "iceberg_s3",
+    "s3_bucket": "direct-lake",
+    "s3_path_prefix": "",
+    "aws_region": "us-west-2",
+    "glue_database_name": "direct_db",
+    "parallelism": 1,
+    "status": "pending",
+}
+
+VALID_BQ_ICEBERG_MIGRATION_MAX_PARALLELISM = {
+    "workspace_id": 1,
+    "migration_name": "Max Parallel Migration",
+    "pathway": "A",
+    "destination_type": "iceberg_s3",
+    "aws_region": "us-east-1",
+    "glue_database_name": "parallel_db",
+    "parallelism": 16,
+    "status": "pending",
+}
+
+# IcebergTableValidation model payloads
+VALID_ICEBERG_TABLE_VALIDATION_PASSED = {
+    "migration_id": 1,
+    "table_name": "users",
+    "source_row_count": 100000,
+    "target_row_count": 100000,
+    "match_status": "passed",
+    "validation_type": "full",
+}
+
+VALID_ICEBERG_TABLE_VALIDATION_FAILED = {
+    "migration_id": 1,
+    "table_name": "orders",
+    "source_row_count": 50000,
+    "target_row_count": 49998,
+    "match_status": "failed",
+    "validation_type": "full",
+    "error_reason": "Row count mismatch: expected 50000, got 49998",
+}
+
+VALID_ICEBERG_TABLE_VALIDATION_INCREMENTAL = {
+    "migration_id": 1,
+    "table_name": "events",
+    "source_row_count": 200000,
+    "target_row_count": 200000,
+    "match_status": "passed",
+    "validation_type": "incremental",
+    "batch_export_count": 5000,
+    "previous_snapshot_count": 195000,
+}
+
+VALID_ICEBERG_TABLE_VALIDATION_SKIPPED = {
+    "migration_id": 1,
+    "table_name": "logs",
+    "match_status": "skipped",
+    "validation_type": "full",
+    "error_reason": "Athena query execution failed: GENERIC_INTERNAL_ERROR",
+}
+
+VALID_ICEBERG_TABLE_VALIDATION_MINIMAL = {
+    "migration_id": 1,
+    "table_name": "products",
 }

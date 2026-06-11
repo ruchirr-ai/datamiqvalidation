@@ -19,7 +19,7 @@ class Connection(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False)
-    type = Column(String(50), nullable=False)  # bigquery, redshift, postgresql, etc.
+    type = Column(String(50), nullable=False)  # bigquery, redshift, postgresql, iceberg, etc.
     database = Column(String(100), nullable=False)
     connection_params = Column(JSON, nullable=False)  # Unencrypted (backward compatibility)
     connection_params_encrypted = Column(Text, nullable=True)  # KMS encrypted connection params
