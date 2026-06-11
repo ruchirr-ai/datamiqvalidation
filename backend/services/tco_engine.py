@@ -344,8 +344,14 @@ class TCOEngine:
             
             # Update serverless and storage prices if available
             if all_pricing.get('serverless_per_rpu_hour'):
-                live_pricing['serverless_per_rpu_hour'] = all_pricing['serverless_per_rpu_hour']
-                logger.info(f"Live serverless pricing in {aws_region}: ${all_pricing['serverless_per_rpu_hour']}/RPU-hr")
+                svls_price = all_pricing['serverless_per_rpu_hour']
+                # Sanity check: serverless RPU-hr should be $0.20-$1.50 range
+                # Higher values indicate a mis-matched SKU (annual/RI pricing)
+                if 0.20 <= svls_price <= 1.50:
+                    live_pricing['serverless_per_rpu_hour'] = svls_price
+                    logger.info(f"Live serverless pricing in {aws_region}: ${svls_price}/RPU-hr")
+                else:
+                    logger.warning(f"Rejected live serverless price ${svls_price}/RPU-hr (out of range) for {aws_region}. Using fallback ${fallback_pricing['serverless_per_rpu_hour']}/RPU-hr.")
             
             if all_pricing.get('managed_storage_per_gb_month'):
                 live_pricing['managed_storage_per_gb_month'] = all_pricing['managed_storage_per_gb_month']
