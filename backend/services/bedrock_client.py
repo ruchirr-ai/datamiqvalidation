@@ -408,21 +408,59 @@ class BedrockClient:
 
         logger.info("Returning curated Bedrock model list for SQL conversion")
         return [
+            # Claude 4 — latest models first (require inference profile IDs)
             BedrockModel(
-                model_id="us.anthropic.claude-3-5-sonnet-20241022-v2:0",
-                model_name="Claude 3.5 Sonnet v2",
+                model_id="us.anthropic.claude-sonnet-4-6",
+                model_name="Claude Sonnet 4.6 (Latest)",
                 provider="Anthropic",
             ),
+            BedrockModel(
+                model_id="us.anthropic.claude-opus-4-8",
+                model_name="Claude Opus 4.8",
+                provider="Anthropic",
+            ),
+            BedrockModel(
+                model_id="us.anthropic.claude-opus-4-7",
+                model_name="Claude Opus 4.7",
+                provider="Anthropic",
+            ),
+            BedrockModel(
+                model_id="us.anthropic.claude-opus-4-6-v1",
+                model_name="Claude Opus 4.6",
+                provider="Anthropic",
+            ),
+            BedrockModel(
+                model_id="us.anthropic.claude-opus-4-5-20251101-v1:0",
+                model_name="Claude Opus 4.5",
+                provider="Anthropic",
+            ),
+            BedrockModel(
+                model_id="us.anthropic.claude-opus-4-1-20250805-v1:0",
+                model_name="Claude Opus 4.1",
+                provider="Anthropic",
+            ),
+            BedrockModel(
+                model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                model_name="Claude Sonnet 4.5",
+                provider="Anthropic",
+            ),
+            BedrockModel(
+                model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+                model_name="Claude Sonnet 4",
+                provider="Anthropic",
+            ),
+            BedrockModel(
+                model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                model_name="Claude Haiku 4.5",
+                provider="Anthropic",
+            ),
+            # Claude 3.5
             BedrockModel(
                 model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0",
                 model_name="Claude 3.5 Haiku",
                 provider="Anthropic",
             ),
-            BedrockModel(
-                model_id="us.anthropic.claude-3-opus-20240229-v1:0",
-                model_name="Claude 3 Opus",
-                provider="Anthropic",
-            ),
+            # Claude 3
             BedrockModel(
                 model_id="us.anthropic.claude-3-sonnet-20240229-v1:0",
                 model_name="Claude 3 Sonnet",
