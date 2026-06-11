@@ -4,6 +4,7 @@ import { Button, Badge, Dropdown, DropdownItem, Select, Avatar } from '../compon
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/DropdownMenu';
 import { Play, XCircle, ClipboardList, Pencil, Trash2, MoreVertical } from 'lucide-react';
 import { bqRedshiftApi, Migration as BQMigration } from '../services/bqRedshiftApi';
+import { clickhouseMigrationApi } from '../services/clickhouseMigrationApi';
 import { WorkspaceSelector } from '../components/WorkspaceSelector';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -58,20 +59,39 @@ export const MigrationsPage: React.FC = () => {
     try {
       setLoading(true);
       
-      const data = await bqRedshiftApi.listMigrations();
+      // Fetch both BQ-Redshift and ClickHouse migrations
+      const [bqData, chData] = await Promise.allSettled([
+        bqRedshiftApi.listMigrations(),
+        clickhouseMigrationApi.listMigrations(),
+      ]);
       
-      // Transform API data to UI format
-      const transformedMigrations: Migration[] = data.map((m: BQMigration) => ({
-        id: m.id.toString(),
-        name: m.migration_name,
-        source: m.source_connection_name || 'Unknown Connection',
-        destination: m.target_connection_name || 'Unknown Connection',
-        createdBy: 'System', // TODO: Get from actual user data
-        status: mapStatus(m.status),
-        lastRunAt: m.last_run_at || m.start_time || m.updated_at || m.created_at
-      }));
+      // Transform BQ-Redshift migrations
+      const bqMigrations: Migration[] = bqData.status === 'fulfilled' 
+        ? bqData.value.map((m: BQMigration) => ({
+            id: m.id.toString(),
+            name: m.migration_name,
+            source: m.source_connection_name || 'Unknown Connection',
+            destination: m.target_connection_name || 'Unknown Connection',
+            createdBy: 'System',
+            status: mapStatus(m.status),
+            lastRunAt: m.last_run_at || m.start_time || m.updated_at || m.created_at
+          }))
+        : [];
       
-      setMigrations(transformedMigrations);
+      // Transform ClickHouse migrations
+      const chMigrations: Migration[] = chData.status === 'fulfilled'
+        ? (chData.value.migrations || []).map((m: any) => ({
+            id: `ch-${m.migration_id}`,
+            name: m.name,
+            source: 'BigQuery',
+            destination: 'ClickHouse',
+            createdBy: 'System',
+            status: mapStatus(m.status),
+            lastRunAt: m.completed_at || m.started_at || ''
+          }))
+        : [];
+      
+      setMigrations([...bqMigrations, ...chMigrations]);
     } catch (err: any) {
       setMigrations([]);
       setToast({ message: `Failed to load migrations: ${err.message}`, type: 'error' });
@@ -296,9 +316,18 @@ export const MigrationsPage: React.FC = () => {
     setLogsData(null);
     
     try {
+      let logs: any;
       
-      // Call API to get logs
-      const logs = await bqRedshiftApi.getMigrationLogs(parseInt(migration.id));
+      // Route to appropriate API based on migration type
+      if (migration.id.startsWith('ch-')) {
+        // ClickHouse migration
+        const chId = migration.id.replace('ch-', '');
+        const result = await clickhouseMigrationApi.getLogs(chId);
+        logs = { logs: result.logs || [] };
+      } else {
+        // BQ-Redshift migration
+        logs = await bqRedshiftApi.getMigrationLogs(parseInt(migration.id));
+      }
       
       setLogsData({
         migrationName: migration.name,
@@ -310,7 +339,7 @@ export const MigrationsPage: React.FC = () => {
       setLogsData({
         migrationName: migration.name,
         migrationId: migration.id,
-        error: error.message,
+        error: error.message || 'Failed to load logs',
         logs: []
       });
     } finally {

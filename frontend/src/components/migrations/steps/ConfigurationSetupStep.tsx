@@ -307,6 +307,121 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
     );
   };
 
+  // Stage 2: GCS to ClickHouse Import (ClickHouse target)
+  const renderGCSToClickHouse = () => {
+    const isExpanded = expandedStage === 2;
+
+    return (
+      <div className="migration-stage-collapsible">
+        <div className="stage-header-collapsible" onClick={() => toggleStage(2)}>
+          <div className="stage-header-left">
+            <div className="stage-number-collapsible">2</div>
+            <div className="stage-info-collapsible">
+              <h3>GCS to ClickHouse Import</h3>
+              <p>Configure ClickHouse import settings and HMAC credentials for GCS access</p>
+            </div>
+          </div>
+          <button className="collapse-button" type="button">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" className={isExpanded ? 'expanded' : ''}>
+              <path d="M6 8l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+
+        {isExpanded && (
+          <div className="stage-content-collapsible">
+            <div className="form-section">
+              <label className="form-label">GCS HMAC Access Key <span className="required">*</span></label>
+              <Input type="text" placeholder="GOOGxxxxxxxxxxxxxxxx" value={formData.gcsHmacAccessKey || ''} onChange={(e) => updateFormData({ gcsHmacAccessKey: e.target.value })} />
+              <p className="form-help">HMAC Access Key for ClickHouse to read from GCS (Cloud Storage → Settings → Interoperability)</p>
+            </div>
+
+            <div className="form-section">
+              <label className="form-label">GCS HMAC Secret Key <span className="required">*</span></label>
+              <Input type="password" placeholder="Enter HMAC secret key" value={formData.gcsHmacSecretKey || ''} onChange={(e) => updateFormData({ gcsHmacSecretKey: e.target.value })} />
+              <p className="form-help">HMAC Secret Key associated with the access key above</p>
+            </div>
+
+            <div className="form-section">
+              <label className="form-label">Target Database <span className="required">*</span></label>
+              <Input type="text" placeholder="default" value={formData.clickhouseDatabase || 'default'} onChange={(e) => updateFormData({ clickhouseDatabase: e.target.value })} />
+              <p className="form-help">ClickHouse database where tables will be created</p>
+            </div>
+
+            <div className="form-section">
+              <label className="form-label">Table Engine</label>
+              <Select value={formData.clickhouseEngine || 'MergeTree'} onChange={(value) => updateFormData({ clickhouseEngine: String(value) })} options={[
+                { value: 'MergeTree', label: 'MergeTree (Default)' },
+                { value: 'ReplacingMergeTree', label: 'ReplacingMergeTree (Deduplication)' },
+                { value: 'SummingMergeTree', label: 'SummingMergeTree (Pre-aggregation)' },
+                { value: 'AggregatingMergeTree', label: 'AggregatingMergeTree (Aggregates)' },
+              ]} />
+              <p className="form-help">MergeTree is recommended for most use cases</p>
+            </div>
+
+            <div className="form-section">
+              <label className="form-label">ORDER BY Strategy</label>
+              <Select value={formData.clickhouseOrderBy || 'auto'} onChange={(value) => updateFormData({ clickhouseOrderBy: String(value) })} options={[
+                { value: 'auto', label: 'Auto-detect from BQ partitioning/clustering' },
+                { value: 'tuple', label: 'tuple() — No ordering' },
+                { value: 'custom', label: 'Custom (specify per table)' },
+              ]} />
+              <p className="form-help">ORDER BY determines data sort order on disk — affects query performance and compression</p>
+
+              {formData.clickhouseOrderBy === 'custom' && formData.selectedTables && formData.selectedTables.length > 0 && (
+                <div style={{ marginTop: '12px', border: '1px solid var(--color-divider)', borderRadius: '6px', padding: '12px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>Specify ORDER BY columns per table:</div>
+                  {formData.selectedTables.map((t: any, idx: number) => {
+                    const tableName = typeof t === 'string' ? (t.includes('.') ? t.split('.')[1] : t) : (t.table_name || t.name || '');
+                    const customOrderByMap = formData.customOrderByMap || {};
+                    return (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 500, minWidth: '150px' }}>{tableName}</span>
+                        <Input
+                          type="text"
+                          placeholder="e.g., customer_id, order_date"
+                          value={customOrderByMap[tableName] || ''}
+                          onChange={(e) => updateFormData({
+                            customOrderByMap: { ...customOrderByMap, [tableName]: e.target.value }
+                          })}
+                        />
+                      </div>
+                    );
+                  })}
+                  <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '8px' }}>
+                    Enter column names separated by commas. Leave empty to use tuple() (no ordering).
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="info-box">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="8" cy="8" r="6" />
+                <path d="M8 6v4M8 11h.01" strokeLinecap="round" />
+              </svg>
+              <div>
+                <strong>How it works</strong>
+                <p>Tables will be auto-created in ClickHouse with types mapped from BigQuery. Data is exported as Parquet to GCS, then imported using ClickHouse's s3() function with your HMAC credentials.</p>
+              </div>
+            </div>
+
+            <div className="stage-footer">
+              <button
+                className="btn-save-continue"
+                onClick={() => handleSaveAndContinue(2)}
+                type="button"
+                disabled={isSaving}
+              >
+                {isSaving ? 'Saving...' : saveSuccess ? '✓ Saved' : 'Save & Continue'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Stage 2: GCS to S3 Transfer - Path A (GCP Storage Transfer Service)
   const renderGCSToS3_PathA = () => {
     const isExpanded = expandedStage === 2;
@@ -1809,7 +1924,7 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
     <div className="step-container">
       <div className="step-header">
         <h2>Migration Details</h2>
-        <p>Configure the 3-stage migration process: BigQuery → GCS → S3 → Redshift</p>
+        <p>{formData.targetDbType === 'clickhouse' ? 'Configure the 2-stage migration process: BigQuery → GCS → ClickHouse' : 'Configure the 3-stage migration process: BigQuery → GCS → S3 → Redshift'}</p>
       </div>
 
       <div className="step-content migration-details-collapsible">
@@ -1851,14 +1966,17 @@ export const ConfigurationSetupStep: React.FC<ConfigurationSetupStepProps> = ({
             {/* Stage 1: BigQuery to GCS (Common) */}
             {renderBigQueryToGCS()}
 
-            {/* Stage 2: GCS to S3 (Pathway-specific) */}
-            {pathway === 'A' && renderGCSToS3_PathA()}
-            {pathway === 'B' && renderGCSToS3_PathB()}
-            {pathway === 'C' && renderGCSToS3_PathC()}
-            {pathway === 'D' && renderGCSToS3_PathD()}
+            {/* Stage 2: GCS to ClickHouse (ClickHouse target) */}
+            {formData.targetDbType === 'clickhouse' && renderGCSToClickHouse()}
 
-            {/* Stage 3: S3 to Redshift (Common) */}
-            {renderS3ToRedshift()}
+            {/* Stage 2: GCS to S3 (Pathway-specific, non-ClickHouse targets) */}
+            {formData.targetDbType !== 'clickhouse' && pathway === 'A' && renderGCSToS3_PathA()}
+            {formData.targetDbType !== 'clickhouse' && pathway === 'B' && renderGCSToS3_PathB()}
+            {formData.targetDbType !== 'clickhouse' && pathway === 'C' && renderGCSToS3_PathC()}
+            {formData.targetDbType !== 'clickhouse' && pathway === 'D' && renderGCSToS3_PathD()}
+
+            {/* Stage 3: S3 to Redshift (non-ClickHouse targets only) */}
+            {formData.targetDbType !== 'clickhouse' && renderS3ToRedshift()}
           </>
         )}
       </div>

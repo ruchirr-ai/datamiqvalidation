@@ -462,6 +462,11 @@ async def discover_metadata(
                     try:
                         table = client.get_table(table_ref)
                         
+                        # Skip views — only include base tables
+                        if table.table_type in ('VIEW', 'MATERIALIZED_VIEW', 'EXTERNAL'):
+                            logger.info(f"    • {table.table_id}: skipped ({table.table_type})")
+                            continue
+                        
                         table_meta = TableMetadata(
                             table_id=table.table_id,
                             dataset_id=dataset.dataset_id,

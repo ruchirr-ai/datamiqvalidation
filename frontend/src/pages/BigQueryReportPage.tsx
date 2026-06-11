@@ -313,7 +313,7 @@ export const BigQueryReportPage: React.FC<BigQueryReportPageProps> = ({ summary,
           <TabSpinner message="Loading security data..." />
         )}
         {showAnalysis && activeTab === 'recommendations' && <RecommendationsSection assessmentId={id} />}
-        {showAnalysis && activeTab === 'tco' && <TCOAnalysisSection assessmentId={id} />}
+        {showAnalysis && activeTab === 'tco' && <TCOAnalysisSection assessmentId={id} datasets={summary.datasets} />}
       </div>
 
       <DownloadReportModal isOpen={showDownloadModal} onClose={() => setShowDownloadModal(false)} assessmentName={summary.assessment.name} onDownload={handleDownloadPDF} downloading={downloading} />
@@ -525,11 +525,29 @@ const TablesSection: React.FC<{
   const [showColumnsModal, setShowColumnsModal] = useState(false);
 
   // Redshift type mapping with recommended auto compression
-  const getRedshiftTypeMapping = (bqType: string): { redshiftType: string; compression: string; incompatible?: boolean; note?: string } => {
-    const t = (bqType || '').toUpperCase().replace(/\(.*\)/, '').trim();
+  // When max_length is known from BigQuery schema, use it to size VARCHAR appropriately.
+  // When unknown (null), default to VARCHAR(65535) as a safe ceiling.
+  const getRedshiftTypeMapping = (bqType: string, maxLength?: number | null): { redshiftType: string; compression: string; incompatible?: boolean; note?: string } => {
+    const t = (bqType || '').toUpperCase().replace(/[<(].*/, '').trim();
+
+    // Helper: determine VARCHAR size from known max_length
+    const varcharSize = (fallback: number = 65535): number => {
+      if (maxLength && maxLength > 0) {
+        // Add 20% buffer, round up to nearest power-of-2 friendly value, cap at 65535
+        const buffered = Math.min(Math.ceil(maxLength * 1.2), 65535);
+        // Round to common sizes: 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65535
+        const sizes = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65535];
+        return sizes.find(s => s >= buffered) || 65535;
+      }
+      return fallback;
+    };
+
     switch (t) {
-      case 'STRING': case 'VARCHAR': case 'NVARCHAR': case 'TEXT': case 'CHAR': case 'NCHAR':
-        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO' };
+      case 'STRING': case 'VARCHAR': case 'NVARCHAR': case 'TEXT': case 'CHAR': case 'NCHAR': {
+        const size = varcharSize();
+        const note = maxLength ? undefined : 'BQ STRING is unlimited; Redshift max is 65535 bytes. Run ANALYZE COMPRESSION post-migration to optimize.';
+        return { redshiftType: `VARCHAR(${size})`, compression: 'LZO', note };
+      }
       case 'INT64': case 'INTEGER': case 'INT': case 'BIGINT':
         return { redshiftType: 'BIGINT', compression: 'AZ64' };
       case 'INT32': case 'SMALLINT': case 'TINYINT':
@@ -545,29 +563,33 @@ const TablesSection: React.FC<{
       case 'DATETIME': case 'TIMESTAMP': case 'DATETIME2': case 'SMALLDATETIME':
         return { redshiftType: 'TIMESTAMP', compression: 'AZ64' };
       case 'TIME':
-        return { redshiftType: 'VARCHAR(20)', compression: 'LZO', note: 'Redshift has no native TIME type' };
+        return { redshiftType: 'VARCHAR(20)', compression: 'LZO', note: 'Redshift TIME type available but limited precision' };
+      case 'INTERVAL':
+        return { redshiftType: `VARCHAR(${varcharSize(128)})`, compression: 'LZO', note: 'No native INTERVAL type in Redshift. Store as string or decompose.' };
       case 'BYTES': case 'BINARY': case 'VARBINARY': case 'IMAGE':
-        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', note: 'Binary stored as hex string' };
+        return { redshiftType: `VARBYTE(${varcharSize()})`, compression: 'LZO', note: 'Use VARBYTE for binary data' };
       case 'GEOGRAPHY': case 'GEOMETRY':
         return { redshiftType: 'GEOMETRY', compression: 'RAW' };
       case 'JSON':
         return { redshiftType: 'SUPER', compression: 'ZSTD' };
       case 'ARRAY': case 'STRUCT': case 'RECORD':
         return { redshiftType: 'SUPER', compression: 'ZSTD', incompatible: true, note: 'Nested/repeated types require flattening or SUPER type' };
+      case 'RANGE':
+        return { redshiftType: `VARCHAR(${varcharSize(256)})`, compression: 'LZO', note: 'No native RANGE type in Redshift. Store as string or decompose into start/end columns.' };
       case 'XML':
-        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', incompatible: true, note: 'No native XML support in Redshift' };
+        return { redshiftType: `VARCHAR(${varcharSize()})`, compression: 'LZO', incompatible: true, note: 'No native XML support. Store as text or use SUPER.' };
       case 'UNIQUEIDENTIFIER':
         return { redshiftType: 'VARCHAR(36)', compression: 'LZO' };
       case 'SQL_VARIANT':
-        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', incompatible: true, note: 'No equivalent in Redshift' };
+        return { redshiftType: `VARCHAR(${varcharSize()})`, compression: 'LZO', incompatible: true, note: 'No equivalent in Redshift' };
       default:
-        return { redshiftType: 'VARCHAR(MAX)', compression: 'LZO', note: 'Unmapped type — defaulting to VARCHAR' };
+        return { redshiftType: `VARCHAR(${varcharSize()})`, compression: 'LZO', note: `Unmapped type '${bqType}' — defaulting to VARCHAR(${varcharSize()})` };
     }
   };
 
   const baseTables = tables.filter(t => t.table_type === 'BASE TABLE');
   const datasetOptions = [
-    { value: 'all', label: `All Datasets (${datasets.length})` },
+    { value: 'all', label: `All Datasets` },
     ...datasets.map(ds => ({ value: ds, label: ds })),
   ];
 
@@ -624,7 +646,7 @@ const TablesSection: React.FC<{
                   <thead><tr><th>Column Name</th><th>Data Type</th><th>Redshift Type</th><th>Compression</th><th>Nullable</th><th>Partitioning</th><th>Clustering</th></tr></thead>
                   <tbody>
                     {columns.filter(c => c.table_id === selectedTable.id).map((column, idx) => {
-                      const rsMapping = getRedshiftTypeMapping(column.data_type);
+                      const rsMapping = getRedshiftTypeMapping(column.data_type, column.max_length);
                       return (
                       <tr key={idx}>
                         <td className="font-medium">{column.column_name}</td>
@@ -637,8 +659,8 @@ const TablesSection: React.FC<{
                         </td>
                         <td className="text-sm"><Badge variant="default">{rsMapping.compression}</Badge></td>
                         <td className="text-center">{column.is_nullable ? <Badge variant="default">Yes</Badge> : <Badge variant="error">No</Badge>}</td>
-                        <td className="text-center">{column.is_partitioning_column ? <Badge variant="info">Yes</Badge> : <span className="text-muted">-</span>}</td>
-                        <td className="text-center">{column.clustering_ordinal_position !== null ? <Badge variant="info">{column.clustering_ordinal_position}</Badge> : <span className="text-muted">-</span>}</td>
+                        <td className="text-center">{column.is_partitioning_column ? <Badge variant="info" title={`Partition column: ${column.column_name}${selectedTable.partitioning_columns?.length ? '\nTable partitioned by: ' + selectedTable.partitioning_columns.join(', ') : ''}`}>Yes</Badge> : <span className="text-muted">-</span>}</td>
+                        <td className="text-center">{column.clustering_ordinal_position !== null ? <Badge variant="info" title={`Clustering order: ${column.clustering_ordinal_position}${selectedTable.clustering_columns?.length ? '\nClustering columns: ' + selectedTable.clustering_columns.join(', ') : ''}`}>{column.clustering_ordinal_position}</Badge> : <span className="text-muted">-</span>}</td>
                       </tr>
                       );
                     })}
@@ -662,12 +684,12 @@ const ViewsSection: React.FC<{ views: AssessmentReportView[]; onExportCsv?: () =
 
   const getDataset = (v: any) => { const name = v.view_name || ''; return name.includes('.') ? name.split('.')[0] : 'Unknown'; };
   const datasetOptions = [
-    { value: 'all', label: `All Datasets (${views.length})` },
-    ...Array.from(new Set(views.map(v => getDataset(v)))).sort().map((ds: any) => ({ value: ds, label: `${ds} (${views.filter(v => getDataset(v) === ds).length})` })),
+    { value: 'all', label: `All Datasets` },
+    ...Array.from(new Set(views.map(v => getDataset(v)))).sort().map((ds: any) => ({ value: ds, label: ds })),
   ];
   const viewTypeOptions = [
-    { value: 'all', label: `All Types (${views.length})` },
-    ...Array.from(new Set(views.map(v => v.view_type || 'VIEW'))).sort().map((vt: any) => ({ value: vt, label: `${vt === 'MATERIALIZED_VIEW' ? 'Materialized View' : 'View'} (${views.filter(v => (v.view_type || 'VIEW') === vt).length})` })),
+    { value: 'all', label: `All Types` },
+    ...Array.from(new Set(views.map(v => v.view_type || 'VIEW'))).sort().map((vt: any) => ({ value: vt, label: `${vt === 'MATERIALIZED_VIEW' ? 'Materialized View' : 'View'}` })),
   ];
   const filteredViews = views.filter(v => {
     const dsMatch = selectedDataset === 'all' || getDataset(v) === selectedDataset;
@@ -753,8 +775,8 @@ const RoutinesSection: React.FC<{ routines: AssessmentReportRoutine[]; title: st
 
   const getDataset = (r: any) => { const name = r.routine_name || ''; return name.includes('.') ? name.split('.')[0] : 'Unknown'; };
   const datasetOptions = [
-    { value: 'all', label: `All Datasets (${routines.length})` },
-    ...Array.from(new Set(routines.map(r => getDataset(r)))).sort().map((ds: any) => ({ value: ds, label: `${ds} (${routines.filter(r => getDataset(r) === ds).length})` })),
+    { value: 'all', label: `All Datasets` },
+    ...Array.from(new Set(routines.map(r => getDataset(r)))).sort().map((ds: any) => ({ value: ds, label: ds })),
   ];
   const filteredRoutines = selectedDataset === 'all' ? routines : routines.filter(r => getDataset(r) === selectedDataset);
 
@@ -1025,9 +1047,9 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
   const { query_classification: qc, dist_sort_keys: dsk, architecture: arch } = data;
   const getDatasetFromTable = (name: string) => name.includes('.') ? name.split('.')[0] : 'Unknown';
   const dskDatasets = Array.from(new Set(dsk.map(r => getDatasetFromTable(r.table_name)))).sort();
-  const datasetOptions = [{ value: 'all', label: `All Datasets (${dskDatasets.length})` }, ...dskDatasets.map(ds => ({ value: ds, label: ds }))];
+  const datasetOptions = [{ value: 'all', label: `All Datasets` }, ...dskDatasets.map(ds => ({ value: ds, label: ds }))];
   const filteredDsk = dsk.filter(r => { const ds = getDatasetFromTable(r.table_name); return (selectedDataset === 'all' || ds === selectedDataset) && (selectedTable === 'all' || r.table_name === selectedTable); });
-  const tableOptions = [{ value: 'all', label: `All Tables (${(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset)).length})` }, ...(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset)).map(r => ({ value: r.table_name, label: r.table_name }))];
+  const tableOptions = [{ value: 'all', label: `All Tables` }, ...(selectedDataset === 'all' ? dsk : dsk.filter(r => getDatasetFromTable(r.table_name) === selectedDataset)).map(r => ({ value: r.table_name, label: r.table_name }))];
 
   return (
     <div className="section-content">
@@ -1186,10 +1208,50 @@ export const RecommendationsSection: React.FC<{ assessmentId: number }> = ({ ass
 
 
 // ============ TCO Analysis Section (self-fetching) ============
-export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessmentId }) => {
+// Map a BigQuery dataset location to the closest AWS region that we have
+// Redshift pricing for. Falls back to 'us-east-1' when unknown.
+const BQ_TO_AWS_REGION: Record<string, string> = {
+  // BigQuery multi-regions
+  'us': 'us-east-1',
+  'eu': 'eu-west-1',
+  // Americas
+  'us-east1': 'us-east-1', 'us-east4': 'us-east-1', 'us-east5': 'us-east-1',
+  'us-central1': 'us-east-2', 'us-south1': 'us-east-1',
+  'us-west1': 'us-west-1', 'us-west2': 'us-west-1', 'us-west3': 'us-west-2', 'us-west4': 'us-west-2',
+  'northamerica-northeast1': 'ca-central-1', 'northamerica-northeast2': 'ca-central-1',
+  'southamerica-east1': 'sa-east-1', 'southamerica-west1': 'sa-east-1',
+  // Europe
+  'europe-west1': 'eu-west-1', 'europe-west2': 'eu-west-2', 'europe-west3': 'eu-central-1',
+  'europe-west4': 'eu-west-1', 'europe-west6': 'eu-central-1', 'europe-west8': 'eu-south-1',
+  'europe-west9': 'eu-west-3', 'europe-north1': 'eu-north-1', 'europe-central2': 'eu-central-1',
+  'europe-southwest1': 'eu-south-1',
+  // Asia Pacific
+  'asia-south1': 'ap-south-1', 'asia-south2': 'ap-south-1',
+  'asia-southeast1': 'ap-southeast-1', 'asia-southeast2': 'ap-southeast-3',
+  'asia-east1': 'ap-east-1', 'asia-east2': 'ap-east-1',
+  'asia-northeast1': 'ap-northeast-1', 'asia-northeast2': 'ap-northeast-1', 'asia-northeast3': 'ap-northeast-2',
+  'australia-southeast1': 'ap-southeast-2', 'australia-southeast2': 'ap-southeast-2',
+};
+
+const mapBQLocationToAWS = (datasets?: DatasetSummary[]): string => {
+  if (!datasets || datasets.length === 0) return 'us-east-1';
+  // Pick the location holding the most data (fallback to most tables / first).
+  const byLocation: Record<string, number> = {};
+  for (const ds of datasets) {
+    const loc = (ds.location || '').toLowerCase();
+    if (!loc) continue;
+    byLocation[loc] = (byLocation[loc] || 0) + (ds.total_size_mb || 0) + (ds.table_count || 0) * 0.001;
+  }
+  const locations = Object.keys(byLocation);
+  if (locations.length === 0) return 'us-east-1';
+  const dominant = locations.sort((a, b) => byLocation[b] - byLocation[a])[0];
+  return BQ_TO_AWS_REGION[dominant] || 'us-east-1';
+};
+
+export const TCOAnalysisSection: React.FC<{ assessmentId: number; datasets?: DatasetSummary[] }> = ({ assessmentId, datasets }) => {
   const [data, setData] = useState<TCOData | null>(null);
   const [regions, setRegions] = useState<AWSRegion[]>([]);
-  const [selectedRegion, setSelectedRegion] = useState('us-east-1');
+  const [selectedRegion, setSelectedRegion] = useState(() => mapBQLocationToAWS(datasets));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1206,7 +1268,8 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
   const { bigquery_costs: bq, provisioned_costs: prov, serverless_costs: svls, comparison: cmp, recommendation: rec, workload_summary: wl } = data;
   const ri1yr3yr = cmp.provisioned_ri1yr_3yr_tco ?? cmp.provisioned_3yr_tco;
   const ri3yr3yr = cmp.provisioned_ri3yr_3yr_tco ?? cmp.provisioned_3yr_tco;
-  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco, ri1yr3yr, ri3yr3yr) || 1;
+  const rg3yr = cmp.rg_provisioned_3yr_tco ?? cmp.provisioned_3yr_tco;
+  const maxTCO = Math.max(cmp.bq_3yr_tco, cmp.provisioned_3yr_tco, cmp.serverless_3yr_tco, ri1yr3yr, ri3yr3yr, rg3yr) || 1;
 
   return (
     <div className="section-content">
@@ -1222,42 +1285,34 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <div className="tco-savings-content">
           <div className="tco-savings-title">{cmp.savings_pct > 0 ? `${cmp.savings_pct}% Cost Optimization Opportunity` : 'Cost Comparison'}</div>
           <div className="tco-savings-detail">
-            BigQuery 3-Year: <strong>{fmt(cmp.bq_3yr_tco)}</strong> → Best Redshift ({cmp.best_option}): <strong>{fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.provisioned_3yr_tco)}</strong>
+            BigQuery 3-Year: <strong>{fmt(cmp.bq_3yr_tco)}</strong> → Best Redshift ({cmp.best_option === 'rg_provisioned' ? 'RG Provisioned' : cmp.best_option}): <strong>{fmt(cmp.best_option === 'serverless' ? cmp.serverless_3yr_tco : cmp.best_option === 'rg_provisioned' ? rg3yr : cmp.provisioned_3yr_tco)}</strong>
             {cmp.savings_pct > 0 && <> — Savings: <strong>{fmt(cmp.savings_amount)}</strong></>}
           </div>
         </div>
       </div>
-      {cmp.provisioned_viable === false && cmp.provisioned_note && (
-        <div className="rec-info-box" style={{ borderLeft: '4px solid #f59e0b', background: '#fffbeb' }}>
-          <div className="rec-info-title" style={{ color: '#b45309' }}><AlertTriangle size={16} /> Light Workload Detected</div>
-          <p style={{ margin: '4px 0 0', color: '#92400e', fontSize: '13px' }}>{cmp.provisioned_note}</p>
-        </div>
-      )}
+      {/* Light workload note removed — recommendation section handles this */}
       <div className="tco-section">
         <h3 className="rec-section-title"><Database size={18} /> Monthly Cost Summary</h3>
         <div className="tco-cost-grid">
           <div className="tco-cost-card"><div className="tco-cost-label">BigQuery (Current)</div><div className="tco-cost-value">{fmt(bq.monthly)}<span>/mo</span></div><div className="tco-cost-detail">Storage {fmt(bq.storage.monthly)} + Query {fmt(bq.query.monthly)}</div></div>
-          <div className="tco-cost-card"><div className="tco-cost-label">Redshift Provisioned</div><div className="tco-cost-value">{fmt(prov.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{prov.num_nodes}× {prov.node_type}</div></div>
-          <div className="tco-cost-card"><div className="tco-cost-label">Redshift Serverless</div><div className="tco-cost-value">{fmt(svls.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{svls.est_rpu_hours_monthly} RPU-hrs/mo</div></div>
+          <div className={`tco-cost-card${cmp.best_option === 'provisioned' ? ' tco-cost-card-best' : ''}`}>{cmp.best_option === 'provisioned' && <div className="tco-cost-best-badge">Best Value</div>}<div className="tco-cost-label">Redshift Provisioned (RA3)</div><div className="tco-cost-value">{fmt(prov.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{prov.num_nodes}× {prov.node_type}</div></div>
+          {data.rg_provisioned_costs && <div className={`tco-cost-card${cmp.best_option === 'rg_provisioned' ? ' tco-cost-card-best' : ''}`}>{cmp.best_option === 'rg_provisioned' && <div className="tco-cost-best-badge">Best Value</div>}<div className="tco-cost-label">Redshift Provisioned (RG)</div><div className="tco-cost-value">{fmt(data.rg_provisioned_costs.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{data.rg_provisioned_costs.num_nodes}× {data.rg_provisioned_costs.node_type}</div></div>}
+          <div className={`tco-cost-card${cmp.best_option === 'serverless' ? ' tco-cost-card-best' : ''}`}>{cmp.best_option === 'serverless' && <div className="tco-cost-best-badge">Best Value</div>}<div className="tco-cost-label">Redshift Serverless</div><div className="tco-cost-value">{fmt(svls.monthly)}<span>/mo</span></div><div className="tco-cost-detail">{svls.est_rpu_hours_monthly} RPU-hrs/mo</div></div>
         </div>
       </div>
       {data.migration_costs && (
         <div className="tco-section">
           <h3 className="rec-section-title"><ArrowLeft size={18} style={{ transform: 'rotate(180deg)' }} /> One-Time Migration Costs</h3>
           <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: '8px', padding: '16px 20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-primary)' }}>GCP Data Egress</div>
-                <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>Cost to transfer data from Google Cloud to AWS</div>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--color-text-primary)' }}>Total One-Time Cost</div>
+                <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>Data Volume: {data.migration_costs.data_volume_gb?.toFixed(1)} GB</div>
               </div>
-              <div style={{ fontSize: '20px', fontWeight: 700, color: '#C2410C' }}>${fmt(data.migration_costs.total)}</div>
+              <div style={{ fontSize: '22px', fontWeight: 700, color: '#C2410C' }}>${fmt(data.migration_costs.total)}</div>
             </div>
-            <div style={{ display: 'flex', gap: '24px', fontSize: '13px', color: 'var(--color-text-secondary)' }}>
-              <span>Data Volume: <strong>{data.migration_costs.data_volume_gb?.toFixed(2)} GB</strong></span>
-              <span>Rate: <strong>${data.migration_costs.rate_per_gb}/GB</strong></span>
-            </div>
-            <div style={{ fontSize: '11px', color: '#92400E', marginTop: '8px', fontStyle: 'italic' }}>
-              This is a one-time cost included in the 3-year TCO comparison above.
+            <div style={{ fontSize: '11px', color: '#92400E', marginTop: '12px', fontStyle: 'italic' }}>
+              Includes GCP egress, GCS staging, and S3 staging. This one-time cost is included in the 3-year TCO comparison above.
             </div>
           </div>
         </div>
@@ -1267,7 +1322,6 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <div className="rec-config-grid">
           <div className={`rec-config-card ${cmp.best_option === 'provisioned' ? 'rec-config-recommended' : ''}`}>
             {cmp.best_option === 'provisioned' && <div className="rec-badge">Best Value</div>}
-            {cmp.provisioned_viable === false && <div className="rec-badge" style={{ background: '#f59e0b' }}>Not Recommended</div>}
             <div className="rec-config-header"><Server size={20} /><span>Provisioned Cluster</span></div>
             <div className="rec-config-details">
               <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{prov.node_type}</span></div>
@@ -1282,8 +1336,22 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
               {prov.ri_1yr_monthly != null && <div className="rec-config-row"><span>1-Year RI</span><span>{fmt(prov.ri_1yr_monthly)}/mo</span></div>}
               {prov.ri_3yr_monthly != null && <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(prov.ri_3yr_monthly)}/mo</span></div>}
             </div>
-            {prov.sizing_rationale && prov.sizing_rationale.length > 0 && (
-              <div className="rec-sizing-rationale"><div className="rec-sizing-rationale-title">Sizing Rationale</div><ul className="rec-sizing-rationale-list">{prov.sizing_rationale.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul></div>
+          </div>
+          <div className={`rec-config-card ${cmp.best_option === 'rg_provisioned' ? 'rec-config-recommended' : ''}`}>
+            {cmp.best_option === 'rg_provisioned' && <div className="rec-badge">Best Value</div>}
+            <div className="rec-config-header"><Server size={20} /><span>RG Provisioned (Graviton)</span></div>
+            {data.rg_provisioned_costs && (
+            <div className="rec-config-details">
+              <div className="rec-config-row"><span>Node Type</span><span className="font-mono">{data.rg_provisioned_costs.node_type}</span></div>
+              <div className="rec-config-row"><span>Nodes</span><span>{data.rg_provisioned_costs.num_nodes}</span></div>
+              <div className="rec-config-row"><span>Total Memory</span><span>{data.rg_provisioned_costs.memory_gb_total} GB</span></div>
+              <div className="rec-config-row"><span>Compute</span><span>{fmt(data.rg_provisioned_costs.compute_monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Storage</span><span>{fmt(data.rg_provisioned_costs.storage_monthly)}/mo</span></div>
+              <div className="rec-config-row rec-config-row-total"><span>On-Demand</span><span style={{ color: '#10B981' }}>{fmt(data.rg_provisioned_costs.monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>Annual (On-Demand)</span><span>{fmt(data.rg_provisioned_costs.annual)}</span></div>
+              <div className="rec-config-row"><span>1-Year RI</span><span>{fmt(data.rg_provisioned_costs.ri_1yr_monthly)}/mo</span></div>
+              <div className="rec-config-row"><span>3-Year RI</span><span>{fmt(data.rg_provisioned_costs.ri_3yr_monthly)}/mo</span></div>
+            </div>
             )}
           </div>
           <div className={`rec-config-card ${cmp.best_option === 'serverless' ? 'rec-config-recommended' : ''}`}>
@@ -1307,9 +1375,10 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
         <div className="tco-bar-chart">
           {[
             { label: 'BigQuery', value: cmp.bq_3yr_tco, color: '#4285F4' },
-            { label: 'Provisioned (On-Demand)', value: cmp.provisioned_3yr_tco, color: '#34A853' },
-            { label: 'Provisioned (1yr RI)', value: ri1yr3yr, color: '#0F9D58' },
-            { label: 'Provisioned (3yr RI)', value: ri3yr3yr, color: '#0B8043' },
+            { label: 'RA3 (On-Demand)', value: cmp.provisioned_3yr_tco, color: '#34A853' },
+            { label: 'RA3 (1yr RI)', value: ri1yr3yr, color: '#0F9D58' },
+            { label: 'RA3 (3yr RI)', value: ri3yr3yr, color: '#0B8043' },
+            { label: 'RG (On-Demand)', value: rg3yr, color: '#10B981' },
             { label: 'Serverless', value: cmp.serverless_3yr_tco, color: '#FBBC04' },
           ].map((item, i) => (
             <div key={i} className="tco-bar-item">
@@ -1333,22 +1402,46 @@ export const TCOAnalysisSection: React.FC<{ assessmentId: number }> = ({ assessm
       {wl && (
         <div className="tco-section">
           <h3 className="rec-section-title"><BarChart3 size={18} /> Workload Summary</h3>
-          <div className="tco-workload-grid">
-            <div className="tco-workload-item"><span>Query Time Span</span><span>{wl.query_time_span_days} days</span></div>
-            <div className="tco-workload-item"><span>Monthly Slot Hours</span><span>{wl.monthly_slot_hours?.toLocaleString()}</span></div>
-            <div className="tco-workload-item"><span>Monthly TB Scanned</span><span>{wl.monthly_tb_scanned?.toFixed(2)}</span></div>
-            <div className="tco-workload-item"><span>Total Queries</span><span>{wl.total_queries?.toLocaleString()}</span></div>
-            {wl.avg_concurrent_slots != null && <div className="tco-workload-item"><span>Avg Concurrent Slots</span><span>{wl.avg_concurrent_slots?.toFixed(1)}</span></div>}
-            {wl.estimated_peak_slots != null && <div className="tco-workload-item"><span>Peak Slots</span><span>{wl.estimated_peak_slots?.toLocaleString()}</span></div>}
-            {wl.active_hours_per_day != null && <div className="tco-workload-item"><span>Active Hours/Day</span><span>{wl.active_hours_per_day?.toFixed(1)}</span></div>}
-            <div className="tco-workload-item"><span>Workload Pattern</span><span><Badge variant="info">{wl.workload_type?.label || wl.workload_type?.pattern}</Badge></span></div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Query Time Span</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.query_time_span_days} days</div>
+            </div>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Monthly Slot Hours</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.monthly_slot_hours?.toLocaleString()}</div>
+            </div>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Queries</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.total_queries?.toLocaleString()}</div>
+            </div>
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Workload Pattern</div>
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#2563EB', marginTop: '6px' }}>{wl.workload_type?.label || wl.workload_type?.pattern || 'N/A'}</div>
+            </div>
+            {wl.avg_concurrent_slots != null && (
+              <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Avg Slots</div>
+                <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.avg_concurrent_slots?.toFixed(1)}</div>
+              </div>
+            )}
+            {wl.estimated_peak_slots != null && (
+              <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Peak Slots</div>
+                <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.estimated_peak_slots?.toLocaleString()}</div>
+              </div>
+            )}
+            {wl.active_hours_per_day != null && (
+              <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+                <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Active Hours/Day</div>
+                <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.active_hours_per_day?.toFixed(1)}</div>
+              </div>
+            )}
+            <div style={{ background: '#F9FAFB', borderRadius: '8px', padding: '12px 16px' }}>
+              <div style={{ fontSize: '11px', color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>TB Scanned/Month</div>
+              <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827', marginTop: '4px' }}>{wl.monthly_tb_scanned?.toFixed(2)}</div>
+            </div>
           </div>
-        </div>
-      )}
-      {data.cost_notes && data.cost_notes.length > 0 && (
-        <div className="rec-info-box" style={{ marginTop: 'var(--spacing-4)' }}>
-          <div className="rec-info-title"><Info size={16} /> Cost Notes</div>
-          <ul className="rec-info-list">{data.cost_notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
         </div>
       )}
     </div>

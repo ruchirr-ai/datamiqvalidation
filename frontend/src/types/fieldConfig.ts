@@ -6,7 +6,7 @@
 
 export type FieldType = 'text' | 'number' | 'password' | 'select' | 'checkbox';
 
-export type DatabaseType = 'mongodb' | 'documentdb' | 'postgresql' | 'mysql' | 'oracle' | 'sqlserver' | 'bigquery' | 'redshift' | 'sybase' | 'db2';
+export type DatabaseType = 'mongodb' | 'documentdb' | 'postgresql' | 'mysql' | 'oracle' | 'sqlserver' | 'bigquery' | 'redshift' | 'clickhouse' | 'sybase' | 'db2';
 
 export interface ValidationRules {
   minLength?: number;

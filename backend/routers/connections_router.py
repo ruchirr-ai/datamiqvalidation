@@ -43,6 +43,12 @@ try:
 except ImportError:
     SQLSERVER_AVAILABLE = False
 
+try:
+    import clickhouse_connect
+    CLICKHOUSE_AVAILABLE = True
+except ImportError:
+    CLICKHOUSE_AVAILABLE = False
+
 from database import get_db
 from models.connection import Connection, Base
 from services.kms_encryption_service import get_kms_encryption_service
@@ -595,6 +601,66 @@ def test_sqlserver_connection(params: Dict[str, Any]) -> ConnectionResponse:
         )
 
 
+def test_clickhouse_connection(params: Dict[str, Any]) -> ConnectionResponse:
+    """Test ClickHouse connection"""
+    if not CLICKHOUSE_AVAILABLE:
+        return ConnectionResponse(
+            success=False,
+            message="ClickHouse client library not installed. Install with: pip install clickhouse-connect"
+        )
+
+    try:
+        host = params.get('host', '')
+        port = int(params.get('port', 8443))
+        database = params.get('database') or params.get('database_name', 'default')
+        username = params.get('username', 'default')
+        password = params.get('password', '')
+        secure = str(params.get('secure', 'false')).lower() in ('true', '1', 'yes')
+
+        if not host:
+            return ConnectionResponse(success=False, message="Host is required")
+
+        logger.info(f"Testing ClickHouse connection to {host}:{port}/{database} (secure={secure})")
+
+        client = clickhouse_connect.get_client(
+            host=host,
+            port=port,
+            database=database,
+            username=username,
+            password=password,
+            secure=secure,
+            connect_timeout=10,
+        )
+
+        # Test with a simple query
+        result = client.query('SELECT version() AS version, currentDatabase() AS db')
+        version = result.result_rows[0][0] if result.result_rows else 'unknown'
+        db_name = result.result_rows[0][1] if result.result_rows else database
+
+        client.close()
+
+        logger.info(f"ClickHouse connection successful: version={version}, database={db_name}")
+        return ConnectionResponse(
+            success=True,
+            message=f"Successfully connected to ClickHouse",
+            details={
+                "host": host,
+                "port": port,
+                "database": db_name,
+                "version": version,
+                "secure": secure,
+            }
+        )
+
+    except Exception as e:
+        error_msg = str(e).strip()
+        logger.error(f"ClickHouse connection failed: {error_msg}")
+        return ConnectionResponse(
+            success=False,
+            message=f"ClickHouse connection failed: {error_msg}"
+        )
+
+
 class UpdateStatusRequest(BaseModel):
     """Request model for updating connection status"""
     status: str = Field(..., description="Connection status")
@@ -607,7 +673,7 @@ async def test_connection(request: TestConnectionRequest):
     """
     Test database connection
     
-    Supports: BigQuery, MongoDB, PostgreSQL, MySQL, DocumentDB, Redshift, Oracle, SQL Server
+    Supports: BigQuery, MongoDB, PostgreSQL, MySQL, DocumentDB, Redshift, Oracle, SQL Server, ClickHouse
     """
     logger.info(f"Testing {request.database} connection")
     
@@ -629,6 +695,9 @@ async def test_connection(request: TestConnectionRequest):
     elif database_type == 'redshift':
         # Redshift uses PostgreSQL protocol
         return test_postgresql_connection(request.connection_params)
+    
+    elif database_type == 'clickhouse':
+        return test_clickhouse_connection(request.connection_params)
     
     elif database_type == 'oracle':
         return ConnectionResponse(
@@ -680,6 +749,8 @@ async def test_connection_by_id(connection_id: int, db: Session = Depends(get_db
         result = test_mysql_connection(params)
     elif database_type == 'redshift':
         result = test_postgresql_connection(params)
+    elif database_type == 'clickhouse':
+        result = test_clickhouse_connection(params)
     elif database_type == 'sqlserver':
         result = test_sqlserver_connection(params)
     else:
@@ -709,7 +780,8 @@ async def health_check():
             "mongodb": MONGODB_AVAILABLE,
             "postgresql": POSTGRESQL_AVAILABLE,
             "mysql": MYSQL_AVAILABLE,
-            "sqlserver": SQLSERVER_AVAILABLE
+            "sqlserver": SQLSERVER_AVAILABLE,
+            "clickhouse": CLICKHOUSE_AVAILABLE
         }
     }
 

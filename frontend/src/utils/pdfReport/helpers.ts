@@ -71,7 +71,7 @@ export function sectionHeading(ctx: PDFContext, title: string): void {
   doc.rect(margin + 1.5, ctx.y, 1.5, 11, 'F');
 
   // Title
-  doc.setFont('helvetica', 'bold');
+  doc.setFont('Satoshi', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(...C.PRIMARY_D);
   doc.text(title, margin + 7, ctx.y + 7.5);
@@ -92,7 +92,7 @@ export function subHeading(ctx: PDFContext, title: string): void {
   doc.setFillColor(...C.PRIMARY_L);
   doc.roundedRect(margin, ctx.y, 2, 8, 1, 0, 'F');
 
-  doc.setFont('helvetica', 'bold');
+  doc.setFont('Satoshi', 'bold');
   doc.setFontSize(9);
   doc.setTextColor(...C.PRIMARY);
   doc.text(title, margin + 6, ctx.y + 5.5);
@@ -128,13 +128,13 @@ export function drawMetricRow(
     doc.roundedRect(bx, ctx.y, boxW, boxH, 2, 2, 'FD');
 
     // Value
-    doc.setFont('helvetica', 'bold');
+    doc.setFont('Satoshi', 'bold');
     doc.setFontSize(14);
     doc.setTextColor(fg[0], fg[1], fg[2]);
     doc.text(m.v, bx + boxW / 2, ctx.y + 11, { align: 'center' });
 
     // Label
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('Satoshi', 'normal');
     doc.setFontSize(6);
     doc.setTextColor(...C.GRAY);
     doc.text(m.l.toUpperCase(), bx + boxW / 2, ctx.y + 17, { align: 'center' });
@@ -170,7 +170,7 @@ export function drawCard(
 
   let cy = ctx.y + 4;
   if (titleText) {
-    doc.setFont('helvetica', 'bold');
+    doc.setFont('Satoshi', 'bold');
     doc.setFontSize(9);
     doc.setTextColor(...C.DARK);
     doc.text(titleText, margin + 7, cy + 2);
@@ -181,7 +181,7 @@ export function drawCard(
     doc.line(margin + 7, cy, margin + contentW - 4, cy);
     cy += 3;
   }
-  doc.setFont('helvetica', 'normal');
+  doc.setFont('Satoshi', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...C.GRAY);
   lines.forEach(line => {
@@ -269,20 +269,20 @@ export function drawCostBoxes(
     doc.roundedRect(bx, ctx.y, boxW, boxH, 2, 2, 'FD');
 
     // Label
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('Satoshi', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(...C.GRAY);
     doc.text(c.label, bx + boxW / 2, ctx.y + 9, { align: 'center' });
 
     // Value
-    doc.setFont('helvetica', 'bold');
+    doc.setFont('Satoshi', 'bold');
     doc.setFontSize(18);
     doc.setTextColor(c.color[0], c.color[1], c.color[2]);
     doc.text(c.value, bx + boxW / 2, ctx.y + 20, { align: 'center' });
 
     // Sublabel
     if (c.sublabel) {
-      doc.setFont('helvetica', 'normal');
+      doc.setFont('Satoshi', 'normal');
       doc.setFontSize(6);
       doc.setTextColor(...C.GRAY_L);
       doc.text(c.sublabel, bx + boxW / 2, ctx.y + 25, { align: 'center' });
@@ -314,7 +314,7 @@ export function drawBadge(
   const tw = doc.getTextWidth(text) + 4;
   doc.setFillColor(bg[0], bg[1], bg[2]);
   doc.roundedRect(x, ctx.y - 2.5, tw, 5, 1, 1, 'F');
-  doc.setFont('helvetica', 'bold');
+  doc.setFont('Satoshi', 'bold');
   doc.setTextColor(color[0], color[1], color[2]);
   doc.text(text, x + 2, ctx.y + 0.5);
   return x + tw + 2;

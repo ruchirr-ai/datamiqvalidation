@@ -2309,7 +2309,7 @@
 /* Config Comparison Grid */
 .rec-config-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: var(--spacing-5);
 }
 
@@ -2663,6 +2663,26 @@
 .tco-cost-card.tco-cost-total {
   border-color: var(--color-primary);
   background: rgba(42, 107, 219, 0.03);
+}
+
+.tco-cost-card.tco-cost-card-best {
+  position: relative;
+  border-color: #10B981;
+  box-shadow: 0 0 0 1px #10B981;
+  background: rgba(16, 185, 129, 0.03);
+}
+
+.tco-cost-best-badge {
+  position: absolute;
+  top: -10px;
+  right: var(--spacing-3);
+  background: #10B981;
+  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  padding: 2px 10px;
+  border-radius: var(--radius-full, 9999px);
+  line-height: 1.4;
 }
 
 .tco-cost-label {

@@ -69,7 +69,7 @@ class AssessmentDataset(Base):
     assessment_id = Column(Integer, ForeignKey('assessments.id', ondelete='CASCADE'), nullable=False)
     dataset_name = Column(String(255), nullable=False)
     creation_time = Column(TIMESTAMP, nullable=True)
-    location = Column(String(100), nullable=True)
+    location = Column(String(255), nullable=True)
     table_count = Column(Integer, default=0)
     total_size_mb = Column(BigInteger, default=0)
     dataset_metadata = Column(JSONB, nullable=True)
@@ -137,7 +137,7 @@ class AssessmentColumn(Base):
     assessment_id = Column(Integer, ForeignKey('assessments.id', ondelete='CASCADE'), nullable=False)
     table_id = Column(Integer, ForeignKey('assessment_tables.id', ondelete='CASCADE'), nullable=False)
     column_name = Column(String(255), nullable=False)
-    data_type = Column(String(100), nullable=False)
+    data_type = Column(String(500), nullable=False)
     is_nullable = Column(Boolean, default=True)
     ordinal_position = Column(Integer, nullable=True)
     
@@ -203,7 +203,7 @@ class AssessmentRoutine(Base):
     assessment_id = Column(Integer, ForeignKey('assessments.id', ondelete='CASCADE'), nullable=False)
     routine_name = Column(String(255), nullable=False)
     routine_type = Column(String(50), nullable=True)  # PROCEDURE or FUNCTION
-    return_type = Column(String(100), nullable=True)
+    return_type = Column(String(500), nullable=True)
     definition = Column(Text, nullable=True)
     external_language = Column(String(50), nullable=True)  # Python, JavaScript
     creation_time = Column(TIMESTAMP, nullable=True)
@@ -261,7 +261,7 @@ class AssessmentMLModel(Base):
     id = Column(Integer, primary_key=True, index=True)
     assessment_id = Column(Integer, ForeignKey('assessments.id', ondelete='CASCADE'), nullable=False)
     model_name = Column(String(255), nullable=False)
-    model_type = Column(String(100), nullable=True)  # LOGISTIC_REG, DNN_CLASSIFIER, etc.
+    model_type = Column(String(255), nullable=True)  # LOGISTIC_REG, DNN_CLASSIFIER, etc.
     dataset_name = Column(String(255), nullable=True)
     creation_time = Column(TIMESTAMP, nullable=True)
     last_modified_time = Column(TIMESTAMP, nullable=True)

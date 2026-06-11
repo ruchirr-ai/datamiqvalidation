@@ -23,14 +23,14 @@
   font-size: 13px;
   font-weight: 450;
   color: var(--color-text-primary);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .field-config-type {
   font-size: 12px;
   font-weight: 400;
   color: var(--color-text-secondary);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Satoshi', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .field-config-actions {

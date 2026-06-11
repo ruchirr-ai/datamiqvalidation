@@ -6,13 +6,15 @@ export interface BadgeProps {
   variant?: 'default' | 'success' | 'warning' | 'error' | 'info';
   size?: 'sm' | 'md';
   className?: string;
+  title?: string;
 }
 
 export const Badge: React.FC<BadgeProps> = ({
   children,
   variant = 'default',
   size = 'md',
-  className = ''
+  className = '',
+  title
 }) => {
   const classes = [
     'badge',
@@ -21,5 +23,5 @@ export const Badge: React.FC<BadgeProps> = ({
     className
   ].filter(Boolean).join(' ');
 
-  return <span className={classes}>{children}</span>;
+  return <span className={classes} title={title}>{children}</span>;
 };
