@@ -461,6 +461,10 @@ export const CreateConnectionModal: React.FC<CreateConnectionModalProps> = ({
                     };
                   }
                 }
+                // Hide dataset and location fields for WIF mode (not needed — assessment scans all datasets)
+                if (formData.database === 'bigquery' && bqAuthMethod === 'wif' && (config.name === 'dataset' || config.name === 'location')) {
+                  return null;
+                }
                 const isPasswordField = displayConfig.type === 'password';
                 const isTextareaField = displayConfig.type === 'textarea';
                 const isCheckboxField = config.type === 'checkbox';
