@@ -104,11 +104,11 @@ export function subHeading(ctx: PDFContext, title: string): void {
 export function drawMetricRow(
   ctx: PDFContext,
   items: { v: string; l: string; color?: readonly [number, number, number]; bg?: readonly [number, number, number] }[],
-  boxH = 22,
+  boxH = 26,
 ): void {
-  const gap = 3;
+  const gap = 4;
   const boxW = (ctx.contentW - (items.length - 1) * gap) / items.length;
-  checkPage(ctx, boxH + 4);
+  checkPage(ctx, boxH + 5);
   const { doc, margin } = ctx;
 
   items.forEach((m, i) => {
@@ -116,30 +116,31 @@ export function drawMetricRow(
     const bg = m.bg || C.PRIMARY_BG;
     const fg = m.color || C.PRIMARY;
 
-    // Shadow
+    // Soft shadow
     doc.setFillColor(0, 0, 0);
-    doc.setGState(new (doc as any).GState({ opacity: 0.04 }));
-    doc.roundedRect(bx + 0.5, ctx.y + 0.5, boxW, boxH, 2, 2, 'F');
+    doc.setGState(new (doc as any).GState({ opacity: 0.03 }));
+    doc.roundedRect(bx + 0.7, ctx.y + 0.7, boxW, boxH, 3, 3, 'F');
     doc.setGState(new (doc as any).GState({ opacity: 1 }));
 
-    // Card bg
+    // Card bg with rounded corners
     doc.setFillColor(...bg);
     doc.setDrawColor(...C.GRAY_XL);
-    doc.roundedRect(bx, ctx.y, boxW, boxH, 2, 2, 'FD');
+    doc.setLineWidth(0.2);
+    doc.roundedRect(bx, ctx.y, boxW, boxH, 3, 3, 'FD');
 
-    // Value
+    // Value — larger and bolder
     doc.setFont('Satoshi', 'bold');
-    doc.setFontSize(14);
+    doc.setFontSize(16);
     doc.setTextColor(fg[0], fg[1], fg[2]);
-    doc.text(m.v, bx + boxW / 2, ctx.y + 11, { align: 'center' });
+    doc.text(m.v, bx + boxW / 2, ctx.y + 13, { align: 'center' });
 
-    // Label
+    // Label — uppercase, spaced
     doc.setFont('Satoshi', 'normal');
-    doc.setFontSize(6);
+    doc.setFontSize(6.5);
     doc.setTextColor(...C.GRAY);
-    doc.text(m.l.toUpperCase(), bx + boxW / 2, ctx.y + 17, { align: 'center' });
+    doc.text(m.l.toUpperCase(), bx + boxW / 2, ctx.y + 20, { align: 'center' });
   });
-  ctx.y += boxH + 4;
+  ctx.y += boxH + 5;
 }
 
 // ── Info card with styled header ──
@@ -150,45 +151,50 @@ export function drawCard(
   titleText?: string,
   accentColor?: readonly [number, number, number],
 ): void {
-  const lineH = 5;
-  const titleH = titleText ? 8 : 0;
-  const cardH = titleH + lines.length * lineH + 6;
+  const lineH = 5.5;
+  const titleH = titleText ? 9 : 0;
+  const cardH = titleH + lines.length * lineH + 8;
   checkPage(ctx, cardH);
   const { doc, margin, contentW } = ctx;
   const accent = accentColor || C.PRIMARY_L;
 
+  // Soft shadow
+  doc.setFillColor(0, 0, 0);
+  doc.setGState(new (doc as any).GState({ opacity: 0.03 }));
+  doc.roundedRect(margin + 0.5, ctx.y + 0.5, contentW, cardH, 3, 3, 'F');
+  doc.setGState(new (doc as any).GState({ opacity: 1 }));
+
   // Card body
   doc.setFillColor(...C.WHITE);
   doc.setDrawColor(...C.GRAY_XL);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(margin, ctx.y, contentW, cardH, 2, 2, 'FD');
+  doc.setLineWidth(0.2);
+  doc.roundedRect(margin, ctx.y, contentW, cardH, 3, 3, 'FD');
 
   // Left accent bar
   doc.setFillColor(accent[0], accent[1], accent[2]);
-  doc.roundedRect(margin, ctx.y, 2.5, cardH, 2, 0, 'F');
-  doc.rect(margin + 1.5, ctx.y, 1, cardH, 'F'); // fill the gap
+  doc.roundedRect(margin, ctx.y, 2.5, cardH, 3, 0, 'F');
+  doc.rect(margin + 1.5, ctx.y, 1, cardH, 'F');
 
-  let cy = ctx.y + 4;
+  let cy = ctx.y + 5;
   if (titleText) {
     doc.setFont('Satoshi', 'bold');
     doc.setFontSize(9);
     doc.setTextColor(...C.DARK);
-    doc.text(titleText, margin + 7, cy + 2);
-    // Separator line under title
-    cy += 5;
+    doc.text(titleText, margin + 8, cy + 2);
+    cy += 6;
     doc.setDrawColor(...C.GRAY_XL);
-    doc.setLineWidth(0.2);
-    doc.line(margin + 7, cy, margin + contentW - 4, cy);
+    doc.setLineWidth(0.15);
+    doc.line(margin + 8, cy, margin + contentW - 4, cy);
     cy += 3;
   }
   doc.setFont('Satoshi', 'normal');
   doc.setFontSize(8);
-  doc.setTextColor(...C.GRAY);
+  doc.setTextColor(...C.DARK2);
   lines.forEach(line => {
-    doc.text(line, margin + 7, cy + 2);
+    doc.text(sanitize(line), margin + 8, cy + 2.5);
     cy += lineH;
   });
-  ctx.y += cardH + 4;
+  ctx.y += cardH + 5;
 }
 
 // ── Professional data table ──
@@ -200,17 +206,19 @@ export function drawTable(ctx: PDFContext, headers: string[], rows: string[][]):
     margin: { left: ctx.margin, right: ctx.margin },
     head: [headers],
     body: rows,
-    theme: 'grid',
+    theme: 'striped',
     styles: {
-      fontSize: 7.5, cellPadding: 2.5,
+      fontSize: 7.5, cellPadding: 3,
       textColor: [...C.BODY_TEXT],
-      lineColor: [...C.BORDER], lineWidth: 0.2,
+      lineColor: [...C.GRAY_XL], lineWidth: 0.15,
+      font: 'Satoshi',
     },
     headStyles: {
       fillColor: [...C.PRIMARY_BG], textColor: [...C.PRIMARY_D],
-      fontStyle: 'bold', fontSize: 7.5, cellPadding: 3,
+      fontStyle: 'bold', fontSize: 7.5, cellPadding: 3.5,
+      lineColor: [...C.PRIMARY_XL], lineWidth: 0.2,
     },
-    alternateRowStyles: { fillColor: [...C.ALT_ROW] },
+    alternateRowStyles: { fillColor: [...C.GRAY_BG] },
     didDrawPage: () => {},
   });
   ctx.y = (ctx.doc as any).lastAutoTable.finalY + 6;
@@ -232,17 +240,19 @@ export function drawCustomTable(
     margin: { left: ctx.margin, right: ctx.margin },
     head: [headers],
     body: rows,
-    theme: 'grid',
+    theme: 'striped',
     styles: {
-      fontSize: fs, cellPadding: opts?.cellPadding ?? 2,
-      textColor: [...C.BODY_TEXT], lineColor: [...C.BORDER],
-      lineWidth: 0.2, overflow: 'linebreak',
+      fontSize: fs, cellPadding: opts?.cellPadding ?? 2.5,
+      textColor: [...C.BODY_TEXT], lineColor: [...C.GRAY_XL],
+      lineWidth: 0.15, overflow: 'linebreak',
+      font: 'Satoshi',
     },
     headStyles: {
       fillColor: [...C.PRIMARY_BG], textColor: [...C.PRIMARY_D],
       fontStyle: 'bold', fontSize: fs + 0.5, cellPadding: 3,
+      lineColor: [...C.PRIMARY_XL], lineWidth: 0.2,
     },
-    alternateRowStyles: { fillColor: [...C.ALT_ROW] },
+    alternateRowStyles: { fillColor: [...C.GRAY_BG] },
     columnStyles,
   });
   ctx.y = (ctx.doc as any).lastAutoTable.finalY + 6;
@@ -256,39 +266,46 @@ export function drawCostBoxes(
 ): void {
   const gap = 4;
   const boxW = (ctx.contentW - (items.length - 1) * gap) / items.length;
-  const boxH = 28;
-  checkPage(ctx, boxH + 4);
+  const boxH = 32;
+  checkPage(ctx, boxH + 5);
   const { doc, margin } = ctx;
 
   items.forEach((c, i) => {
     const bx = margin + i * (boxW + gap);
 
+    // Soft shadow
+    doc.setFillColor(0, 0, 0);
+    doc.setGState(new (doc as any).GState({ opacity: 0.03 }));
+    doc.roundedRect(bx + 0.7, ctx.y + 0.7, boxW, boxH, 3, 3, 'F');
+    doc.setGState(new (doc as any).GState({ opacity: 1 }));
+
     // Card
     doc.setFillColor(c.bg[0], c.bg[1], c.bg[2]);
     doc.setDrawColor(...C.GRAY_XL);
-    doc.roundedRect(bx, ctx.y, boxW, boxH, 2, 2, 'FD');
+    doc.setLineWidth(0.2);
+    doc.roundedRect(bx, ctx.y, boxW, boxH, 3, 3, 'FD');
 
-    // Label
+    // Label at top
     doc.setFont('Satoshi', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(...C.GRAY);
-    doc.text(c.label, bx + boxW / 2, ctx.y + 9, { align: 'center' });
+    doc.text(c.label, bx + boxW / 2, ctx.y + 10, { align: 'center' });
 
-    // Value
+    // Value — prominent
     doc.setFont('Satoshi', 'bold');
-    doc.setFontSize(18);
+    doc.setFontSize(16);
     doc.setTextColor(c.color[0], c.color[1], c.color[2]);
-    doc.text(c.value, bx + boxW / 2, ctx.y + 20, { align: 'center' });
+    doc.text(c.value, bx + boxW / 2, ctx.y + 21, { align: 'center' });
 
     // Sublabel
     if (c.sublabel) {
       doc.setFont('Satoshi', 'normal');
       doc.setFontSize(6);
       doc.setTextColor(...C.GRAY_L);
-      doc.text(c.sublabel, bx + boxW / 2, ctx.y + 25, { align: 'center' });
+      doc.text(c.sublabel, bx + boxW / 2, ctx.y + 28, { align: 'center' });
     }
   });
-  ctx.y += boxH + 5;
+  ctx.y += boxH + 6;
 }
 
 // ── Horizontal divider ──
