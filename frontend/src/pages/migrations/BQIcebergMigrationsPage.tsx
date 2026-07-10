@@ -25,6 +25,7 @@ interface CreateFormData {
   migration_name: string;
   pathway: 'A' | 'B' | 'C';
   destination_type: 'iceberg_s3' | 'iceberg_s3_tables';
+  source_connection_id: string;
   source_project_id: string;
   source_dataset: string;
   source_tables_raw: string;
@@ -46,6 +47,7 @@ const INITIAL_FORM: CreateFormData = {
   migration_name: '',
   pathway: 'A',
   destination_type: 'iceberg_s3',
+  source_connection_id: '',
   source_project_id: '',
   source_dataset: '',
   source_tables_raw: '',
@@ -124,6 +126,23 @@ export const BQIcebergMigrationsPage: React.FC = () => {
   const [formData, setFormData] = useState<CreateFormData>(INITIAL_FORM);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Source connections list for dropdown
+  const [sourceConnections, setSourceConnections] = useState<{id: number; name: string}[]>([]);
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('access_token');
+    fetch('/api/connections?type=source', { headers: { ...(token && { Authorization: `Bearer ${token}` }) } })
+      .then(r => r.ok ? r.json() : { connections: [] })
+      .then(d => setSourceConnections((d.connections || d || []).filter((c: any) => c.type === 'source' || c.database === 'bigquery')))
+      .catch(() => {});
+  }, []);
+
+  // Edit modal state
+  const [showEdit, setShowEdit] = useState(false);
+  const [editingMigration, setEditingMigration] = useState<IcebergMigration | null>(null);
+  const [editFormData, setEditFormData] = useState<CreateFormData>(INITIAL_FORM);
+  const [editFormError, setEditFormError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -158,6 +177,16 @@ export const BQIcebergMigrationsPage: React.FC = () => {
   }, [statusFilter, destFilter]);
 
   useEffect(() => { fetchMigrations(); }, [fetchMigrations]);
+
+  // Auto-poll every 3s when any migration is running or pending_review
+  useEffect(() => {
+    const hasActiveJob = migrations.some(m =>
+      ['running', 'pending_review', 'approved'].includes(m.status)
+    );
+    if (!hasActiveJob) return;
+    const interval = setInterval(() => { fetchMigrations(); }, 3000);
+    return () => clearInterval(interval);
+  }, [migrations, fetchMigrations]);
 
   // ---- Actions ----
 
@@ -197,6 +226,7 @@ export const BQIcebergMigrationsPage: React.FC = () => {
         export_format: 'PARQUET',
         compression: 'ZSTD',
       };
+      if (formData.source_connection_id) body.source_connection_id = Number(formData.source_connection_id);
       if (formData.destination_type === 'iceberg_s3') {
         body.s3_bucket = formData.s3_bucket;
         if (formData.s3_path_prefix) body.s3_path_prefix = formData.s3_path_prefix;
@@ -299,6 +329,102 @@ export const BQIcebergMigrationsPage: React.FC = () => {
       setToast({ msg: err.message, type: 'error' });
     } finally {
       setDeleting(false);
+    }
+  };
+
+  // ---- Edit handlers ----
+
+  const handleEditOpen = (m: IcebergMigration) => {
+    setEditingMigration(m);
+    setEditFormData({
+      migration_name: m.migration_name,
+      pathway: m.pathway,
+      destination_type: m.destination_type,
+      source_project_id: (m as any).source_project_id || '',
+      source_dataset: (m as any).source_dataset || '',
+      source_tables_raw: Array.isArray((m as any).source_tables)
+        ? (m as any).source_tables.join(', ')
+        : (m as any).source_tables_raw || '',
+      aws_region: m.aws_region,
+      glue_database_name: m.glue_database_name,
+      s3_bucket: (m as any).s3_bucket || '',
+      s3_path_prefix: (m as any).s3_path_prefix || 'iceberg/',
+      table_bucket_arn: (m as any).table_bucket_arn || '',
+      s3_tables_namespace: (m as any).s3_tables_namespace || '',
+      gcs_bucket: (m as any).gcs_bucket || '',
+      gcs_path: (m as any).gcs_path || 'exports/',
+      aws_access_key_id: '',
+      aws_secret_access_key: '',
+    });
+    setEditFormError(null);
+    setShowEdit(true);
+  };
+
+  const handleEditSave = async () => {
+    if (!editingMigration) return;
+    setEditFormError(null);
+    if (!editFormData.migration_name.trim()) return setEditFormError('Migration name is required');
+    if (!editFormData.source_project_id.trim()) return setEditFormError('GCP Project ID is required');
+    if (!editFormData.source_dataset.trim()) return setEditFormError('BQ Dataset is required');
+    if (!editFormData.source_tables_raw.trim()) return setEditFormError('At least one table name is required');
+    if (!editFormData.glue_database_name.trim()) return setEditFormError('Glue database name is required');
+    if (!/^[a-z0-9_]+$/.test(editFormData.glue_database_name)) {
+      return setEditFormError('Glue database name: lowercase letters, numbers, underscores only');
+    }
+    if (editFormData.destination_type === 'iceberg_s3' && !editFormData.s3_bucket.trim()) {
+      return setEditFormError('S3 bucket is required for Iceberg on S3');
+    }
+    if (editFormData.destination_type === 'iceberg_s3_tables' && !editFormData.table_bucket_arn.trim()) {
+      return setEditFormError('Table Bucket ARN is required for S3 Tables');
+    }
+    if (!editFormData.gcs_bucket.trim()) return setEditFormError('GCS bucket is required');
+
+    try {
+      setEditSaving(true);
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('access_token');
+      const tables = editFormData.source_tables_raw.split(',').map(t => t.trim()).filter(Boolean);
+      const body: Record<string, unknown> = {
+        migration_name: editFormData.migration_name,
+        pathway: editFormData.pathway,
+        destination_type: editFormData.destination_type,
+        source_project_id: editFormData.source_project_id,
+        source_dataset: editFormData.source_dataset,
+        source_tables: tables,
+        aws_region: editFormData.aws_region,
+        glue_database_name: editFormData.glue_database_name,
+        gcs_bucket: editFormData.gcs_bucket,
+        gcs_path: editFormData.gcs_path || undefined,
+      };
+      if (editFormData.destination_type === 'iceberg_s3') {
+        body.s3_bucket = editFormData.s3_bucket;
+        if (editFormData.s3_path_prefix) body.s3_path_prefix = editFormData.s3_path_prefix;
+      } else {
+        body.table_bucket_arn = editFormData.table_bucket_arn;
+        if (editFormData.s3_tables_namespace) body.s3_tables_namespace = editFormData.s3_tables_namespace;
+      }
+      if (editFormData.aws_access_key_id) body.aws_access_key_id = editFormData.aws_access_key_id;
+      if (editFormData.aws_secret_access_key) body.aws_secret_access_key = editFormData.aws_secret_access_key;
+
+      const res = await fetch(`/api/migrations/bq-iceberg/${editingMigration.id}/update`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to update migration');
+      }
+      setShowEdit(false);
+      setEditingMigration(null);
+      setToast({ msg: 'Migration updated successfully', type: 'success' });
+      fetchMigrations();
+    } catch (err: any) {
+      setEditFormError(err.message);
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -459,9 +585,16 @@ export const BQIcebergMigrationsPage: React.FC = () => {
                     </div>
                   </td>
                   <td>
-                    <Badge variant={(STATUS_VARIANT[m.status] ?? 'default') as any}>
-                      {m.status === 'pending_review' ? 'Pending Review' : m.status}
-                    </Badge>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <Badge variant={(STATUS_VARIANT[m.status] ?? 'default') as any}>
+                        {m.status === 'pending_review' ? 'Pending Review' : m.status}
+                      </Badge>
+                      {m.status === 'approved' && (
+                        <span className="bqi-ready-badge" title="Structure approved — ready to begin loading data">
+                          Ready to load
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="bqi-table__stage">
                     {m.current_stage ? (STAGE_LABELS[m.current_stage] ?? m.current_stage) : '—'}
@@ -480,11 +613,15 @@ export const BQIcebergMigrationsPage: React.FC = () => {
                   <td onClick={e => e.stopPropagation()}>
                     <div className="bqi-row-actions">
                       {(m.status === 'pending' || m.status === 'approved') && (
-                        <button className="bqi-action-btn bqi-action-btn--primary" onClick={() => handleStart(m)} title="Start">
+                        <button
+                          className="bqi-action-btn bqi-action-btn--primary"
+                          onClick={() => handleStart(m)}
+                          title={m.status === 'approved' ? 'Structure approved — click to begin loading data' : 'Start'}
+                        >
                           <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor" aria-hidden="true">
                             <path d="M3 2l8 4.5L3 11V2z"/>
                           </svg>
-                          Start
+                          {m.status === 'approved' ? 'Start Load' : 'Start'}
                         </button>
                       )}
                       {m.status === 'running' && (
@@ -523,6 +660,18 @@ export const BQIcebergMigrationsPage: React.FC = () => {
                             <path d="M4.5 4.5l4 4M8.5 4.5l-4 4" strokeLinecap="round"/>
                           </svg>
                           Cancel
+                        </button>
+                      )}
+                      {(['pending', 'failed', 'cancelled'] as string[]).includes(m.status) && (
+                        <button
+                          className="bqi-action-btn bqi-action-btn--icon"
+                          onClick={() => handleEditOpen(m)}
+                          title="Edit migration"
+                          aria-label="Edit migration"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                            <path d="M9.5 2.5l2 2L4 12H2v-2L9.5 2.5z" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
                         </button>
                       )}
                       {!['running'].includes(m.status) && (
@@ -589,6 +738,19 @@ export const BQIcebergMigrationsPage: React.FC = () => {
 
             {/* Source */}
             <div className="bqi-form__section-label">Source — BigQuery</div>
+            <div className="bqi-form__row">
+              <label className="bqi-form__label">BigQuery Connection <span style={{color:'var(--color-text-secondary)', fontWeight:400}}>(provides GCP credentials)</span></label>
+              <select
+                className="bqi-form__select"
+                value={formData.source_connection_id}
+                onChange={e => setFormData(p => ({ ...p, source_connection_id: e.target.value }))}
+              >
+                <option value="">— Select a BigQuery connection —</option>
+                {sourceConnections.map(c => (
+                  <option key={c.id} value={String(c.id)}>{c.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="bqi-form__two-col">
               <div className="bqi-form__row">
                 <label className="bqi-form__label">GCP Project ID *</label>
@@ -671,6 +833,139 @@ export const BQIcebergMigrationsPage: React.FC = () => {
               <Button variant="outline" onClick={() => setShowCreate(false)} disabled={creating}>Cancel</Button>
               <Button variant="primary" onClick={handleCreate} disabled={creating}>
                 {creating ? 'Creating…' : 'Create Migration'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Edit Migration Modal */}
+      {showEdit && editingMigration && (
+        <Modal
+          isOpen={showEdit}
+          onClose={() => { setShowEdit(false); setEditingMigration(null); }}
+          title={`Edit Migration — ${editingMigration.migration_name}`}
+          size="lg"
+        >
+          <div className="bqi-form">
+            {editFormError && (
+              <Alert variant="error" onClose={() => setEditFormError(null)}>
+                {editFormError}
+              </Alert>
+            )}
+
+            {/* Basic */}
+            <div className="bqi-form__row">
+              <label className="bqi-form__label">Migration Name *</label>
+              <Input
+                value={editFormData.migration_name}
+                onChange={e => setEditFormData(p => ({ ...p, migration_name: e.target.value }))}
+                placeholder="e.g., prod-analytics-iceberg"
+              />
+            </div>
+
+            <div className="bqi-form__two-col">
+              <div className="bqi-form__row">
+                <label className="bqi-form__label">Pathway *</label>
+                <select className="bqi-form__select" value={editFormData.pathway} onChange={e => setEditFormData(p => ({ ...p, pathway: e.target.value as 'A' | 'B' | 'C' }))}>
+                  <option value="A">Path A — GCS → S3 Storage Transfer</option>
+                  <option value="B">Path B — DataSync (GCP VM)</option>
+                  <option value="C">Path C — Hybrid</option>
+                </select>
+              </div>
+              <div className="bqi-form__row">
+                <label className="bqi-form__label">Destination Type *</label>
+                <select className="bqi-form__select" value={editFormData.destination_type} onChange={e => setEditFormData(p => ({ ...p, destination_type: e.target.value as 'iceberg_s3' | 'iceberg_s3_tables' }))}>
+                  <option value="iceberg_s3">Apache Iceberg on S3</option>
+                  <option value="iceberg_s3_tables">AWS S3 Tables (Managed)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Source */}
+            <div className="bqi-form__section-label">Source — BigQuery</div>
+            <div className="bqi-form__two-col">
+              <div className="bqi-form__row">
+                <label className="bqi-form__label">GCP Project ID *</label>
+                <Input value={editFormData.source_project_id} onChange={e => setEditFormData(p => ({ ...p, source_project_id: e.target.value }))} placeholder="my-gcp-project" />
+              </div>
+              <div className="bqi-form__row">
+                <label className="bqi-form__label">Dataset *</label>
+                <Input value={editFormData.source_dataset} onChange={e => setEditFormData(p => ({ ...p, source_dataset: e.target.value }))} placeholder="production_data" />
+              </div>
+            </div>
+            <div className="bqi-form__row">
+              <label className="bqi-form__label">Tables (comma-separated) *</label>
+              <Input value={editFormData.source_tables_raw} onChange={e => setEditFormData(p => ({ ...p, source_tables_raw: e.target.value }))} placeholder="orders, users, events" />
+            </div>
+
+            {/* Target */}
+            <div className="bqi-form__section-label">Target — AWS</div>
+            <div className="bqi-form__two-col">
+              <div className="bqi-form__row">
+                <label className="bqi-form__label">AWS Region *</label>
+                <Input value={editFormData.aws_region} onChange={e => setEditFormData(p => ({ ...p, aws_region: e.target.value }))} placeholder="us-east-1" />
+              </div>
+              <div className="bqi-form__row">
+                <label className="bqi-form__label">Glue Database Name *</label>
+                <Input value={editFormData.glue_database_name} onChange={e => setEditFormData(p => ({ ...p, glue_database_name: e.target.value }))} placeholder="analytics_iceberg" />
+              </div>
+            </div>
+
+            {editFormData.destination_type === 'iceberg_s3' ? (
+              <div className="bqi-form__two-col">
+                <div className="bqi-form__row">
+                  <label className="bqi-form__label">S3 Bucket *</label>
+                  <Input value={editFormData.s3_bucket} onChange={e => setEditFormData(p => ({ ...p, s3_bucket: e.target.value }))} placeholder="my-iceberg-bucket" />
+                </div>
+                <div className="bqi-form__row">
+                  <label className="bqi-form__label">S3 Path Prefix</label>
+                  <Input value={editFormData.s3_path_prefix} onChange={e => setEditFormData(p => ({ ...p, s3_path_prefix: e.target.value }))} placeholder="iceberg/" />
+                </div>
+              </div>
+            ) : (
+              <div className="bqi-form__two-col">
+                <div className="bqi-form__row">
+                  <label className="bqi-form__label">Table Bucket ARN *</label>
+                  <Input value={editFormData.table_bucket_arn} onChange={e => setEditFormData(p => ({ ...p, table_bucket_arn: e.target.value }))} placeholder="arn:aws:s3tables:us-east-1:123456789012:bucket/my-bucket" />
+                </div>
+                <div className="bqi-form__row">
+                  <label className="bqi-form__label">Namespace</label>
+                  <Input value={editFormData.s3_tables_namespace} onChange={e => setEditFormData(p => ({ ...p, s3_tables_namespace: e.target.value }))} placeholder="analytics_ns" />
+                </div>
+              </div>
+            )}
+
+            {/* Intermediate */}
+            <div className="bqi-form__section-label">Intermediate Storage — GCS</div>
+            <div className="bqi-form__two-col">
+              <div className="bqi-form__row">
+                <label className="bqi-form__label">GCS Bucket *</label>
+                <Input value={editFormData.gcs_bucket} onChange={e => setEditFormData(p => ({ ...p, gcs_bucket: e.target.value }))} placeholder="my-export-bucket" />
+              </div>
+              <div className="bqi-form__row">
+                <label className="bqi-form__label">GCS Path</label>
+                <Input value={editFormData.gcs_path} onChange={e => setEditFormData(p => ({ ...p, gcs_path: e.target.value }))} placeholder="exports/" />
+              </div>
+            </div>
+
+            {/* AWS Credentials */}
+            <div className="bqi-form__section-label">AWS Credentials (optional — uses IAM role if omitted)</div>
+            <div className="bqi-form__two-col">
+              <div className="bqi-form__row">
+                <label className="bqi-form__label">Access Key ID</label>
+                <Input value={editFormData.aws_access_key_id} onChange={e => setEditFormData(p => ({ ...p, aws_access_key_id: e.target.value }))} placeholder="AKIA…" autoComplete="off" />
+              </div>
+              <div className="bqi-form__row">
+                <label className="bqi-form__label">Secret Access Key</label>
+                <Input type="password" value={editFormData.aws_secret_access_key} onChange={e => setEditFormData(p => ({ ...p, aws_secret_access_key: e.target.value }))} placeholder="••••••••" autoComplete="new-password" />
+              </div>
+            </div>
+
+            <div className="bqi-form__footer">
+              <Button variant="outline" onClick={() => { setShowEdit(false); setEditingMigration(null); }} disabled={editSaving}>Cancel</Button>
+              <Button variant="primary" onClick={handleEditSave} disabled={editSaving}>
+                {editSaving ? 'Saving…' : 'Save Changes'}
               </Button>
             </div>
           </div>

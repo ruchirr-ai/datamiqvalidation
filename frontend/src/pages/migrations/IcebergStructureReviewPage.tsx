@@ -88,7 +88,7 @@ const TableSection: React.FC<TableSectionProps> = ({
         </div>
         <div className="table-section__header-right">
           <span className="table-section__meta">
-            {table.columns.length} cols
+            {(table.columns ?? []).length} cols
           </span>
           <span className="table-section__meta">
             {table.estimated_row_count.toLocaleString()} rows
@@ -438,6 +438,11 @@ const PrerequisitesChecklist: React.FC<PrerequisitesChecklistProps> = ({ prerequ
             <div className="prerequisites-checklist__item-content">
               <span className="prerequisites-checklist__item-label">{item.label}</span>
               <span className="prerequisites-checklist__item-desc">{item.description}</span>
+              {(item as any).arn_or_permission && (
+                <code className="prerequisites-checklist__arn">
+                  {(item as any).arn_or_permission}
+                </code>
+              )}
               <span className={`prerequisites-checklist__category prerequisites-checklist__category--${item.category}`}>
                 {item.category}
               </span>
@@ -686,21 +691,21 @@ export const IcebergStructureReviewPage: React.FC = () => {
 
       {/* Prerequisites */}
       <Card className="structure-review-page__section">
-        <PrerequisitesChecklist prerequisites={report.prerequisites} />
+        <PrerequisitesChecklist prerequisites={report.prerequisites ?? []} />
       </Card>
 
       {/* Warnings */}
       <Card className="structure-review-page__section">
-        <WarningsSection warnings={report.warnings} />
+        <WarningsSection warnings={report.warnings ?? []} />
       </Card>
 
       {/* Table Structures */}
       <Card className="structure-review-page__section">
         <h3 className="structure-review-page__section-title">
-          Table Structures ({report.tables.length} tables)
+          Table Structures ({(report.tables ?? []).length} tables)
         </h3>
         <div className="structure-review-page__tables">
-          {report.tables.map((table) => (
+          {(report.tables ?? []).map((table) => (
             <TableSection
               key={table.iceberg_table_name}
               table={table}

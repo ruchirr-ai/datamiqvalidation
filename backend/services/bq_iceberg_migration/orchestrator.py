@@ -330,6 +330,19 @@ class IcebergMigrationOrchestrator:
             checkpoint = getattr(migration, "checkpoint_data", None) or {}
             assessment_tables = checkpoint.get("assessment_tables", [])
 
+        # If still empty, fetch real schema from BigQuery
+        if not assessment_tables:
+            assessment_tables = await self._fetch_bq_schema(migration)
+            # Cache in checkpoint_data for resume
+            checkpoint = getattr(migration, "checkpoint_data", None) or {}
+            checkpoint["assessment_tables"] = assessment_tables
+            migration.checkpoint_data = checkpoint
+            logger.info(
+                "Fetched %d tables from BigQuery for migration %s",
+                len(assessment_tables),
+                getattr(migration, "id", None),
+            )
+
         # Generate structure report
         from services.bq_iceberg_migration.type_mapper import BQToIcebergTypeMapper
         from services.bq_iceberg_migration.partition_mapper import PartitionSpecMapper
@@ -498,6 +511,167 @@ class IcebergMigrationOrchestrator:
             migration.status = "running"
 
         return True
+
+    async def _fetch_bq_schema(self, migration: Any) -> List[dict]:
+        """Fetch real BigQuery table schemas for all source tables in the migration.
+
+        Uses the service account credentials stored on the migration to connect
+        to BigQuery and retrieve schema, row counts, and partition/clustering info
+        for each source table, formatted as assessment_tables dicts.
+
+        Args:
+            migration: The MigrationBQIceberg model instance.
+
+        Returns:
+            List of assessment table dicts with schema, row_count, size, etc.
+        """
+        migration_id = getattr(migration, "id", None)
+
+        try:
+            from google.cloud import bigquery as bq
+            from google.oauth2 import service_account as sa
+            import json as _json
+
+            # Decrypt service account JSON
+            service_account_json = None
+            encrypted = getattr(migration, "service_account_json_encrypted", None)
+
+            if encrypted:
+                # Try KMS decrypt first
+                try:
+                    kms = self._loader.credential_provider.kms_service if self._loader else None
+                    if kms and encrypted:
+                        decrypted = kms.decrypt(encrypted)
+                        if isinstance(decrypted, str):
+                            service_account_json = _json.loads(decrypted)
+                        else:
+                            service_account_json = decrypted
+                except Exception as e:
+                    logger.debug("[BG] KMS decrypt failed, trying plaintext: %s", e)
+
+                # Fallback: try as raw JSON (dev mode — KMS not configured)
+                if not service_account_json:
+                    try:
+                        if isinstance(encrypted, str):
+                            service_account_json = _json.loads(encrypted)
+                        elif isinstance(encrypted, dict):
+                            service_account_json = encrypted
+                    except Exception:
+                        pass
+
+            # If still not found, try reading from the source connection record
+            if not service_account_json:
+                source_connection_id = getattr(migration, "source_connection_id", None)
+                if source_connection_id:
+                    try:
+                        from database import db_instance
+                        from sqlalchemy import text
+                        with db_instance.get_session() as _db:
+                            conn_row = _db.execute(
+                                text("SELECT connection_params FROM connections WHERE id=:cid"),
+                                {"cid": source_connection_id}
+                            ).fetchone()
+                            if conn_row and conn_row[0]:
+                                params = conn_row[0] if isinstance(conn_row[0], dict) else _json.loads(conn_row[0])
+                                creds_raw = params.get("credentials_json")
+                                if creds_raw:
+                                    if isinstance(creds_raw, str):
+                                        service_account_json = _json.loads(creds_raw)
+                                    else:
+                                        service_account_json = creds_raw
+                                    logger.info("[BG] Loaded SA JSON from connection id=%s", source_connection_id)
+                    except Exception as e:
+                        logger.warning("[BG] Could not load SA JSON from connection: %s", e)
+
+            if not service_account_json:
+                logger.warning(
+                    "[BG] No service account JSON for migration %s — schema fetch skipped",
+                    migration_id,
+                )
+                return []
+
+            project_id = getattr(migration, "source_project_id", None)
+            dataset = getattr(migration, "source_dataset", None)
+            source_tables = getattr(migration, "source_tables", []) or []
+
+            if not project_id or not dataset or not source_tables:
+                logger.warning(
+                    "[BG] Missing source config for migration %s (project=%s, dataset=%s, tables=%s)",
+                    migration_id, project_id, dataset, source_tables,
+                )
+                return []
+
+            credentials = sa.Credentials.from_service_account_info(service_account_json)
+            client = bq.Client(credentials=credentials, project=project_id)
+
+            assessment_tables = []
+            for table_name in source_tables:
+                try:
+                    table_ref = client.get_table(f"{project_id}.{dataset}.{table_name}")
+
+                    # Build columns list
+                    columns = []
+                    for field in table_ref.schema:
+                        col = {
+                            "name": field.name,
+                            "data_type": field.field_type,
+                            "mode": field.mode,  # REQUIRED / NULLABLE / REPEATED
+                            "description": field.description or "",
+                        }
+                        # Handle nested STRUCT/RECORD fields
+                        if field.fields:
+                            col["fields"] = [
+                                {"name": f.name, "data_type": f.field_type, "mode": f.mode}
+                                for f in field.fields
+                            ]
+                        columns.append(col)
+
+                    # Partition info
+                    partition_columns = []
+                    partition_type = None
+                    if table_ref.time_partitioning:
+                        field_name = table_ref.time_partitioning.field or "_PARTITIONTIME"
+                        partition_columns.append(field_name)
+                        partition_type = table_ref.time_partitioning.type_  # DAY, HOUR, MONTH, YEAR
+                    elif table_ref.range_partitioning:
+                        partition_columns.append(table_ref.range_partitioning.field)
+
+                    clustering_columns = list(table_ref.clustering_fields or [])
+
+                    assessment_tables.append({
+                        "table_name": table_name,
+                        "dataset_name": dataset,
+                        "columns": columns,
+                        "row_count": table_ref.num_rows or 0,
+                        "estimated_row_count": table_ref.num_rows or 0,
+                        "estimated_size_bytes": table_ref.num_bytes or 0,
+                        "size_mb": (table_ref.num_bytes or 0) / (1024 * 1024),
+                        "partitioning_columns": partition_columns,
+                        "partition_type": partition_type,
+                        "clustering_columns": clustering_columns,
+                        "table_type": "TABLE",
+                    })
+
+                    logger.info(
+                        "[BG] Fetched schema for %s.%s.%s: %d columns, %d rows",
+                        project_id, dataset, table_name,
+                        len(columns), table_ref.num_rows or 0,
+                    )
+
+                except Exception as e:
+                    logger.error(
+                        "[BG] Failed to fetch schema for %s.%s.%s: %s",
+                        project_id, dataset, table_name, e,
+                    )
+
+            return assessment_tables
+
+        except Exception as e:
+            logger.error(
+                "[BG] _fetch_bq_schema failed for migration %s: %s",
+                migration_id, e, exc_info=True,
+            )
+            return []
 
     def _get_approved_structure_plan(self, migration: Any) -> Optional[dict]:
         """Get the approved structure plan from checkpoint_data.

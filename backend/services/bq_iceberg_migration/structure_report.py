@@ -427,15 +427,23 @@ class StructureReportGenerator:
         Returns:
             Dict containing categorized prerequisite items.
         """
+        s3_bucket = getattr(migration, 's3_bucket', '<your-s3-bucket>') or '<your-s3-bucket>'
+        glue_db = getattr(migration, 'glue_database_name', '<glue-db-name>') or '<glue-db-name>'
+        aws_region = getattr(migration, 'aws_region', 'us-east-1') or 'us-east-1'
+
         prerequisites = {
             "iam_permissions": REQUIRED_IAM_PERMISSIONS["s3"]
             + REQUIRED_IAM_PERMISSIONS["glue"]
             + REQUIRED_IAM_PERMISSIONS["athena"],
             "s3_bucket_access": (
-                "Verify S3 bucket exists and write access is confirmed"
+                f"S3 bucket '{s3_bucket}' must exist with write access. "
+                f"Required: s3:GetObject, s3:PutObject, s3:DeleteObject, s3:ListBucket "
+                f"on arn:aws:s3:::{s3_bucket}/*"
             ),
             "glue_database": (
-                "Glue Data Catalog database exists or permission to create it"
+                f"Glue database '{glue_db}' will be created in region {aws_region}. "
+                f"Required IAM: glue:CreateDatabase, glue:CreateTable, glue:GetTable, "
+                f"glue:UpdateTable on arn:aws:glue:{aws_region}:*:database/{glue_db}"
             ),
             "athena_workgroup": (
                 "Athena workgroup configured for verification queries"

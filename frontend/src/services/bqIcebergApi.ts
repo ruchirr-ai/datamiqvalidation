@@ -43,7 +43,63 @@ export const bqIcebergApi = {
     const response = await fetch(`${API_BASE}/${migrationId}/structure-report`, {
       headers: getAuthHeaders(),
     });
-    return handleResponse<StructureReport>(response);
+    const data = await handleResponse<any>(response);
+    // API wraps the report — unwrap it
+    const report = data.structure_report ?? data;
+
+    // prerequisites can be a dict from backend — normalize to array
+    let prerequisites: any[] = [];
+    if (Array.isArray(report.prerequisites)) {
+      prerequisites = report.prerequisites;
+    } else if (report.prerequisites && typeof report.prerequisites === 'object') {
+      // Convert dict like {iam_permissions: [...], glue_database: "..."} to flat list
+      prerequisites = Object.entries(report.prerequisites).flatMap(([key, val]) => {
+        if (key === 'lake_formation' && Array.isArray(val)) {
+          return val.map((item: any) => ({
+            id: `lake_formation-${item.action_type || Math.random()}`,
+            label: item.description,
+            description: item.arn_or_permission || '',
+            category: 'lake_formation',
+            arn_or_permission: item.arn_or_permission,
+          }));
+        }
+        if (Array.isArray(val)) {
+          return val.map((v: string) => ({ id: `${key}-${v}`, label: v, description: key.replace(/_/g, ' '), category: key }));
+        }
+        return [{ id: key, label: String(val), description: key.replace(/_/g, ' '), category: key }];
+      });
+    }
+
+    // Normalize each table to match frontend TypeScript types
+    const normalizedTables = (report.tables || []).map((t: any) => {
+      const normalized = {
+        iceberg_table_name: t.iceberg_table_name ?? t.proposed_name ?? t.source_table ?? '',
+        source_table: t.source_table ?? '',
+        is_custom: t.is_custom ?? false,
+        estimated_row_count: t.estimated_row_count ?? t.estimated_rows ?? 0,
+        estimated_data_size_bytes: t.estimated_data_size_bytes ?? Math.round((t.estimated_size_mb ?? 0) * 1024 * 1024),
+        partition_spec: Array.isArray(t.partition_spec) ? t.partition_spec : [],
+        sort_order: Array.isArray(t.sort_order) ? t.sort_order : [],
+        properties: t.properties ?? t.table_properties ?? {},
+        compaction_config: t.compaction_config ?? null,
+        columns: (t.columns || []).map((c: any) => ({
+          name: c.name ?? '',
+          source_bq_type: c.source_bq_type ?? c.bq_type ?? c.data_type ?? '',
+          iceberg_type: c.iceberg_type ?? '',
+          nullable: c.nullable ?? c.mode !== 'REQUIRED',
+          warnings: Array.isArray(c.warnings) ? c.warnings : [],
+        })),
+      };
+      return { ...t, ...normalized };
+    });
+
+    return {
+      ...report,
+      tables: normalizedTables,
+      warnings: report.warnings ?? [],
+      prerequisites,
+      dataset_to_db_mapping: report.dataset_to_db_mapping ?? {},
+    } as StructureReport;
   },
 
   /**

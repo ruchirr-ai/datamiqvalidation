@@ -705,6 +705,147 @@ async def start_migration(
 
         logger.info(f"Started Iceberg migration {migration_id}")
 
+        # Capture values for background thread before db session closes
+        migration_id_val = migration_id
+        workspace_id_val = workspace_id
+
+        # Spawn background thread to run the orchestration
+        import threading
+        from database import db_instance
+
+        def run_migration_background(mid: int, wid: int):
+            bg_db = db_instance.SessionLocal()
+            try:
+                from models.migration_bq_iceberg import MigrationBQIceberg
+                from services.bq_iceberg_migration.orchestrator import IcebergMigrationOrchestrator
+                from services.bq_iceberg_migration.structure_report import StructureReportGenerator
+                from services.bq_iceberg_migration.cost_engine import CostAnalysisEngine
+                from services.bq_iceberg_migration.schema_evolution import SchemaEvolutionService
+                from services.bq_iceberg_migration.validation_service import IcebergValidationService
+                from services.bq_iceberg_migration.athena_verifier import AthenaVerifier
+                from services.bq_iceberg_migration.iceberg_loader import ParallelIcebergLoader
+                from services.bq_iceberg_migration.credential_provider import AWSCredentialProvider
+                from services.bq_iceberg_migration.type_mapper import BQToIcebergTypeMapper
+                from services.bq_iceberg_migration.partition_mapper import PartitionSpecMapper
+                from services.bq_iceberg_migration.dedup_guard import DeduplicationGuard
+                import asyncio
+                import boto3
+
+                mig = bg_db.query(MigrationBQIceberg).filter_by(id=mid).first()
+                if not mig:
+                    logger.error(f"Migration {mid} not found in background thread")
+                    return
+
+                logger.info(f"[BG] Starting Iceberg migration {mid} orchestration")
+
+                aws_region = mig.aws_region or "us-east-1"
+
+                # Build a boto3 Athena client from the migration's AWS region.
+                # AthenaVerifier.__init__ requires (athena_client, workgroup, output_location).
+                athena_client = boto3.client("athena", region_name=aws_region)
+                athena_workgroup = getattr(mig, "athena_workgroup", "primary") or "primary"
+                athena_output = getattr(mig, "athena_output_location", None)
+                athena_verifier = AthenaVerifier(
+                    athena_client=athena_client,
+                    workgroup=athena_workgroup,
+                    output_location=athena_output,
+                )
+
+                # Build the credential provider for catalog/loader access.
+                # AWSCredentialProvider.__init__ requires (kms_service, sts_client).
+                try:
+                    from services.unified_kms_service import get_unified_kms_service
+                    kms_service = get_unified_kms_service()
+                except Exception as _kms_err:
+                    logger.warning(f"[BG] KMS service unavailable, using None: {_kms_err}")
+                    kms_service = None
+
+                sts_client = boto3.client("sts", region_name=aws_region)
+                credential_provider = AWSCredentialProvider(
+                    kms_service=kms_service,
+                    sts_client=sts_client,
+                )
+
+                # Build a PyIceberg Glue catalog for the loader.
+                # The catalog is built from the migration's Glue database and S3 settings.
+                try:
+                    import os as _os
+                    _os.environ["AWS_DEFAULT_REGION"] = aws_region
+                    from pyiceberg.catalog.glue import GlueCatalog
+                    glue_catalog = GlueCatalog(name="glue")
+                except Exception as _catalog_err:
+                    logger.warning(
+                        f"[BG] Could not build GlueCatalog, using None: {_catalog_err}"
+                    )
+                    glue_catalog = None
+
+                # Build helper objects required by ParallelIcebergLoader.
+                # ParallelIcebergLoader.__init__ requires:
+                #   (catalog, credential_provider, type_mapper, partition_mapper,
+                #    dedup_guard, parallelism, migration_logger)
+                type_mapper = BQToIcebergTypeMapper()
+                partition_mapper = PartitionSpecMapper()
+                dedup_guard = DeduplicationGuard()
+                loader = ParallelIcebergLoader(
+                    catalog=glue_catalog,
+                    credential_provider=credential_provider,
+                    type_mapper=type_mapper,
+                    partition_mapper=partition_mapper,
+                    dedup_guard=dedup_guard,
+                    parallelism=getattr(mig, 'parallelism', 4),
+                )
+
+                # No-arg constructors — these are correct as-is.
+                structure_gen = StructureReportGenerator()
+                cost_engine = CostAnalysisEngine()
+                # SchemaEvolutionService.__init__ accepts optional type_mapper.
+                schema_evolution = SchemaEvolutionService(type_mapper=type_mapper)
+                validation_svc = IcebergValidationService()
+
+                orchestrator = IcebergMigrationOrchestrator(
+                    loader=loader,
+                    structure_report_generator=structure_gen,
+                    cost_engine=cost_engine,
+                    schema_evolution_service=schema_evolution,
+                    validation_service=validation_svc,
+                    athena_verifier=athena_verifier,
+                )
+
+                # Run async execute in a new event loop
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    success = loop.run_until_complete(
+                        orchestrator.execute_iceberg_migration(mig)
+                    )
+                    bg_db.commit()
+                    logger.info(f"[BG] Migration {mid} orchestration finished, success={success}")
+                finally:
+                    loop.close()
+
+            except Exception as e:
+                logger.error(f"[BG] Migration {mid} background thread failed: {e}", exc_info=True)
+                try:
+                    from models.migration_bq_iceberg import MigrationBQIceberg
+                    mig = bg_db.query(MigrationBQIceberg).filter_by(id=mid).first()
+                    if mig and mig.status == 'running':
+                        mig.status = 'failed'
+                        mig.updated_at = datetime.utcnow()
+                        bg_db.commit()
+                except Exception:
+                    pass
+            finally:
+                bg_db.close()
+
+        thread = threading.Thread(
+            target=run_migration_background,
+            args=(migration_id_val, workspace_id_val),
+            daemon=True,
+            name=f"iceberg-migration-{migration_id_val}"
+        )
+        thread.start()
+        logger.info(f"Background thread started for Iceberg migration {migration_id_val}")
+
         return {
             "message": "Migration started successfully",
             "migration_id": migration_id,
@@ -1074,20 +1215,150 @@ async def approve_structure(
         checkpoint['iceberg_structure_plan'] = structure_plan
         migration.checkpoint_data = checkpoint
 
-        # Transition status
-        migration.status = 'approved'
+        # Transition status to running and start load automatically
+        migration.status = 'running'
         migration.structure_approved_at = datetime.utcnow()
         migration.structure_approved_by = current_user.user_id
+        migration.start_time = datetime.utcnow()
         migration.updated_at = datetime.utcnow()
         db.commit()
 
         logger.info(
-            f"Structure approved for migration {migration_id} by user {current_user.user_id}"
+            f"Structure approved for migration {migration_id} by user {current_user.user_id} — starting load"
         )
+
+        # Capture values for background thread before db session closes
+        migration_id_val = migration_id
+        workspace_id_val = workspace_id
+
+        # Spawn background thread to run the load stage (same pattern as start_migration)
+        import threading
+        from database import db_instance
+
+        def run_migration_background(mid: int, wid: int):
+            bg_db = db_instance.SessionLocal()
+            try:
+                from models.migration_bq_iceberg import MigrationBQIceberg
+                from services.bq_iceberg_migration.orchestrator import IcebergMigrationOrchestrator
+                from services.bq_iceberg_migration.structure_report import StructureReportGenerator
+                from services.bq_iceberg_migration.cost_engine import CostAnalysisEngine
+                from services.bq_iceberg_migration.schema_evolution import SchemaEvolutionService
+                from services.bq_iceberg_migration.validation_service import IcebergValidationService
+                from services.bq_iceberg_migration.athena_verifier import AthenaVerifier
+                from services.bq_iceberg_migration.iceberg_loader import ParallelIcebergLoader
+                from services.bq_iceberg_migration.credential_provider import AWSCredentialProvider
+                from services.bq_iceberg_migration.type_mapper import BQToIcebergTypeMapper
+                from services.bq_iceberg_migration.partition_mapper import PartitionSpecMapper
+                from services.bq_iceberg_migration.dedup_guard import DeduplicationGuard
+                import asyncio
+                import boto3
+
+                mig = bg_db.query(MigrationBQIceberg).filter_by(id=mid).first()
+                if not mig:
+                    logger.error(f"Migration {mid} not found in background thread")
+                    return
+
+                logger.info(f"[BG] Starting load stage for approved migration {mid}")
+
+                aws_region = mig.aws_region or "us-east-1"
+
+                athena_client = boto3.client("athena", region_name=aws_region)
+                athena_workgroup = getattr(mig, "athena_workgroup", "primary") or "primary"
+                athena_output = getattr(mig, "athena_output_location", None)
+                athena_verifier = AthenaVerifier(
+                    athena_client=athena_client,
+                    workgroup=athena_workgroup,
+                    output_location=athena_output,
+                )
+
+                try:
+                    from services.unified_kms_service import get_unified_kms_service
+                    kms_service = get_unified_kms_service()
+                except Exception as _kms_err:
+                    logger.warning(f"[BG] KMS service unavailable, using None: {_kms_err}")
+                    kms_service = None
+
+                sts_client = boto3.client("sts", region_name=aws_region)
+                credential_provider = AWSCredentialProvider(
+                    kms_service=kms_service,
+                    sts_client=sts_client,
+                )
+
+                try:
+                    import os as _os
+                    _os.environ["AWS_DEFAULT_REGION"] = aws_region
+                    from pyiceberg.catalog.glue import GlueCatalog
+                    glue_catalog = GlueCatalog(name="glue")
+                except Exception as _catalog_err:
+                    logger.warning(
+                        f"[BG] Could not build GlueCatalog, using None: {_catalog_err}"
+                    )
+                    glue_catalog = None
+
+                type_mapper = BQToIcebergTypeMapper()
+                partition_mapper = PartitionSpecMapper()
+                dedup_guard = DeduplicationGuard()
+                loader = ParallelIcebergLoader(
+                    catalog=glue_catalog,
+                    credential_provider=credential_provider,
+                    type_mapper=type_mapper,
+                    partition_mapper=partition_mapper,
+                    dedup_guard=dedup_guard,
+                    parallelism=getattr(mig, 'parallelism', 4),
+                )
+
+                structure_gen = StructureReportGenerator()
+                cost_engine = CostAnalysisEngine()
+                schema_evolution = SchemaEvolutionService(type_mapper=type_mapper)
+                validation_svc = IcebergValidationService()
+
+                orchestrator = IcebergMigrationOrchestrator(
+                    loader=loader,
+                    structure_report_generator=structure_gen,
+                    cost_engine=cost_engine,
+                    schema_evolution_service=schema_evolution,
+                    validation_service=validation_svc,
+                    athena_verifier=athena_verifier,
+                )
+
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    success = loop.run_until_complete(
+                        orchestrator.execute_iceberg_migration(mig)
+                    )
+                    bg_db.commit()
+                    logger.info(f"[BG] Approved migration {mid} load finished, success={success}")
+                finally:
+                    loop.close()
+
+            except Exception as e:
+                logger.error(f"[BG] Approved migration {mid} load thread failed: {e}", exc_info=True)
+                try:
+                    from models.migration_bq_iceberg import MigrationBQIceberg
+                    mig = bg_db.query(MigrationBQIceberg).filter_by(id=mid).first()
+                    if mig and mig.status == 'running':
+                        mig.status = 'failed'
+                        mig.updated_at = datetime.utcnow()
+                        bg_db.commit()
+                except Exception:
+                    pass
+            finally:
+                bg_db.close()
+
+        thread = threading.Thread(
+            target=run_migration_background,
+            args=(migration_id_val, workspace_id_val),
+            daemon=True,
+            name=f"iceberg-approved-load-{migration_id_val}"
+        )
+        thread.start()
+        logger.info(f"Background load thread started for approved migration {migration_id_val}")
+
         return {
-            "message": "Structure approved. Load stage can now begin.",
+            "message": "Structure approved. Load stage started automatically.",
             "migration_id": migration_id,
-            "status": "approved",
+            "status": "running",
             "approved_at": _format_datetime(migration.structure_approved_at)
         }
 
