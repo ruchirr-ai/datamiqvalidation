@@ -166,6 +166,10 @@ export interface AssessmentReportRoutine {
   external_language: string | null;
   creation_time: string | null;
   call_frequency: number;
+  dependent_tables?: string[];
+  dependent_views?: string[];
+  dependent_functions?: string[];
+  calls_procedures?: string[];
 }
 
 export interface AssessmentReportMLModel {

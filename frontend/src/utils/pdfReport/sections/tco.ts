@@ -10,7 +10,7 @@ export function renderTCO(ctx: PDFContext, tcoData: TCOData): void {
   const bq   = tcoData.bigquery_costs?.monthly || 0;
   const prov = tcoData.provisioned_costs?.monthly || 0;
   const sl   = tcoData.serverless_costs?.monthly || 0;
-  const rg   = (tcoData as any).rg_provisioned_costs?.monthly || 0;
+  const rg   = tcoData.rg_provisioned_costs?.monthly || 0;
 
   // Monthly cost comparison
   subHeading(ctx, 'Monthly Cost Comparison');
@@ -41,8 +41,8 @@ export function renderTCO(ctx: PDFContext, tcoData: TCOData): void {
     if (comp.provisioned_ri3yr_3yr_tco != null) {
       rows.push(['RA3 Provisioned 3-Yr RI', fmtDollar(tcoData.provisioned_costs?.ri_3yr_monthly || 0), fmtDollar(tcoData.provisioned_costs?.ri_3yr_annual || 0), fmtDollar(comp.provisioned_ri3yr_3yr_tco)]);
     }
-    if ((comp as any).rg_provisioned_3yr_tco != null) {
-      rows.push(['RG Provisioned (Graviton)', fmtDollar(rg), fmtDollar((tcoData as any).rg_provisioned_costs?.annual || 0), fmtDollar((comp as any).rg_provisioned_3yr_tco)]);
+    if (comp.rg_provisioned_3yr_tco != null) {
+      rows.push(['RG Provisioned (Graviton)', fmtDollar(rg), fmtDollar(tcoData.rg_provisioned_costs?.annual || 0), fmtDollar(comp.rg_provisioned_3yr_tco)]);
     }
     rows.push(['Serverless', fmtDollar(sl), fmtDollar(tcoData.serverless_costs?.annual || 0), fmtDollar(comp.serverless_3yr_tco)]);
 
@@ -59,7 +59,7 @@ export function renderTCO(ctx: PDFContext, tcoData: TCOData): void {
   }
 
   // One-time migration costs
-  const migration = tcoData.migration_costs as any;
+  const migration = tcoData.migration_costs;
   if (migration && migration.total > 0) {
     subHeading(ctx, 'One-Time Migration Costs');
     const migRows: string[][] = [];
@@ -102,8 +102,8 @@ export function renderTCO(ctx: PDFContext, tcoData: TCOData): void {
     const configLines = [
       `RA3 Node Type: ${tcoData.provisioned_costs.node_type} × ${tcoData.provisioned_costs.num_nodes}`,
     ];
-    if ((tcoData as any).rg_provisioned_costs?.node_type) {
-      configLines.push(`RG Node Type: ${(tcoData as any).rg_provisioned_costs.node_type} × ${(tcoData as any).rg_provisioned_costs.num_nodes}`);
+    if (tcoData.rg_provisioned_costs?.node_type) {
+      configLines.push(`RG Node Type: ${tcoData.rg_provisioned_costs.node_type} × ${tcoData.rg_provisioned_costs.num_nodes}`);
     }
     drawCard(ctx, configLines, 'Provisioned Cluster Configuration', C.PRIMARY_L);
   }
