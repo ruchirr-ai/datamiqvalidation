@@ -37,8 +37,17 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
 export const bqIcebergApi = {
   /**
-   * Get structure report for a migration
+   * List existing Glue databases for a region
    */
+  async listGlueDatabases(region: string = 'us-east-1'): Promise<{ name: string; description: string }[]> {
+    const response = await fetch(`${API_BASE}/glue-databases?region=${encodeURIComponent(region)}`, {
+      headers: getAuthHeaders(),
+    });
+    const data = await handleResponse<any>(response);
+    return data.databases || [];
+  },
+
+  /**
   async getStructureReport(migrationId: number): Promise<StructureReport> {
     const response = await fetch(`${API_BASE}/${migrationId}/structure-report`, {
       headers: getAuthHeaders(),

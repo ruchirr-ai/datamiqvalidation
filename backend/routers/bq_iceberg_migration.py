@@ -469,6 +469,34 @@ async def create_migration(
         )
 
 
+@router.get("/glue-databases")
+async def list_glue_databases(
+    region: str = Query("us-east-1"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id)
+):
+    """List existing Glue Data Catalog databases available in the given region."""
+    try:
+        import os as _os
+        import boto3 as _boto3
+        _os.environ["AWS_DEFAULT_REGION"] = region
+        glue = _boto3.client("glue", region_name=region)
+        databases = []
+        paginator = glue.get_paginator("get_databases")
+        for page in paginator.paginate():
+            for db_item in page.get("DatabaseList", []):
+                databases.append({
+                    "name": db_item["Name"],
+                    "description": db_item.get("Description", ""),
+                    "location": db_item.get("LocationUri", ""),
+                })
+        return {"databases": databases, "region": region}
+    except Exception as e:
+        logger.warning(f"Could not list Glue databases: {e}")
+        return {"databases": [], "region": region, "error": str(e)}
+
+
 @router.get("/list")
 async def list_migrations(
     request: Request,
@@ -771,20 +799,23 @@ async def start_migration(
                 try:
                     import os as _os
                     _os.environ["AWS_DEFAULT_REGION"] = aws_region
+                    _os.environ["AWS_ACCESS_KEY_ID"] = os.getenv("AWS_ACCESS_KEY_ID", "")
+                    _os.environ["AWS_SECRET_ACCESS_KEY"] = os.getenv("AWS_SECRET_ACCESS_KEY", "")
                     from pyiceberg.catalog.glue import GlueCatalog
-                    glue_catalog = GlueCatalog(name="glue")
+                    # Pass warehouse (S3 location) and region so PyIceberg knows where to write metadata
+                    _s3_bucket = getattr(mig, "s3_bucket", None) or ""
+                    _s3_prefix = getattr(mig, "s3_path_prefix", "iceberg/") or "iceberg/"
+                    _warehouse = f"s3://{_s3_bucket}/{_s3_prefix.rstrip('/')}" if _s3_bucket else None
+                    _catalog_props = {"region_name": aws_region}
+                    if _warehouse:
+                        _catalog_props["warehouse"] = _warehouse
+                    glue_catalog = GlueCatalog(name="glue", **_catalog_props)
+                    logger.info(f"[BG] GlueCatalog initialized, warehouse={_warehouse}")
                 except Exception as _catalog_err:
                     logger.warning(
                         f"[BG] Could not build GlueCatalog, using None: {_catalog_err}"
                     )
                     glue_catalog = None
-
-                # Build helper objects required by ParallelIcebergLoader.
-                # ParallelIcebergLoader.__init__ requires:
-                #   (catalog, credential_provider, type_mapper, partition_mapper,
-                #    dedup_guard, parallelism, migration_logger)
-                type_mapper = BQToIcebergTypeMapper()
-                partition_mapper = PartitionSpecMapper()
                 dedup_guard = DeduplicationGuard()
                 loader = ParallelIcebergLoader(
                     catalog=glue_catalog,

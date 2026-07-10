@@ -499,6 +499,8 @@ export const IcebergStructureReviewPage: React.FC = () => {
   const [datasetMapping, setDatasetMapping] = useState<Record<string, string>>({});
   const [namespace, setNamespace] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [glueDatabases, setGlueDatabases] = useState<{ name: string; description: string }[]>([]);
+  const [glueDbsLoading, setGlueDbsLoading] = useState(false);
 
   const id = Number(migrationId);
 
@@ -515,6 +517,13 @@ export const IcebergStructureReviewPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+
+    // Load existing Glue databases in background
+    setGlueDbsLoading(true);
+    bqIcebergApi.listGlueDatabases('us-east-1')
+      .then(dbs => setGlueDatabases(dbs))
+      .catch(() => setGlueDatabases([]))
+      .finally(() => setGlueDbsLoading(false));
   }, [id]);
 
   useEffect(() => {
@@ -653,22 +662,54 @@ export const IcebergStructureReviewPage: React.FC = () => {
       <Card className="structure-review-page__section">
         <h3 className="structure-review-page__section-title">Dataset to Database Mapping</h3>
         <p className="structure-review-page__section-desc">
-          Map BigQuery datasets to Glue Data Catalog database names.
+          Select an existing Glue Data Catalog database for each BigQuery dataset.
+          {glueDatabases.length > 0 && <span className="structure-review-page__db-count"> {glueDatabases.length} databases available.</span>}
         </p>
         <div className="structure-review-page__mapping-grid">
-          {Object.entries(datasetMapping).map(([dataset, dbName]) => (
-            <div key={dataset} className="structure-review-page__mapping-row">
-              <span className="structure-review-page__mapping-label">{dataset}</span>
-              <Input
-                value={dbName}
-                onChange={(e) =>
-                  setDatasetMapping((prev) => ({ ...prev, [dataset]: e.target.value }))
-                }
-                placeholder="Glue database name"
-                aria-label={`Database name for ${dataset}`}
-              />
+          {Object.entries(datasetMapping).length === 0 ? (
+            // If no datasets in mapping yet, show the migration's default Glue DB
+            <div className="structure-review-page__mapping-row">
+              <span className="structure-review-page__mapping-label">{report?.destination_type === 'iceberg_s3' ? 'Target Glue Database' : 'Namespace'}</span>
+              <select
+                className="structure-review-page__db-select"
+                value={Object.values(datasetMapping)[0] || ''}
+                onChange={e => setDatasetMapping({ default: e.target.value })}
+                aria-label="Select Glue database"
+                disabled={glueDbsLoading}
+              >
+                <option value="">— {glueDbsLoading ? 'Loading databases...' : 'Select a Glue database'} —</option>
+                {glueDatabases.map(db => (
+                  <option key={db.name} value={db.name}>
+                    {db.name}{db.description ? ` — ${db.description}` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
-          ))}
+          ) : (
+            Object.entries(datasetMapping).map(([dataset, dbName]) => (
+              <div key={dataset} className="structure-review-page__mapping-row">
+                <span className="structure-review-page__mapping-label">{dataset}</span>
+                <select
+                  className="structure-review-page__db-select"
+                  value={dbName}
+                  onChange={e => setDatasetMapping(prev => ({ ...prev, [dataset]: e.target.value }))}
+                  aria-label={`Database for ${dataset}`}
+                  disabled={glueDbsLoading}
+                >
+                  <option value="">— {glueDbsLoading ? 'Loading...' : 'Select a database'} —</option>
+                  {glueDatabases.map(db => (
+                    <option key={db.name} value={db.name}>
+                      {db.name}{db.description ? ` — ${db.description}` : ''}
+                    </option>
+                  ))}
+                  {/* Keep current value if not in list */}
+                  {dbName && !glueDatabases.find(d => d.name === dbName) && (
+                    <option value={dbName}>{dbName} (current)</option>
+                  )}
+                </select>
+              </div>
+            ))
+          )}
         </div>
       </Card>
 

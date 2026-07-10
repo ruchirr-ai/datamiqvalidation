@@ -1,48 +1,47 @@
 """
-Directly approve the structure and kick off the load stage.
-Bypasses the HTTP layer to avoid token issues.
+Approve the structure and kick off the load stage using an existing Glue database.
 """
-import sys, asyncio, json, logging
+import sys, asyncio, json, logging, os
 sys.path.insert(0, ".")
 from dotenv import load_dotenv
 load_dotenv("../.env")
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 
+# Use an existing Glue database (no CreateDatabase permission needed)
+EXISTING_GLUE_DB = "iceberg_demo"
+
 from database import db_instance
 from sqlalchemy import text
 
 with db_instance.get_session() as db:
-    m = db.execute(text("SELECT id, status, structure_report FROM migrations_bq_iceberg WHERE id=1")).fetchone()
+    m = db.execute(text("SELECT id, status, structure_report, checkpoint_data FROM migrations_bq_iceberg WHERE id=1")).fetchone()
     print(f"Migration id={m[0]}, status={m[1]}")
     
     sr = m[2] if isinstance(m[2], dict) else json.loads(m[2]) if m[2] else {}
-    print(f"Structure report tables: {len(sr.get('tables', []))}")
+    existing_cp = m[3] if isinstance(m[3], dict) else json.loads(m[3]) if m[3] else {}
     
-    # Build checkpoint with approved structure plan
-    checkpoint = {"iceberg_structure_plan": sr, "assessment_tables": []}
-    # Fetch assessment_tables from existing checkpoint
-    existing = db.execute(text("SELECT checkpoint_data FROM migrations_bq_iceberg WHERE id=1")).fetchone()
-    if existing and existing[0]:
-        existing_cp = existing[0] if isinstance(existing[0], dict) else json.loads(existing[0])
-        checkpoint["assessment_tables"] = existing_cp.get("assessment_tables", [])
-    
-    from datetime import datetime
+    # Update to use existing database
+    checkpoint = {
+        "assessment_tables": existing_cp.get("assessment_tables", []),
+        "iceberg_structure_plan": sr,
+    }
+    checkpoint["iceberg_structure_plan"]["glue_database_name"] = EXISTING_GLUE_DB
+
     db.execute(text("""
         UPDATE migrations_bq_iceberg 
         SET status='approved',
+            glue_database_name=:glue_db,
             structure_approved_at=NOW(),
             structure_approved_by=1,
             checkpoint_data=CAST(:cp AS jsonb),
             updated_at=NOW()
         WHERE id=1
-    """), {"cp": json.dumps(checkpoint)})
+    """), {"cp": json.dumps(checkpoint), "glue_db": EXISTING_GLUE_DB})
     db.commit()
-    print("Migration approved and checkpoint saved")
+    print(f"Approved with existing Glue DB: {EXISTING_GLUE_DB}")
 
-print("\nNow starting load stage in background thread...")
-
-# Import and run the orchestration
+# Run orchestration
 from models.migration_bq_iceberg import MigrationBQIceberg
 from services.bq_iceberg_migration.orchestrator import IcebergMigrationOrchestrator
 from services.bq_iceberg_migration.structure_report import StructureReportGenerator
@@ -59,9 +58,11 @@ import boto3
 
 bg_db = db_instance.SessionLocal()
 mig = bg_db.query(MigrationBQIceberg).filter_by(id=1).first()
-print(f"Migration status: {mig.status}")
+print(f"Migration glue_database_name: {mig.glue_database_name}")
 
 aws_region = mig.aws_region or "us-east-1"
+os.environ["AWS_DEFAULT_REGION"] = aws_region
+
 athena_client = boto3.client("athena", region_name=aws_region)
 sts_client = boto3.client("sts", region_name=aws_region)
 
@@ -69,19 +70,16 @@ try:
     from services.unified_kms_service import get_unified_kms_service
     kms_service = get_unified_kms_service()
 except Exception as e:
-    print(f"KMS: {e}")
     kms_service = None
 
 credential_provider = AWSCredentialProvider(kms_service=kms_service, sts_client=sts_client)
 
-import os as _os; _os.environ["AWS_DEFAULT_REGION"] = aws_region
-try:
-    from pyiceberg.catalog.glue import GlueCatalog
-    glue_catalog = GlueCatalog(name="glue")
-    print("GlueCatalog initialized OK")
-except Exception as e:
-    print(f"GlueCatalog failed (will proceed without): {e}")
-    glue_catalog = None
+from pyiceberg.catalog.glue import GlueCatalog
+s3_bucket = getattr(mig, "s3_bucket", "sk-manasa") or "sk-manasa"
+s3_prefix = getattr(mig, "s3_path_prefix", "iceberg/") or "iceberg/"
+warehouse = f"s3://{s3_bucket}/{s3_prefix.rstrip('/')}"
+glue_catalog = GlueCatalog(name="glue", warehouse=warehouse, region_name=aws_region)
+print(f"GlueCatalog initialized OK, warehouse={warehouse}")
 
 type_mapper = BQToIcebergTypeMapper()
 partition_mapper = PartitionSpecMapper()
@@ -112,4 +110,6 @@ loop.close()
 
 print(f"\nResult: {result}")
 print(f"Final status: {mig.status}, stage: {mig.current_stage}, progress: {mig.progress_percentage}%")
+if mig.status == 'failed':
+    print("Check logs above for the specific error")
 bg_db.close()

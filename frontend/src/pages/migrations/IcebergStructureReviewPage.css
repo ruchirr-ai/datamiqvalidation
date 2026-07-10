@@ -574,3 +574,31 @@
     flex-wrap: wrap;
   }
 }
+
+/* Glue database dropdown in dataset mapping */
+.structure-review-page__db-select {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid var(--color-divider, #E5E7EB);
+  border-radius: 6px;
+  background: white;
+  font-size: 0.875rem;
+  color: var(--color-text-primary, #1F2937);
+  cursor: pointer;
+  min-width: 280px;
+}
+
+.structure-review-page__db-select:focus {
+  outline: 2px solid var(--color-primary, #2A6BDB);
+  outline-offset: 1px;
+}
+
+.structure-review-page__db-select:disabled {
+  background: var(--color-bg-secondary, #F7F7F7);
+  cursor: not-allowed;
+}
+
+.structure-review-page__db-count {
+  color: var(--color-text-secondary, #66748C);
+  font-size: 0.8125rem;
+}

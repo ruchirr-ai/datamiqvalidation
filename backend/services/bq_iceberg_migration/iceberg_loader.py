@@ -288,7 +288,9 @@ class ParallelIcebergLoader:
                 logger.info("Loading table: %s", table_name)
 
                 # Extract table configuration from the plan
-                database = table_plan.get("database", getattr(migration, "glue_database_name", "default"))
+                # Use migration's glue_database_name (user's selection) over plan's stored value
+                migration_db = getattr(migration, "glue_database_name", None)
+                database = migration_db or table_plan.get("database", "default")
                 schema = table_plan.get("schema")
                 partition_spec = table_plan.get("partition_spec")
                 sort_order = table_plan.get("sort_order")
@@ -462,6 +464,74 @@ class ParallelIcebergLoader:
                 schema = table_plan.get("schema")
                 partition_spec = table_plan.get("partition_spec")
                 sort_order = table_plan.get("sort_order")
+
+                # If schema is None or not a PyIceberg Schema object,
+                # build it from the columns list in the table_plan.
+                # The columns may use different field names depending on source
+                # (structure report uses bq_type; assessment uses data_type/type).
+                if schema is None or not hasattr(schema, 'fields'):
+                    columns = table_plan.get("columns", [])
+                    if columns:
+                        try:
+                            # Normalize column dicts to the format map_schema expects
+                            normalized = []
+                            for col in columns:
+                                normalized.append({
+                                    "name": col.get("name", "unknown"),
+                                    "type": col.get("type") or col.get("data_type") or col.get("bq_type", "STRING"),
+                                    "mode": col.get("mode", "NULLABLE" if col.get("nullable", True) else "REQUIRED"),
+                                    "fields": col.get("fields"),
+                                })
+
+                            # Build real PyIceberg Schema directly (not the custom dataclass)
+                            from pyiceberg.schema import Schema as PySchema
+                            from pyiceberg.types import (
+                                NestedField as PyField, StringType as PyST,
+                                LongType as PyLT, DoubleType as PyDT,
+                                BooleanType as PyBT, DateType as PyDate,
+                                TimestampType as PyTS, TimestamptzType as PyTSTZ,
+                            )
+                            BQ_TO_PY = {
+                                "STRING": PyST(), "BYTES": PyST(),
+                                "INT64": PyLT(), "INTEGER": PyLT(),
+                                "FLOAT64": PyDT(), "FLOAT": PyDT(),
+                                "BOOLEAN": PyBT(), "BOOL": PyBT(),
+                                "DATE": PyDate(),
+                                "DATETIME": PyTS(), "TIMESTAMP": PyTSTZ(),
+                                "TIME": PyST(), "JSON": PyST(),
+                                "GEOGRAPHY": PyST(), "NUMERIC": PyDT(),
+                                "BIGNUMERIC": PyDT(),
+                            }
+                            py_fields = []
+                            for i, col in enumerate(normalized, start=1):
+                                bq_t = col["type"].upper()
+                                py_type = BQ_TO_PY.get(bq_t, PyST())
+                                required = col["mode"].upper() == "REQUIRED"
+                                py_fields.append(PyField(i, col["name"], py_type, required=required))
+                            schema = PySchema(*py_fields)
+                            logger.info(
+                                "Built PyIceberg schema for table '%s': %d fields",
+                                table_name, len(py_fields),
+                            )
+                        except Exception as schema_err:
+                            logger.warning(
+                                "Could not build schema from columns for table '%s': %s. "
+                                "Using minimal schema.",
+                                table_name, schema_err,
+                            )
+                            from pyiceberg.schema import Schema as _Schema
+                            from pyiceberg.types import NestedField as _NF, StringType as _ST
+                            schema = _Schema(_NF(1, "id", _ST(), required=False))
+                    else:
+                        from pyiceberg.schema import Schema as _Schema
+                        from pyiceberg.types import NestedField as _NF, StringType as _ST
+                        schema = _Schema(_NF(1, "id", _ST(), required=False))
+
+                # Ensure partition_spec and sort_order are None if not real PyIceberg objects
+                if partition_spec is not None and not hasattr(partition_spec, 'fields'):
+                    partition_spec = None  # unpartitioned
+                if sort_order is not None and not hasattr(sort_order, 'fields'):
+                    sort_order = None  # unsorted
 
                 table = await asyncio.to_thread(
                     self.create_table,
@@ -1195,11 +1265,13 @@ class ParallelIcebergLoader:
         )
 
         try:
+            from pyiceberg.partitioning import UNPARTITIONED_PARTITION_SPEC
+            from pyiceberg.table.sorting import UNSORTED_SORT_ORDER
             table = self._catalog.create_table(
                 identifier=full_table_name,
                 schema=schema,
-                partition_spec=partition_spec,
-                sort_order=sort_order,
+                partition_spec=partition_spec if partition_spec is not None else UNPARTITIONED_PARTITION_SPEC,
+                sort_order=sort_order if sort_order is not None else UNSORTED_SORT_ORDER,
                 properties=merged_properties,
             )
             logger.info("Successfully created Iceberg table '%s'", full_table_name)
@@ -1245,52 +1317,52 @@ class ParallelIcebergLoader:
             raise
 
     def ensure_database_exists(self, database: str) -> None:
-        """Create Glue database if it doesn't exist.
+        """Use existing Glue database or create it if it doesn't exist.
 
-        Checks whether the specified database exists in the Glue Data Catalog
-        and creates it if not found. This is idempotent — calling it multiple
-        times for the same database is safe.
+        First checks whether the database already exists — if so, uses it directly
+        without requiring CreateDatabase permissions. Only attempts creation if
+        the database is not found.
 
         Args:
             database: The Glue database name to ensure exists.
 
         Raises:
-            Exception: If database creation fails due to permissions or API errors.
+            Exception: If database creation fails and the DB doesn't already exist.
         """
         try:
-            # Try to load the database namespace
+            # Try to load — if it succeeds, DB already exists, we're done
             self._catalog.load_namespace_properties(database)
-            logger.debug("Database '%s' already exists", database)
+            logger.info("Using existing Glue database '%s'", database)
+            return
         except Exception:
-            # Database doesn't exist, create it
-            logger.info("Creating Glue database '%s'", database)
-            try:
-                self._catalog.create_namespace(
-                    database,
-                    properties={"description": f"DataMIQ Iceberg migration database: {database}"},
+            pass  # DB doesn't exist yet, fall through to create
+
+        # Database doesn't exist, try to create it
+        logger.info("Creating Glue database '%s'", database)
+        try:
+            self._catalog.create_namespace(
+                database,
+                properties={"description": f"DataMIQ Iceberg migration database: {database}"},
+            )
+            logger.info("Successfully created Glue database '%s'", database)
+        except Exception as e:
+            error_str = str(e).lower()
+            if "access denied" in error_str or "not authorized" in error_str:
+                logger.error(
+                    "Permission denied creating database '%s': %s. "
+                    "Tip: Create the Glue database manually in AWS Console "
+                    "and use 'Select Existing Database' in the structure review.",
+                    database, e,
                 )
-                logger.info("Successfully created Glue database '%s'", database)
-            except Exception as e:
-                # Check if it's a permission error
-                error_str = str(e).lower()
-                if "access denied" in error_str or "not authorized" in error_str:
-                    logger.error(
-                        "Permission denied creating database '%s': %s",
-                        database,
-                        e,
-                    )
-                    raise PermissionError(
-                        f"Missing IAM permissions to create Glue database '{database}'. "
-                        f"Required: glue:CreateDatabase. Error: {e}"
-                    ) from e
-                # It might have been created by another worker concurrently
-                if "already exists" in error_str or "alreadyexists" in error_str:
-                    logger.debug(
-                        "Database '%s' was created concurrently, continuing",
-                        database,
-                    )
-                    return
-                raise
+                raise PermissionError(
+                    f"Missing IAM permissions to create Glue database '{database}'. "
+                    f"Please create it manually in AWS Glue Console first, "
+                    f"then select it in the structure review step. Error: {e}"
+                ) from e
+            if "already exists" in error_str or "alreadyexists" in error_str:
+                logger.debug("Database '%s' was created concurrently, continuing", database)
+                return
+            raise
 
     def _try_load_table(self, database: str, table_name: str) -> Optional[Any]:
         """Try to load an existing Iceberg table from the catalog.
