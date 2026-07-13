@@ -1075,6 +1075,21 @@
   color: #059669;
 }
 
+.migrations-hub__card--clickhouse {
+  border-color: #FDE68A;
+}
+
+.migrations-hub__card--clickhouse:hover {
+  border-color: #D97706;
+  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.12);
+  background: #FFFBEB;
+}
+
+.migrations-hub__card--clickhouse .migrations-hub__card-icon {
+  background: #FEF3C7;
+  color: #D97706;
+}
+
 .migrations-hub__card-body {
   display: flex;
   flex-direction: column;

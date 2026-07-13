@@ -17,6 +17,10 @@ from database import get_db
 from models.connection import Connection
 from models.assessment import Assessment
 from models.bq_redshift_migration import MigrationBQRedshift
+try:
+    from models.migration_bq_iceberg import MigrationBQIceberg as _MigrationBQIceberg
+except ImportError:
+    _MigrationBQIceberg = None
 from models.copy_history import CopyHistory
 from models.task_history import TaskHistory
 
@@ -105,26 +109,32 @@ async def get_dashboard_summary(db: Session = Depends(get_db)):
             for a in recent_a
         ]
 
-        # --- Migrations ---
+        # --- Migrations (BQ→Redshift + BQ→Iceberg) ---
         migrations = db.query(MigrationBQRedshift).all()
-        summary.total_migrations = len(migrations)
-        summary.completed_migrations = sum(1 for m in migrations if m.status == 'completed')
-        summary.running_migrations = sum(1 for m in migrations if m.status == 'running')
-        summary.failed_migrations = sum(1 for m in migrations if m.status == 'failed')
-        summary.scheduled_migrations = sum(1 for m in migrations if m.status == 'scheduled')
+        iceberg_migrations = db.query(_MigrationBQIceberg).all() if _MigrationBQIceberg else []
+        all_migrations = list(migrations) + list(iceberg_migrations)
+        summary.total_migrations = len(all_migrations)
+        summary.completed_migrations = sum(1 for m in all_migrations if m.status == 'completed')
+        summary.running_migrations = sum(1 for m in all_migrations if m.status == 'running')
+        summary.failed_migrations = sum(1 for m in all_migrations if m.status == 'failed')
+        summary.scheduled_migrations = sum(1 for m in all_migrations if m.status == 'scheduled')
 
-        # Recent migrations (last 5)
-        recent_m = db.query(MigrationBQRedshift).order_by(MigrationBQRedshift.id.desc()).limit(5).all()
-        summary.recent_migrations = [
-            {
-                "id": m.id,
-                "name": m.migration_name,
-                "status": m.status,
-                "pathway": m.pathway,
-                "created_at": m.created_at.isoformat() if m.created_at else None,
-            }
-            for m in recent_m
-        ]
+        # Recent migrations (last 5 across all types)
+        recent_redshift = db.query(MigrationBQRedshift).order_by(MigrationBQRedshift.id.desc()).limit(5).all()
+        recent_iceberg = db.query(_MigrationBQIceberg).order_by(_MigrationBQIceberg.id.desc()).limit(5).all() if _MigrationBQIceberg else []
+        recent_combined = sorted(
+            [{"id": m.id, "name": m.migration_name, "status": m.status,
+              "pathway": getattr(m, 'pathway', 'A'), "type": "iceberg",
+              "created_at": m.created_at.isoformat() if m.created_at else None}
+             for m in recent_iceberg] +
+            [{"id": m.id, "name": m.migration_name, "status": m.status,
+              "pathway": m.pathway, "type": "redshift",
+              "created_at": m.created_at.isoformat() if m.created_at else None}
+             for m in recent_redshift],
+            key=lambda x: x["created_at"] or "",
+            reverse=True
+        )[:5]
+        summary.recent_migrations = recent_combined
 
         # --- Conversions ---
         try:

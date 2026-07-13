@@ -19,6 +19,17 @@ interface IcebergMigration {
   glue_database_name: string;
   created_at: string | null;
   updated_at: string | null;
+  // Detail fields (populated when editing)
+  source_project_id?: string;
+  source_dataset?: string;
+  source_tables?: string[];
+  s3_bucket?: string;
+  s3_path_prefix?: string;
+  table_bucket_arn?: string;
+  s3_tables_namespace?: string;
+  gcs_bucket?: string;
+  gcs_path?: string;
+  source_connection_id?: number;
 }
 
 interface CreateFormData {
@@ -334,28 +345,59 @@ export const BQIcebergMigrationsPage: React.FC = () => {
 
   // ---- Edit handlers ----
 
-  const handleEditOpen = (m: IcebergMigration) => {
-    setEditingMigration(m);
-    setEditFormData({
-      migration_name: m.migration_name,
-      pathway: m.pathway,
-      destination_type: m.destination_type,
-      source_project_id: (m as any).source_project_id || '',
-      source_dataset: (m as any).source_dataset || '',
-      source_tables_raw: Array.isArray((m as any).source_tables)
-        ? (m as any).source_tables.join(', ')
-        : (m as any).source_tables_raw || '',
-      aws_region: m.aws_region,
-      glue_database_name: m.glue_database_name,
-      s3_bucket: (m as any).s3_bucket || '',
-      s3_path_prefix: (m as any).s3_path_prefix || 'iceberg/',
-      table_bucket_arn: (m as any).table_bucket_arn || '',
-      s3_tables_namespace: (m as any).s3_tables_namespace || '',
-      gcs_bucket: (m as any).gcs_bucket || '',
-      gcs_path: (m as any).gcs_path || 'exports/',
-      aws_access_key_id: '',
-      aws_secret_access_key: '',
-    });
+  const handleEditOpen = async (m: IcebergMigration) => {
+    // Fetch full detail to get all fields (list API returns a subset)
+    try {
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('access_token');
+      const res = await fetch(`/api/migrations/bq-iceberg/${m.id}`, {
+        headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+      });
+      const detail: IcebergMigration = res.ok ? await res.json() : m;
+      setEditingMigration(detail);
+      setEditFormData({
+        migration_name: detail.migration_name,
+        pathway: detail.pathway,
+        destination_type: detail.destination_type,
+        source_connection_id: detail.source_connection_id ? String(detail.source_connection_id) : '',
+        source_project_id: detail.source_project_id || '',
+        source_dataset: detail.source_dataset || '',
+        source_tables_raw: Array.isArray(detail.source_tables)
+          ? detail.source_tables.join(', ')
+          : '',
+        aws_region: detail.aws_region,
+        glue_database_name: detail.glue_database_name,
+        s3_bucket: detail.s3_bucket || '',
+        s3_path_prefix: detail.s3_path_prefix || 'iceberg/',
+        table_bucket_arn: detail.table_bucket_arn || '',
+        s3_tables_namespace: detail.s3_tables_namespace || '',
+        gcs_bucket: detail.gcs_bucket || '',
+        gcs_path: detail.gcs_path || 'exports/',
+        aws_access_key_id: '',
+        aws_secret_access_key: '',
+      });
+    } catch {
+      // Fallback to what we have
+      setEditingMigration(m);
+      setEditFormData({
+        migration_name: m.migration_name,
+        pathway: m.pathway,
+        destination_type: m.destination_type,
+        source_connection_id: '',
+        source_project_id: '',
+        source_dataset: '',
+        source_tables_raw: '',
+        aws_region: m.aws_region,
+        glue_database_name: m.glue_database_name,
+        s3_bucket: '',
+        s3_path_prefix: 'iceberg/',
+        table_bucket_arn: '',
+        s3_tables_namespace: '',
+        gcs_bucket: '',
+        gcs_path: 'exports/',
+        aws_access_key_id: '',
+        aws_secret_access_key: '',
+      });
+    }
     setEditFormError(null);
     setShowEdit(true);
   };

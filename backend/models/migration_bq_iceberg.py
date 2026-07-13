@@ -124,12 +124,33 @@ class MigrationBQIceberg(Base):
         )
 
     def to_dict(self):
-        """Convert model to dictionary."""
+        """Convert model to dictionary with both flat and nested field access."""
         return {
             'id': self.id,
             'workspace_id': self.workspace_id,
             'migration_name': self.migration_name,
             'pathway': self.pathway,
+            # Flat fields (used by edit form)
+            'source_connection_id': self.source_connection_id,
+            'source_project_id': self.source_project_id,
+            'source_dataset': self.source_dataset,
+            'source_tables': self.source_tables,
+            'destination_type': self.destination_type,
+            's3_bucket': self.s3_bucket,
+            's3_path_prefix': self.s3_path_prefix,
+            'table_bucket_arn': self.table_bucket_arn,
+            's3_tables_namespace': self.s3_tables_namespace,
+            'aws_region': self.aws_region,
+            'glue_database_name': self.glue_database_name,
+            'gcs_bucket': self.gcs_bucket,
+            'gcs_path': self.gcs_path,
+            'gcs_region': self.gcs_region,
+            'status': self.status,
+            'current_stage': self.current_stage,
+            'progress_percentage': self.progress_percentage,
+            'created_at': self.created_at.isoformat() + 'Z' if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() + 'Z' if self.updated_at else None,
+            # Nested structure (for backwards compatibility)
             'source': {
                 'connection_id': self.source_connection_id,
                 'project_id': self.source_project_id,

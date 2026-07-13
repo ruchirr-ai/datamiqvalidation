@@ -498,6 +498,23 @@ export const MigrationsPage: React.FC = () => {
             <path d="M5 3l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </button>
+        <button className="migrations-hub__card migrations-hub__card--clickhouse" onClick={() => navigate('/migrations/bq-redshift?type=clickhouse')}>
+          <div className="migrations-hub__card-icon">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <rect x="3" y="3" width="3" height="16" rx="1"/>
+              <rect x="8" y="6" width="3" height="13" rx="1"/>
+              <rect x="13" y="9" width="3" height="10" rx="1"/>
+              <rect x="18" y="3" width="1.5" height="16" rx="0.75"/>
+            </svg>
+          </div>
+          <div className="migrations-hub__card-body">
+            <span className="migrations-hub__card-title">BigQuery → ClickHouse</span>
+            <span className="migrations-hub__card-desc">High-performance columnar analytics</span>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="M5 3l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
       </div>
 
       {/* Table */}
