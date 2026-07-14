@@ -497,7 +497,9 @@ class ParallelIcebergLoader:
                             import io as _io
                             import boto3 as _boto3
                             import pyarrow.parquet as _pq
-                            from pyiceberg.io.pyarrow import pyarrow_to_schema
+                            # Use _pyarrow_to_schema_without_ids because BQ-exported
+                            # Parquet files don't have Iceberg field IDs embedded.
+                            from pyiceberg.io.pyarrow import _pyarrow_to_schema_without_ids
 
                             first_uri = data_files[0]
                             _bkt, _key = first_uri.replace("s3://", "").split("/", 1)
@@ -506,7 +508,7 @@ class ParallelIcebergLoader:
                             _s3c.download_fileobj(_bkt, _key, _buf)
                             _buf.seek(0)
                             arrow_schema = _pq.read_schema(_buf)
-                            schema = pyarrow_to_schema(arrow_schema)
+                            schema = _pyarrow_to_schema_without_ids(arrow_schema)
                             logger.info(
                                 "Derived PyIceberg schema from Parquet file for table '%s': %d fields",
                                 table_name, len(schema.fields),
@@ -1314,14 +1316,28 @@ class ParallelIcebergLoader:
         try:
             from pyiceberg.partitioning import UNPARTITIONED_PARTITION_SPEC
             from pyiceberg.table.sorting import UNSORTED_SORT_ORDER
-            table = self._catalog.create_table(
+
+            # Build an explicit table location inside the warehouse so the
+            # Iceberg metadata and data are co-located correctly.
+            # warehouse format: s3://bucket/prefix  →  location: s3://bucket/prefix/database/table
+            _warehouse = self._catalog.properties.get("warehouse", "")
+            _location = f"{_warehouse.rstrip('/')}/{database}/{table_name}" if _warehouse else None
+
+            create_kwargs: dict = dict(
                 identifier=full_table_name,
                 schema=schema,
                 partition_spec=partition_spec if partition_spec is not None else UNPARTITIONED_PARTITION_SPEC,
                 sort_order=sort_order if sort_order is not None else UNSORTED_SORT_ORDER,
                 properties=merged_properties,
             )
-            logger.info("Successfully created Iceberg table '%s'", full_table_name)
+            if _location:
+                create_kwargs["location"] = _location
+
+            table = self._catalog.create_table(**create_kwargs)
+            logger.info(
+                "Successfully created Iceberg table '%s' at %s",
+                full_table_name, table.location(),
+            )
             return table
         except Exception as e:
             logger.error(
@@ -1354,55 +1370,36 @@ class ParallelIcebergLoader:
         )
 
         try:
-            # PyIceberg add_files() registers existing Parquet files without rewriting.
-            # It needs the catalog's FileIO to have S3 access configured.
-            # We configure the S3FileIO by setting s3.region on the table's IO.
-            import os as _os
-            _region = _os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
-
-            # Ensure table IO has S3 properties set for the current session
-            if hasattr(table, '_table') and hasattr(table._table, 'io'):
-                _io = table._table.io
-                if hasattr(_io, '_props') or hasattr(_io, 'properties'):
-                    _props = getattr(_io, '_props', None) or getattr(_io, 'properties', {})
-                    _props['s3.region'] = _region
-
-            table.add_files(file_paths=s3_file_uris)
-            logger.info(
-                "Successfully registered %d data file(s) via add_files",
-                len(s3_file_uris),
-            )
-        except Exception as add_err:
-            # Fallback: download Parquet files and use table.append(pyarrow_table)
-            logger.warning(
-                "add_files failed (%s) — falling back to download+append", add_err
-            )
-            import io as _io2
-            import boto3 as _boto3_fb
-            import pyarrow.parquet as _pq_fb
-            import pyarrow as _pa_fb
+            # Download each Parquet file from S3 and append using PyArrow.
+            # This is the reliable approach — table.add_files() requires
+            # PyIceberg FileIO S3 config which is complex to set up correctly.
+            # table.append(arrow_table) always works and handles schema alignment.
+            import io as _io
+            import boto3 as _boto3
+            import pyarrow.parquet as _pq
+            import pyarrow as _pa
 
             frames = []
             for uri in s3_file_uris:
-                try:
-                    _bkt, _key = uri.replace("s3://", "").split("/", 1)
-                    _s3c = _boto3_fb.client("s3")
-                    _buf = _io2.BytesIO()
-                    _s3c.download_fileobj(_bkt, _key, _buf)
-                    _buf.seek(0)
-                    frames.append(_pq_fb.read_table(_buf))
-                    logger.info("Downloaded %s for fallback append (%d rows)", uri, frames[-1].num_rows)
-                except Exception as read_err:
-                    logger.error("Could not read %s for fallback append: %s", uri, read_err)
-                    raise
+                _bkt, _key = uri.replace("s3://", "").split("/", 1)
+                _s3c = _boto3.client("s3")
+                _buf = _io.BytesIO()
+                logger.info("Downloading s3://%s/%s for append", _bkt, _key)
+                _s3c.download_fileobj(_bkt, _key, _buf)
+                _buf.seek(0)
+                frames.append(_pq.read_table(_buf))
 
-            if frames:
-                combined = _pa_fb.concat_tables(frames)
-                table.append(combined)
-                logger.info(
-                    "Fallback append succeeded: %d rows written to table",
-                    len(combined),
-                )
+            if not frames:
+                logger.warning("No data frames downloaded, skipping append")
+                return
+
+            combined = _pa.concat_tables(frames) if len(frames) > 1 else frames[0]
+            logger.info(
+                "Appending %d rows from %d file(s) to Iceberg table",
+                len(combined), len(frames),
+            )
+            table.append(combined)
+            logger.info("Successfully appended %d rows", len(combined))
 
     def ensure_database_exists(self, database: str) -> None:
         """Use existing Glue database or create it if it doesn't exist.
