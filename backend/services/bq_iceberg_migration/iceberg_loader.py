@@ -465,67 +465,94 @@ class ParallelIcebergLoader:
                 partition_spec = table_plan.get("partition_spec")
                 sort_order = table_plan.get("sort_order")
 
-                # If schema is None or not a PyIceberg Schema object,
-                # build it from the columns list in the table_plan.
-                # The columns may use different field names depending on source
-                # (structure report uses bq_type; assessment uses data_type/type).
+                # If schema is None or not a PyIceberg Schema object, derive it.
+                # Priority:
+                #   1. Read directly from the first Parquet data file (most accurate)
+                #   2. Fall back to building from columns list in the table_plan
                 if schema is None or not hasattr(schema, 'fields'):
-                    columns = table_plan.get("columns", [])
-                    if columns:
+                    # --- Strategy 1: infer from actual Parquet file ---
+                    data_files = table_plan.get("data_files", [])
+                    if data_files:
                         try:
-                            # Normalize column dicts to the format map_schema expects
-                            normalized = []
-                            for col in columns:
-                                normalized.append({
-                                    "name": col.get("name", "unknown"),
-                                    "type": col.get("type") or col.get("data_type") or col.get("bq_type", "STRING"),
-                                    "mode": col.get("mode", "NULLABLE" if col.get("nullable", True) else "REQUIRED"),
-                                    "fields": col.get("fields"),
-                                })
+                            import io as _io
+                            import boto3 as _boto3
+                            import pyarrow.parquet as _pq
+                            from pyiceberg.io.pyarrow import schema_to_pyiceberg
 
-                            # Build real PyIceberg Schema directly (not the custom dataclass)
-                            from pyiceberg.schema import Schema as PySchema
-                            from pyiceberg.types import (
-                                NestedField as PyField, StringType as PyST,
-                                LongType as PyLT, DoubleType as PyDT,
-                                BooleanType as PyBT, DateType as PyDate,
-                                TimestampType as PyTS, TimestamptzType as PyTSTZ,
-                            )
-                            BQ_TO_PY = {
-                                "STRING": PyST(), "BYTES": PyST(),
-                                "INT64": PyLT(), "INTEGER": PyLT(),
-                                "FLOAT64": PyDT(), "FLOAT": PyDT(),
-                                "BOOLEAN": PyBT(), "BOOL": PyBT(),
-                                "DATE": PyDate(),
-                                "DATETIME": PyTS(), "TIMESTAMP": PyTSTZ(),
-                                "TIME": PyST(), "JSON": PyST(),
-                                "GEOGRAPHY": PyST(), "NUMERIC": PyDT(),
-                                "BIGNUMERIC": PyDT(),
-                            }
-                            py_fields = []
-                            for i, col in enumerate(normalized, start=1):
-                                bq_t = col["type"].upper()
-                                py_type = BQ_TO_PY.get(bq_t, PyST())
-                                required = col["mode"].upper() == "REQUIRED"
-                                py_fields.append(PyField(i, col["name"], py_type, required=required))
-                            schema = PySchema(*py_fields)
+                            first_uri = data_files[0]
+                            _bkt, _key = first_uri.replace("s3://", "").split("/", 1)
+                            _s3c = _boto3.client("s3")
+                            _buf = _io.BytesIO()
+                            _s3c.download_fileobj(_bkt, _key, _buf)
+                            _buf.seek(0)
+                            arrow_schema = _pq.read_schema(_buf)
+                            schema = schema_to_pyiceberg(arrow_schema)
                             logger.info(
-                                "Built PyIceberg schema for table '%s': %d fields",
-                                table_name, len(py_fields),
+                                "Derived PyIceberg schema from Parquet file for table '%s': %d fields",
+                                table_name, len(schema.fields),
                             )
-                        except Exception as schema_err:
+                        except Exception as _pq_err:
                             logger.warning(
-                                "Could not build schema from columns for table '%s': %s. "
-                                "Using minimal schema.",
-                                table_name, schema_err,
+                                "Could not derive schema from Parquet file for '%s': %s — "
+                                "falling back to columns list",
+                                table_name, _pq_err,
                             )
+                            schema = None
+
+                    # --- Strategy 2: build from columns list ---
+                    if schema is None or not hasattr(schema, 'fields'):
+                        columns = table_plan.get("columns", [])
+                        if columns:
+                            try:
+                                normalized = []
+                                for col in columns:
+                                    normalized.append({
+                                        "name": col.get("name", "unknown"),
+                                        "type": col.get("type") or col.get("data_type") or col.get("bq_type", "STRING"),
+                                        "mode": col.get("mode", "NULLABLE" if col.get("nullable", True) else "REQUIRED"),
+                                        "fields": col.get("fields"),
+                                    })
+                                from pyiceberg.schema import Schema as PySchema
+                                from pyiceberg.types import (
+                                    NestedField as PyField, StringType as PyST,
+                                    LongType as PyLT, DoubleType as PyDT,
+                                    BooleanType as PyBT, DateType as PyDate,
+                                    TimestampType as PyTS, TimestamptzType as PyTSTZ,
+                                )
+                                BQ_TO_PY = {
+                                    "STRING": PyST(), "BYTES": PyST(),
+                                    "INT64": PyLT(), "INTEGER": PyLT(),
+                                    "FLOAT64": PyDT(), "FLOAT": PyDT(),
+                                    "BOOLEAN": PyBT(), "BOOL": PyBT(),
+                                    "DATE": PyDate(),
+                                    "DATETIME": PyTS(), "TIMESTAMP": PyTSTZ(),
+                                    "TIME": PyST(), "JSON": PyST(),
+                                    "GEOGRAPHY": PyST(), "NUMERIC": PyDT(),
+                                    "BIGNUMERIC": PyDT(),
+                                }
+                                py_fields = []
+                                for i, col in enumerate(normalized, start=1):
+                                    bq_t = col["type"].upper()
+                                    py_type = BQ_TO_PY.get(bq_t, PyST())
+                                    required = col["mode"].upper() == "REQUIRED"
+                                    py_fields.append(PyField(i, col["name"], py_type, required=required))
+                                schema = PySchema(*py_fields)
+                                logger.info(
+                                    "Built PyIceberg schema from columns for table '%s': %d fields",
+                                    table_name, len(py_fields),
+                                )
+                            except Exception as schema_err:
+                                logger.warning(
+                                    "Could not build schema from columns for table '%s': %s. Using minimal schema.",
+                                    table_name, schema_err,
+                                )
+                                from pyiceberg.schema import Schema as _Schema
+                                from pyiceberg.types import NestedField as _NF, StringType as _ST
+                                schema = _Schema(_NF(1, "id", _ST(), required=False))
+                        else:
                             from pyiceberg.schema import Schema as _Schema
                             from pyiceberg.types import NestedField as _NF, StringType as _ST
                             schema = _Schema(_NF(1, "id", _ST(), required=False))
-                    else:
-                        from pyiceberg.schema import Schema as _Schema
-                        from pyiceberg.types import NestedField as _NF, StringType as _ST
-                        schema = _Schema(_NF(1, "id", _ST(), required=False))
 
                 # Ensure partition_spec and sort_order are None if not real PyIceberg objects
                 if partition_spec is not None and not hasattr(partition_spec, 'fields'):
@@ -1307,11 +1334,35 @@ class ParallelIcebergLoader:
         )
 
         try:
-            table.append(s3_file_uris)
+            # table.add_files() registers pre-existing Parquet/ORC files in S3
+            # as Iceberg data files without re-writing data.
+            # table.append() expects a PyArrow DataFrame — wrong API for our use case.
+            table.add_files(file_paths=s3_file_uris)
             logger.info(
-                "Successfully appended %d data file(s)",
+                "Successfully registered %d data file(s) via add_files",
                 len(s3_file_uris),
             )
+        except AttributeError:
+            # Fallback: older PyIceberg versions use overwrite transaction
+            logger.warning("add_files not available, falling back to overwrite transaction")
+            import pyarrow.parquet as _pq
+            import pyarrow as _pa
+            frames = []
+            for uri in s3_file_uris:
+                try:
+                    import boto3, io
+                    s3 = boto3.client("s3")
+                    bucket, key = uri.replace("s3://", "").split("/", 1)
+                    buf = io.BytesIO()
+                    s3.download_fileobj(bucket, key, buf)
+                    buf.seek(0)
+                    frames.append(_pq.read_table(buf))
+                except Exception as read_err:
+                    logger.warning("Could not read %s for fallback append: %s", uri, read_err)
+            if frames:
+                combined = _pa.concat_tables(frames)
+                table.overwrite(combined)
+                logger.info("Fallback overwrite with %d rows succeeded", len(combined))
         except Exception as e:
             logger.error("Failed to append data files: %s", e)
             raise
