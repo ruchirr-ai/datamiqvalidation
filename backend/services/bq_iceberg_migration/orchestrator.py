@@ -285,15 +285,24 @@ class IcebergMigrationOrchestrator:
         # Enrich structure plan tables with actual S3 data files from transfer checkpoint
         checkpoint_data = dict(getattr(migration, 'checkpoint_data', None) or {})
         s3_files_by_table = checkpoint_data.get('s3_files_by_table', {})
+        enriched = False
         if s3_files_by_table:
             for table_plan in structure_plan.get('tables', []):
                 table_name = table_plan.get('proposed_name') or table_plan.get('source_table', '')
                 if table_name in s3_files_by_table:
                     table_plan['data_files'] = s3_files_by_table[table_name]
+                    enriched = True
                     logger.info(
                         "Enriched table '%s' with %d S3 data files",
                         table_name, len(s3_files_by_table[table_name])
                     )
+
+        # Persist the enriched plan back so retries also have data_files
+        if enriched:
+            checkpoint_data['iceberg_structure_plan'] = structure_plan
+            migration.checkpoint_data = checkpoint_data
+            from sqlalchemy.orm.attributes import flag_modified as _fm_enrich
+            _fm_enrich(migration, 'checkpoint_data')
 
         # Filter tables for checkpoint-based resume
         tables_to_load = self._filter_tables_for_resume(migration, structure_plan)
