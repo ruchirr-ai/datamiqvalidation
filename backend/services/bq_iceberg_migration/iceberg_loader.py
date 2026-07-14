@@ -453,12 +453,32 @@ class ParallelIcebergLoader:
                 )
 
                 if existing_table is not None:
-                    logger.info(
-                        "Table '%s.%s' already exists, verifying compatibility",
-                        database,
-                        table_name,
-                    )
-                    return {"table": existing_table, "retries": retries}
+                    # If table has data (snapshot exists), it was already loaded — skip
+                    if existing_table.current_snapshot() is not None:
+                        logger.info(
+                            "Table '%s.%s' already exists with data, verifying compatibility",
+                            database, table_name,
+                        )
+                        return {"table": existing_table, "retries": retries}
+                    else:
+                        # Table exists but is EMPTY (previous failed run left it)
+                        # Drop it so we can recreate with the correct schema
+                        logger.warning(
+                            "Table '%s.%s' exists but is empty (no snapshot) — "
+                            "dropping and recreating with correct schema",
+                            database, table_name,
+                        )
+                        try:
+                            await asyncio.to_thread(
+                                self._catalog.drop_table,
+                                f"{database}.{table_name}",
+                            )
+                            logger.info("Dropped empty table '%s.%s'", database, table_name)
+                        except Exception as drop_err:
+                            logger.warning(
+                                "Could not drop empty table '%s.%s': %s — will attempt recreate anyway",
+                                database, table_name, drop_err,
+                            )
 
                 # Create new table
                 schema = table_plan.get("schema")
@@ -477,7 +497,7 @@ class ParallelIcebergLoader:
                             import io as _io
                             import boto3 as _boto3
                             import pyarrow.parquet as _pq
-                            from pyiceberg.io.pyarrow import schema_to_pyiceberg
+                            from pyiceberg.io.pyarrow import pyarrow_to_schema
 
                             first_uri = data_files[0]
                             _bkt, _key = first_uri.replace("s3://", "").split("/", 1)
@@ -486,7 +506,7 @@ class ParallelIcebergLoader:
                             _s3c.download_fileobj(_bkt, _key, _buf)
                             _buf.seek(0)
                             arrow_schema = _pq.read_schema(_buf)
-                            schema = schema_to_pyiceberg(arrow_schema)
+                            schema = pyarrow_to_schema(arrow_schema)
                             logger.info(
                                 "Derived PyIceberg schema from Parquet file for table '%s': %d fields",
                                 table_name, len(schema.fields),
@@ -1334,38 +1354,55 @@ class ParallelIcebergLoader:
         )
 
         try:
-            # table.add_files() registers pre-existing Parquet/ORC files in S3
-            # as Iceberg data files without re-writing data.
-            # table.append() expects a PyArrow DataFrame — wrong API for our use case.
+            # PyIceberg add_files() registers existing Parquet files without rewriting.
+            # It needs the catalog's FileIO to have S3 access configured.
+            # We configure the S3FileIO by setting s3.region on the table's IO.
+            import os as _os
+            _region = _os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+
+            # Ensure table IO has S3 properties set for the current session
+            if hasattr(table, '_table') and hasattr(table._table, 'io'):
+                _io = table._table.io
+                if hasattr(_io, '_props') or hasattr(_io, 'properties'):
+                    _props = getattr(_io, '_props', None) or getattr(_io, 'properties', {})
+                    _props['s3.region'] = _region
+
             table.add_files(file_paths=s3_file_uris)
             logger.info(
                 "Successfully registered %d data file(s) via add_files",
                 len(s3_file_uris),
             )
-        except AttributeError:
-            # Fallback: older PyIceberg versions use overwrite transaction
-            logger.warning("add_files not available, falling back to overwrite transaction")
-            import pyarrow.parquet as _pq
-            import pyarrow as _pa
+        except Exception as add_err:
+            # Fallback: download Parquet files and use table.append(pyarrow_table)
+            logger.warning(
+                "add_files failed (%s) — falling back to download+append", add_err
+            )
+            import io as _io2
+            import boto3 as _boto3_fb
+            import pyarrow.parquet as _pq_fb
+            import pyarrow as _pa_fb
+
             frames = []
             for uri in s3_file_uris:
                 try:
-                    import boto3, io
-                    s3 = boto3.client("s3")
-                    bucket, key = uri.replace("s3://", "").split("/", 1)
-                    buf = io.BytesIO()
-                    s3.download_fileobj(bucket, key, buf)
-                    buf.seek(0)
-                    frames.append(_pq.read_table(buf))
+                    _bkt, _key = uri.replace("s3://", "").split("/", 1)
+                    _s3c = _boto3_fb.client("s3")
+                    _buf = _io2.BytesIO()
+                    _s3c.download_fileobj(_bkt, _key, _buf)
+                    _buf.seek(0)
+                    frames.append(_pq_fb.read_table(_buf))
+                    logger.info("Downloaded %s for fallback append (%d rows)", uri, frames[-1].num_rows)
                 except Exception as read_err:
-                    logger.warning("Could not read %s for fallback append: %s", uri, read_err)
+                    logger.error("Could not read %s for fallback append: %s", uri, read_err)
+                    raise
+
             if frames:
-                combined = _pa.concat_tables(frames)
-                table.overwrite(combined)
-                logger.info("Fallback overwrite with %d rows succeeded", len(combined))
-        except Exception as e:
-            logger.error("Failed to append data files: %s", e)
-            raise
+                combined = _pa_fb.concat_tables(frames)
+                table.append(combined)
+                logger.info(
+                    "Fallback append succeeded: %d rows written to table",
+                    len(combined),
+                )
 
     def ensure_database_exists(self, database: str) -> None:
         """Use existing Glue database or create it if it doesn't exist.
