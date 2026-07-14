@@ -258,7 +258,19 @@ export const BQIcebergMigrationsPage: React.FC = () => {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || 'Failed to create migration');
+        const detail = err.detail;
+        let msg: string;
+        if (typeof detail === 'string') {
+          msg = detail;
+        } else if (Array.isArray(detail)) {
+          // Pydantic validation errors: [{loc, msg, type}]
+          msg = detail.map((e: any) => `${e.loc?.slice(-1)[0] ?? 'field'}: ${e.msg}`).join('; ');
+        } else if (detail && typeof detail === 'object') {
+          msg = JSON.stringify(detail);
+        } else {
+          msg = 'Failed to create migration';
+        }
+        throw new Error(msg);
       }
       setShowCreate(false);
       setFormData(INITIAL_FORM);
@@ -470,7 +482,18 @@ export const BQIcebergMigrationsPage: React.FC = () => {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || 'Failed to update migration');
+        const detail = err.detail;
+        let msg: string;
+        if (typeof detail === 'string') {
+          msg = detail;
+        } else if (Array.isArray(detail)) {
+          msg = detail.map((e: any) => `${e.loc?.slice(-1)[0] ?? 'field'}: ${e.msg}`).join('; ');
+        } else if (detail && typeof detail === 'object') {
+          msg = JSON.stringify(detail);
+        } else {
+          msg = 'Failed to update migration';
+        }
+        throw new Error(msg);
       }
       setShowEdit(false);
       setEditingMigration(null);
