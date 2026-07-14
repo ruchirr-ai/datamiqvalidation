@@ -731,13 +731,32 @@ async def start_migration(
             detail="Migration is already running"
         )
 
-    if migration.status not in ('pending', 'approved', 'ready'):
+    if migration.status not in ('pending', 'approved', 'ready', 'failed'):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Migration cannot be started from status '{migration.status}'"
         )
 
     try:
+        # If retrying from failed state, clear only the failed stage checkpoint so
+        # completed stages (e.g. export) are not repeated.
+        if migration.status == 'failed':
+            checkpoint = dict(getattr(migration, 'checkpoint_data', None) or {})
+            # Remove transfer/report completion markers so those stages re-run
+            for key in ('transfer_completed_at', 's3_files_by_table',
+                        'structure_report', 'cost_report', 'assessment_tables_report'):
+                checkpoint.pop(key, None)
+            migration.checkpoint_data = checkpoint
+            from sqlalchemy.orm.attributes import flag_modified as _fm_retry
+            _fm_retry(migration, 'checkpoint_data')
+            migration.end_time = None
+            migration.duration_seconds = None
+            migration.progress_percentage = 0
+            logger.info(
+                f"Retrying failed migration {migration_id} — export checkpoint preserved, "
+                "transfer stage will re-run"
+            )
+
         migration.status = 'running'
         migration.start_time = datetime.utcnow()
         migration.updated_at = datetime.utcnow()
@@ -1018,6 +1037,86 @@ async def cancel_migration(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cancel migration: {str(e)}"
+        )
+
+
+@router.post("/{migration_id}/retry")
+async def retry_migration(
+    request: Request,
+    migration_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id)
+):
+    """Retry a failed Iceberg migration from the last failed stage.
+    
+    Unlike /restart (which resets everything), /retry preserves completed stage
+    checkpoints so that e.g. a completed BigQuery export is not repeated.
+    The transfer stage and all subsequent stages are reset so they re-run cleanly.
+    """
+    migration = _get_migration_or_404(db, migration_id, workspace_id)
+
+    if migration.status == 'running':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Migration is already running"
+        )
+
+    if migration.status != 'failed':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Only failed migrations can be retried (current status: '{migration.status}'). "
+                   "Use /start for pending/approved, or /restart to reset from scratch."
+        )
+
+    try:
+        checkpoint = dict(getattr(migration, 'checkpoint_data', None) or {})
+
+        # Preserve export checkpoint, clear everything from transfer onwards
+        for key in (
+            'transfer_completed_at',
+            's3_files_by_table',
+            'structure_report',
+            'cost_report',
+            'assessment_tables_report',
+        ):
+            checkpoint.pop(key, None)
+
+        migration.checkpoint_data = checkpoint
+        from sqlalchemy.orm.attributes import flag_modified as _fm_r
+        _fm_r(migration, 'checkpoint_data')
+
+        migration.status = 'pending'
+        migration.current_stage = None
+        migration.end_time = None
+        migration.duration_seconds = None
+        migration.progress_percentage = 0
+        migration.structure_approved_at = None
+        migration.structure_approved_by = None
+        migration.updated_at = datetime.utcnow()
+        db.commit()
+
+        export_done = bool(checkpoint.get('export_completed_at'))
+        logger.info(
+            f"Migration {migration_id} set to pending for retry "
+            f"(export preserved={export_done})"
+        )
+        return {
+            "message": "Migration ready to retry — export checkpoint preserved. "
+                       "Use /start to begin the transfer stage.",
+            "migration_id": migration_id,
+            "status": "pending",
+            "export_preserved": export_done,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to set up retry for migration {migration_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to prepare migration retry: {str(e)}"
         )
 
 

@@ -313,6 +313,19 @@ export const BQIcebergMigrationsPage: React.FC = () => {
     }
   };
 
+  const handleRetry = async (m: IcebergMigration) => {
+    try {
+      // Step 1: Call /retry to reset state (preserves export checkpoint)
+      await callLifecycle(m.id, 'retry');
+      // Step 2: Immediately start the migration (resumes from transfer stage)
+      await callLifecycle(m.id, 'start');
+      setToast({ msg: `"${m.migration_name}" retrying from transfer stage`, type: 'success' });
+      fetchMigrations();
+    } catch (err: any) {
+      setToast({ msg: err.message, type: 'error' });
+    }
+  };
+
   const handleCancel = async (m: IcebergMigration) => {
     try {
       await callLifecycle(m.id, 'cancel');
@@ -675,12 +688,24 @@ export const BQIcebergMigrationsPage: React.FC = () => {
                           Pause
                         </button>
                       )}
-                      {(m.status === 'paused' || m.status === 'failed') && (
+                      {m.status === 'paused' && (
                         <button className="bqi-action-btn bqi-action-btn--primary" onClick={() => handleResume(m)} title="Resume">
                           <svg width="13" height="13" viewBox="0 0 13 13" fill="currentColor" aria-hidden="true">
                             <path d="M3 2l8 4.5L3 11V2z"/>
                           </svg>
                           Resume
+                        </button>
+                      )}
+                      {m.status === 'failed' && (
+                        <button
+                          className="bqi-action-btn bqi-action-btn--primary"
+                          onClick={() => handleRetry(m)}
+                          title="Retry from last failed stage — export will not be repeated"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                            <path d="M2 7a5 5 0 1 0 1-3M2 4V1M2 4h3" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          Retry
                         </button>
                       )}
                       {m.status === 'pending_review' && (

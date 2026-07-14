@@ -555,41 +555,90 @@ class IcebergMigrationOrchestrator:
 
             s3_files_by_table = {}
 
+            def _resolve_gcs_uris(gcs_client_obj, uri: str) -> list:
+                """Resolve a GCS URI — expanding wildcard patterns via list_blobs.
+                
+                BigQuery exports write wildcard destination_uris like
+                gs://bucket/path/table_*.parquet.zst.  GCS has no native wildcard
+                blob fetch; we must list with a prefix then filter by suffix.
+                
+                Returns a list of (bucket_name, blob_name, file_name) tuples for
+                every real object that matches.
+                """
+                gcs_path_part = uri.replace('gs://', '')
+                bucket_name = gcs_path_part.split('/')[0]
+                blob_path = '/'.join(gcs_path_part.split('/')[1:])  # may contain '*'
+
+                if '*' not in blob_path:
+                    # No wildcard — treat as a literal blob
+                    file_name = blob_path.split('/')[-1]
+                    return [(bucket_name, blob_path, file_name)]
+
+                # Wildcard present: derive folder prefix (everything before the '*')
+                folder_prefix = blob_path[:blob_path.index('*')]
+                # Derive suffix (everything after the '*') for filtering
+                suffix = blob_path[blob_path.index('*') + 1:]
+
+                logger.info(
+                    "[TRANSFER] Resolving wildcard — bucket=%s prefix=%s suffix=%s",
+                    bucket_name, folder_prefix, suffix
+                )
+
+                blobs = list(gcs_client_obj.list_blobs(bucket_name, prefix=folder_prefix))
+                if not blobs:
+                    logger.warning("[TRANSFER] No blobs found under gs://%s/%s", bucket_name, folder_prefix)
+                    return []
+
+                results = []
+                for blob_obj in blobs:
+                    if suffix and not blob_obj.name.endswith(suffix):
+                        continue  # doesn't match the wildcard pattern
+                    file_name = blob_obj.name.split('/')[-1]
+                    results.append((bucket_name, blob_obj.name, file_name))
+
+                logger.info(
+                    "[TRANSFER] Wildcard resolved to %d file(s) under gs://%s/%s",
+                    len(results), bucket_name, folder_prefix
+                )
+                return results
+
             for table_name, gcs_uris in gcs_files_by_table.items():
                 s3_uris = []
-                logger.info("[TRANSFER] Transferring %d files for table %s", len(gcs_uris), table_name)
+                logger.info("[TRANSFER] Transferring %d URI(s) for table %s", len(gcs_uris), table_name)
 
                 for gcs_uri in gcs_uris:
-                    # Parse gs://bucket/path/file
-                    gcs_path_part = gcs_uri.replace('gs://', '')
-                    bucket_name = gcs_path_part.split('/')[0]
-                    blob_name = '/'.join(gcs_path_part.split('/')[1:])
-                    file_name = blob_name.split('/')[-1]
+                    # Resolve wildcards — may expand one URI into many actual files
+                    resolved = _resolve_gcs_uris(gcs_client, gcs_uri)
+                    if not resolved:
+                        logger.warning("[TRANSFER] No files resolved from URI: %s", gcs_uri)
+                        continue
 
-                    # S3 destination key
-                    s3_key = f"{s3_prefix}/{dataset}/{table_name}/{file_name}"
+                    for bucket_name, blob_name, file_name in resolved:
+                        # S3 destination key
+                        s3_key = f"{s3_prefix}/{dataset}/{table_name}/{file_name}"
 
-                    with _tempfile.NamedTemporaryFile(delete=False, suffix='.parquet') as tmp:
-                        tmp_path = tmp.name
+                        with _tempfile.NamedTemporaryFile(delete=False, suffix='.tmp') as tmp:
+                            tmp_path = tmp.name
 
-                    try:
-                        # Download from GCS
-                        bucket = gcs_client.bucket(bucket_name)
-                        blob = bucket.blob(blob_name)
-                        blob.download_to_filename(tmp_path)
-
-                        # Upload to S3
-                        s3_client.upload_file(tmp_path, s3_bucket, s3_key)
-                        s3_uris.append(f"s3://{s3_bucket}/{s3_key}")
-                        logger.debug("[TRANSFER] ✓ %s → s3://%s/%s", file_name, s3_bucket, s3_key)
-                    finally:
                         try:
-                            _os.unlink(tmp_path)
-                        except Exception:
-                            pass
+                            # Download from GCS
+                            bucket = gcs_client.bucket(bucket_name)
+                            blob = bucket.blob(blob_name)
+                            blob.download_to_filename(tmp_path)
+                            logger.debug("[TRANSFER] Downloaded gs://%s/%s (%d bytes)", bucket_name, blob_name, _os.path.getsize(tmp_path))
+
+                            # Upload to S3
+                            s3_client.upload_file(tmp_path, s3_bucket, s3_key)
+                            s3_uris.append(f"s3://{s3_bucket}/{s3_key}")
+                            logger.debug("[TRANSFER] ✓ %s → s3://%s/%s", file_name, s3_bucket, s3_key)
+                        finally:
+                            try:
+                                _os.unlink(tmp_path)
+                            except Exception:
+                                pass
 
                 s3_files_by_table[table_name] = s3_uris
-                logger.info("[TRANSFER] ✓ Table %s: %d files transferred to S3", table_name, len(s3_uris))
+                logger.info("[TRANSFER] ✓ Table %s: %d file(s) transferred to S3", table_name, len(s3_uris))
 
             checkpoint_data['s3_files_by_table'] = s3_files_by_table
             checkpoint_data['transfer_completed_at'] = datetime.now(timezone.utc).isoformat()
