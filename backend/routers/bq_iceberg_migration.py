@@ -848,6 +848,8 @@ async def start_migration(
                         f"[BG] Could not build GlueCatalog, using None: {_catalog_err}"
                     )
                     glue_catalog = None
+                type_mapper = BQToIcebergTypeMapper()
+                partition_mapper = PartitionSpecMapper()
                 dedup_guard = DeduplicationGuard()
                 loader = ParallelIcebergLoader(
                     catalog=glue_catalog,
