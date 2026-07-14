@@ -683,15 +683,24 @@ async def delete_migration(
         )
 
     try:
-        # Delete associated validation results
-        db.query(IcebergTableValidation).filter(
-            IcebergTableValidation.migration_id == migration_id
-        ).delete()
+        # Delete associated validation results (table may not exist on all environments)
+        try:
+            db.query(IcebergTableValidation).filter(
+                IcebergTableValidation.migration_id == migration_id
+            ).delete()
+        except Exception:
+            db.rollback()
+            # Re-fetch migration since rollback cleared it
+            migration = _get_migration_or_404(db, migration_id, workspace_id)
 
-        # Delete associated logs
-        db.query(MigrationLog).filter(
-            MigrationLog.migration_id == migration_id
-        ).delete()
+        # Delete associated logs (ignore if table missing)
+        try:
+            db.query(MigrationLog).filter(
+                MigrationLog.migration_id == migration_id
+            ).delete()
+        except Exception:
+            db.rollback()
+            migration = _get_migration_or_404(db, migration_id, workspace_id)
 
         db.delete(migration)
         db.commit()
