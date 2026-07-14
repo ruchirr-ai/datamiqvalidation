@@ -237,6 +237,39 @@ class IcebergMigrationOrchestrator:
         structure_plan = self._get_approved_structure_plan(migration)
 
         if structure_plan is None:
+            # --- STAGE 1: EXPORT (BigQuery → GCS) ---
+            checkpoint_data = dict(getattr(migration, 'checkpoint_data', None) or {})
+
+            if not checkpoint_data.get('export_completed_at'):
+                migration.current_stage = 'export'
+                logger.info("Starting export stage for migration %s", migration_id)
+                export_success = await self._execute_bigquery_export(migration, checkpoint_data)
+                if not export_success:
+                    migration.status = 'failed'
+                    return False
+                from sqlalchemy.orm.attributes import flag_modified as _fm
+                _fm(migration, 'checkpoint_data')
+            else:
+                logger.info("Export already completed for migration %s, skipping", migration_id)
+
+            # --- STAGE 2: TRANSFER (GCS → S3) ---
+            checkpoint_data = dict(getattr(migration, 'checkpoint_data', None) or {})
+            if not checkpoint_data.get('transfer_completed_at'):
+                migration.current_stage = 'transfer'
+                logger.info("Starting GCS→S3 transfer for migration %s", migration_id)
+                transfer_success = await self._execute_gcs_to_s3_transfer(migration, checkpoint_data)
+                if not transfer_success:
+                    migration.status = 'failed'
+                    return False
+                from sqlalchemy.orm.attributes import flag_modified as _fm2
+                _fm2(migration, 'checkpoint_data')
+            else:
+                logger.info("Transfer already completed for migration %s, skipping", migration_id)
+
+            # --- STAGE 3: GENERATE STRUCTURE REPORT + PAUSE FOR REVIEW ---
+            # Use the BQ schema from checkpoint (populated during export)
+            assessment_tables = checkpoint_data.get('assessment_tables') or assessment_tables
+
             # Need to generate report and wait for approval
             structure_plan = await self._generate_reports(migration, assessment_tables)
 
@@ -248,6 +281,19 @@ class IcebergMigrationOrchestrator:
         migration.current_stage = "load"
         if self._migration_logger:
             self._migration_logger.log_stage_transition("review", "load")
+
+        # Enrich structure plan tables with actual S3 data files from transfer checkpoint
+        checkpoint_data = dict(getattr(migration, 'checkpoint_data', None) or {})
+        s3_files_by_table = checkpoint_data.get('s3_files_by_table', {})
+        if s3_files_by_table:
+            for table_plan in structure_plan.get('tables', []):
+                table_name = table_plan.get('proposed_name') or table_plan.get('source_table', '')
+                if table_name in s3_files_by_table:
+                    table_plan['data_files'] = s3_files_by_table[table_name]
+                    logger.info(
+                        "Enriched table '%s' with %d S3 data files",
+                        table_name, len(s3_files_by_table[table_name])
+                    )
 
         # Filter tables for checkpoint-based resume
         tables_to_load = self._filter_tables_for_resume(migration, structure_plan)
@@ -310,6 +356,251 @@ class IcebergMigrationOrchestrator:
         )
 
         return True
+
+    async def _execute_bigquery_export(self, migration: Any, checkpoint_data: dict) -> bool:
+        """Export BigQuery tables to GCS as Parquet files.
+
+        Uses BigQueryExporter with the migration's service account credentials.
+        Stores export results and BQ schema in checkpoint_data.
+
+        Args:
+            migration: The MigrationBQIceberg model instance.
+            checkpoint_data: Mutable checkpoint dict — updated in place.
+
+        Returns:
+            True if export succeeded, False otherwise.
+        """
+        import json as _json
+
+        migration_id = getattr(migration, 'id', None)
+        logger.info("[EXPORT] Starting BigQuery export for migration %s", migration_id)
+
+        try:
+            # Get service account JSON
+            sa_json = None
+            encrypted = getattr(migration, 'service_account_json_encrypted', None)
+            if encrypted:
+                try:
+                    # Try raw JSON first (dev mode — no KMS)
+                    sa_json = _json.loads(encrypted) if isinstance(encrypted, str) else encrypted
+                except Exception:
+                    logger.warning("[EXPORT] Could not parse SA JSON as plain text")
+
+            # Fallback: load from source connection
+            if not sa_json:
+                source_conn_id = getattr(migration, 'source_connection_id', None)
+                if source_conn_id:
+                    from database import db_instance
+                    from sqlalchemy import text as _text
+                    with db_instance.get_session() as _db:
+                        row = _db.execute(
+                            _text("SELECT connection_params FROM connections WHERE id=:cid"),
+                            {"cid": source_conn_id}
+                        ).fetchone()
+                        if row and row[0]:
+                            params = row[0] if isinstance(row[0], dict) else _json.loads(row[0])
+                            creds_raw = params.get('credentials_json')
+                            if creds_raw:
+                                sa_json = _json.loads(creds_raw) if isinstance(creds_raw, str) else creds_raw
+                                logger.info("[EXPORT] Loaded SA JSON from connection id=%s", source_conn_id)
+
+            if not sa_json:
+                logger.error("[EXPORT] No service account credentials available for migration %s", migration_id)
+                return False
+
+            project_id = getattr(migration, 'source_project_id', None)
+            dataset = getattr(migration, 'source_dataset', None)
+            tables = getattr(migration, 'source_tables', []) or []
+            gcs_bucket = getattr(migration, 'gcs_bucket', None)
+            gcs_path = getattr(migration, 'gcs_path', 'exports/') or 'exports/'
+            export_format = getattr(migration, 'export_format', 'PARQUET') or 'PARQUET'
+            compression = getattr(migration, 'compression', 'ZSTD') or 'ZSTD'
+
+            if not all([project_id, dataset, tables, gcs_bucket]):
+                logger.error("[EXPORT] Missing required fields: project=%s, dataset=%s, tables=%s, gcs_bucket=%s",
+                             project_id, dataset, tables, gcs_bucket)
+                return False
+
+            from services.bq_redshift_migration.bigquery_exporter import BigQueryExporter
+            exporter = BigQueryExporter(credentials_dict=sa_json, project_id=project_id)
+
+            results = exporter.export_tables(
+                dataset=dataset,
+                tables=tables,
+                gcs_bucket=gcs_bucket,
+                gcs_path=gcs_path,
+                export_format=export_format,
+                compression=compression if compression != 'NONE' else None,
+                load_type=getattr(migration, 'load_type', 'full') or 'full',
+                table_load_configs=getattr(migration, 'table_load_configs', {}) or {},
+            )
+
+            # Store export results and BQ schemas in checkpoint
+            export_results = {}
+            assessment_tables = []
+            gcs_files_by_table = {}
+
+            for result in results:
+                if not result.get('success'):
+                    logger.error("[EXPORT] Table %s export failed: %s",
+                                 result.get('table', '?'), result.get('error', 'unknown'))
+                    return False
+
+                tbl_name = result.get('table', '').split('.')[-1]
+                export_results[tbl_name] = result
+                gcs_files_by_table[tbl_name] = result.get('destination_uris', [])
+
+                # Build assessment_tables for structure report
+                schema = result.get('schema', [])
+                assessment_tables.append({
+                    'table_name': tbl_name,
+                    'dataset_name': dataset,
+                    'columns': [
+                        {'name': c['name'], 'data_type': c['type'], 'mode': c.get('mode', 'NULLABLE')}
+                        for c in schema
+                    ],
+                    'estimated_row_count': result.get('num_rows', 0),
+                    'estimated_size_bytes': result.get('num_bytes', 0),
+                    'partitioning_columns': [],
+                    'clustering_columns': [],
+                    'table_type': 'TABLE',
+                })
+
+                logger.info("[EXPORT] ✓ Table %s: %d rows, %d files at gs://%s",
+                            tbl_name, result.get('num_rows', 0),
+                            result.get('num_files', 0), gcs_bucket)
+
+            checkpoint_data['export_results'] = export_results
+            checkpoint_data['gcs_files_by_table'] = gcs_files_by_table
+            checkpoint_data['assessment_tables'] = assessment_tables
+            checkpoint_data['export_completed_at'] = datetime.now(timezone.utc).isoformat()
+            migration.checkpoint_data = checkpoint_data
+
+            logger.info("[EXPORT] ✓ All %d tables exported successfully", len(tables))
+            return True
+
+        except Exception as e:
+            logger.error("[EXPORT] Export failed for migration %s: %s", migration_id, e, exc_info=True)
+            return False
+
+    async def _execute_gcs_to_s3_transfer(self, migration: Any, checkpoint_data: dict) -> bool:
+        """Transfer exported Parquet files from GCS to S3 using boto3 S3 Transfer.
+
+        For simplicity and reliability, uses direct boto3 download-from-GCS + upload-to-S3
+        approach with the GCS HMAC credentials or service account JSON.
+
+        Args:
+            migration: The MigrationBQIceberg model instance.
+            checkpoint_data: Mutable checkpoint dict — updated in place.
+
+        Returns:
+            True if transfer succeeded, False otherwise.
+        """
+        import json as _json
+        import os as _os
+
+        migration_id = getattr(migration, 'id', None)
+        logger.info("[TRANSFER] Starting GCS→S3 transfer for migration %s", migration_id)
+
+        try:
+            gcs_files_by_table = checkpoint_data.get('gcs_files_by_table', {})
+            if not gcs_files_by_table:
+                logger.warning("[TRANSFER] No GCS files to transfer for migration %s", migration_id)
+                checkpoint_data['s3_files_by_table'] = {}
+                checkpoint_data['transfer_completed_at'] = datetime.now(timezone.utc).isoformat()
+                migration.checkpoint_data = checkpoint_data
+                return True
+
+            s3_bucket = getattr(migration, 's3_bucket', None)
+            s3_prefix = (getattr(migration, 's3_path_prefix', 'iceberg/') or 'iceberg/').rstrip('/')
+            aws_region = getattr(migration, 'aws_region', 'us-east-1') or 'us-east-1'
+            dataset = getattr(migration, 'source_dataset', '')
+
+            # Get service account JSON for GCS access
+            encrypted = getattr(migration, 'service_account_json_encrypted', None)
+            sa_json = None
+            if encrypted:
+                try:
+                    sa_json = _json.loads(encrypted) if isinstance(encrypted, str) else encrypted
+                except Exception:
+                    pass
+            if not sa_json:
+                source_conn_id = getattr(migration, 'source_connection_id', None)
+                if source_conn_id:
+                    from database import db_instance
+                    from sqlalchemy import text as _text
+                    with db_instance.get_session() as _db:
+                        row = _db.execute(
+                            _text("SELECT connection_params FROM connections WHERE id=:cid"),
+                            {"cid": source_conn_id}
+                        ).fetchone()
+                        if row and row[0]:
+                            params = row[0] if isinstance(row[0], dict) else _json.loads(row[0])
+                            creds_raw = params.get('credentials_json')
+                            if creds_raw:
+                                sa_json = _json.loads(creds_raw) if isinstance(creds_raw, str) else creds_raw
+
+            import boto3 as _boto3
+            import tempfile as _tempfile
+
+            _os.environ.setdefault("AWS_DEFAULT_REGION", aws_region)
+            s3_client = _boto3.client('s3', region_name=aws_region)
+
+            # Use google.cloud.storage for GCS download
+            from google.cloud import storage as _gcs_storage
+            from google.oauth2 import service_account as _sa
+
+            gcs_credentials = _sa.Credentials.from_service_account_info(sa_json) if sa_json else None
+            gcs_client = _gcs_storage.Client(credentials=gcs_credentials, project=getattr(migration, 'source_project_id', None))
+
+            s3_files_by_table = {}
+
+            for table_name, gcs_uris in gcs_files_by_table.items():
+                s3_uris = []
+                logger.info("[TRANSFER] Transferring %d files for table %s", len(gcs_uris), table_name)
+
+                for gcs_uri in gcs_uris:
+                    # Parse gs://bucket/path/file
+                    gcs_path_part = gcs_uri.replace('gs://', '')
+                    bucket_name = gcs_path_part.split('/')[0]
+                    blob_name = '/'.join(gcs_path_part.split('/')[1:])
+                    file_name = blob_name.split('/')[-1]
+
+                    # S3 destination key
+                    s3_key = f"{s3_prefix}/{dataset}/{table_name}/{file_name}"
+
+                    with _tempfile.NamedTemporaryFile(delete=False, suffix='.parquet') as tmp:
+                        tmp_path = tmp.name
+
+                    try:
+                        # Download from GCS
+                        bucket = gcs_client.bucket(bucket_name)
+                        blob = bucket.blob(blob_name)
+                        blob.download_to_filename(tmp_path)
+
+                        # Upload to S3
+                        s3_client.upload_file(tmp_path, s3_bucket, s3_key)
+                        s3_uris.append(f"s3://{s3_bucket}/{s3_key}")
+                        logger.debug("[TRANSFER] ✓ %s → s3://%s/%s", file_name, s3_bucket, s3_key)
+                    finally:
+                        try:
+                            _os.unlink(tmp_path)
+                        except Exception:
+                            pass
+
+                s3_files_by_table[table_name] = s3_uris
+                logger.info("[TRANSFER] ✓ Table %s: %d files transferred to S3", table_name, len(s3_uris))
+
+            checkpoint_data['s3_files_by_table'] = s3_files_by_table
+            checkpoint_data['transfer_completed_at'] = datetime.now(timezone.utc).isoformat()
+            migration.checkpoint_data = checkpoint_data
+
+            logger.info("[TRANSFER] ✓ All tables transferred to s3://%s/%s", s3_bucket, s3_prefix)
+            return True
+
+        except Exception as e:
+            logger.error("[TRANSFER] GCS→S3 transfer failed for migration %s: %s", migration_id, e, exc_info=True)
+            return False
 
     async def _generate_reports(
         self, migration: Any, assessment_tables: Optional[List[dict]]
