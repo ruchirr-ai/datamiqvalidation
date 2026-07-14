@@ -796,7 +796,10 @@ async def start_migration(
                     logger.error(f"Migration {mid} not found in background thread")
                     return
 
-                logger.info(f"[BG] Starting Iceberg migration {mid} orchestration")
+                # Expire cached state so we read the latest from DB
+                bg_db.expire(mig)
+                bg_db.refresh(mig)
+                logger.info(f"[BG] Starting Iceberg migration {mid} orchestration, status={mig.status}")
 
                 aws_region = mig.aws_region or "us-east-1"
 
