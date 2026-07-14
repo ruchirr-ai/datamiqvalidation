@@ -831,8 +831,14 @@ async def start_migration(
                 try:
                     import os as _os
                     _os.environ["AWS_DEFAULT_REGION"] = aws_region
-                    _os.environ["AWS_ACCESS_KEY_ID"] = os.getenv("AWS_ACCESS_KEY_ID", "")
-                    _os.environ["AWS_SECRET_ACCESS_KEY"] = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+                    # Only set static key/secret if explicitly provided — never overwrite
+                    # with empty strings, as that breaks SSO / AWS_PROFILE credential chain.
+                    _key = os.getenv("AWS_ACCESS_KEY_ID", "")
+                    _secret = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+                    if _key:
+                        _os.environ["AWS_ACCESS_KEY_ID"] = _key
+                    if _secret:
+                        _os.environ["AWS_SECRET_ACCESS_KEY"] = _secret
                     from pyiceberg.catalog.glue import GlueCatalog
                     # Pass warehouse (S3 location) and region so PyIceberg knows where to write metadata
                     _s3_bucket = getattr(mig, "s3_bucket", None) or ""
