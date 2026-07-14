@@ -1400,6 +1400,9 @@ class ParallelIcebergLoader:
             )
             table.append(combined)
             logger.info("Successfully appended %d rows", len(combined))
+        except Exception as e:
+            logger.error("Failed to append data files: %s", e, exc_info=True)
+            raise
 
     def ensure_database_exists(self, database: str) -> None:
         """Use existing Glue database or create it if it doesn't exist.
