@@ -410,46 +410,90 @@ const TableSection: React.FC<TableSectionProps> = ({
   );
 };
 
-// --- Prerequisites Checklist ---
+// --- Prerequisites Checklist (collapsible accordion) ---
 interface PrerequisitesChecklistProps {
   prerequisites: PrerequisiteItem[];
 }
 
 const PrerequisitesChecklist: React.FC<PrerequisitesChecklistProps> = ({ prerequisites }) => {
+  const [open, setOpen] = React.useState(false);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const checkedCount = Object.values(checked).filter(Boolean).length;
 
   return (
     <div className="prerequisites-checklist">
-      <h3 className="prerequisites-checklist__title">Prerequisites Checklist</h3>
-      <p className="prerequisites-checklist__description">
-        Ensure the following are configured on your target AWS account before proceeding.
-      </p>
-      <div className="prerequisites-checklist__items">
-        {prerequisites.map((item) => (
-          <label key={item.id} className="prerequisites-checklist__item">
-            <input
-              type="checkbox"
-              checked={checked[item.id] || false}
-              onChange={() =>
-                setChecked((prev) => ({ ...prev, [item.id]: !prev[item.id] }))
-              }
-              aria-label={item.label}
-            />
-            <div className="prerequisites-checklist__item-content">
-              <span className="prerequisites-checklist__item-label">{item.label}</span>
-              <span className="prerequisites-checklist__item-desc">{item.description}</span>
-              {(item as any).arn_or_permission && (
-                <code className="prerequisites-checklist__arn">
-                  {(item as any).arn_or_permission}
-                </code>
-              )}
-              <span className={`prerequisites-checklist__category prerequisites-checklist__category--${item.category}`}>
-                {item.category}
-              </span>
-            </div>
-          </label>
-        ))}
-      </div>
+      <button
+        className="prerequisites-checklist__toggle"
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        type="button"
+      >
+        <div className="prerequisites-checklist__toggle-left">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="M7 1l6 12H1L7 1z" strokeLinejoin="round"/>
+            <path d="M7 5.5v3M7 10v.5" strokeLinecap="round"/>
+          </svg>
+          <span className="prerequisites-checklist__title">Prerequisites Checklist</span>
+          <span className="prerequisites-checklist__badge">
+            {checkedCount}/{prerequisites.length} confirmed
+          </span>
+        </div>
+        <div className="prerequisites-checklist__toggle-right">
+          {checkedCount < prerequisites.length && (
+            <button
+              type="button"
+              className="prerequisites-checklist__confirm-all"
+              onClick={e => {
+                e.stopPropagation();
+                const all: Record<string, boolean> = {};
+                prerequisites.forEach(p => { all[p.id] = true; });
+                setChecked(all);
+                setOpen(true);
+              }}
+              aria-label="Confirm all prerequisites"
+            >
+              Confirm all
+            </button>
+          )}
+          <svg
+            className={`prerequisites-checklist__chevron ${open ? 'open' : ''}`}
+            width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"
+          >
+            <path d="M3 5l4 4 4-4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
+      </button>
+
+      {open && (
+        <div className="prerequisites-checklist__body">
+          <p className="prerequisites-checklist__description">
+            Confirm the following are configured on your AWS account before proceeding.
+          </p>
+          <div className="prerequisites-checklist__items">
+            {prerequisites.map((item) => (
+              <label key={item.id} className="prerequisites-checklist__item">
+                <input
+                  type="checkbox"
+                  checked={checked[item.id] || false}
+                  onChange={() => setChecked((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+                  aria-label={item.label}
+                />
+                <div className="prerequisites-checklist__item-content">
+                  <span className="prerequisites-checklist__item-label">{item.label}</span>
+                  {item.description && (
+                    <span className="prerequisites-checklist__item-desc">{item.description}</span>
+                  )}
+                  {(item as any).arn_or_permission && (
+                    <code className="prerequisites-checklist__arn">
+                      {(item as any).arn_or_permission}
+                    </code>
+                  )}
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -568,15 +612,24 @@ export const IcebergStructureReviewPage: React.FC = () => {
     try {
       setApproving(true);
       setError(null);
-      await bqIcebergApi.approveStructure(id, {
-        overrides,
-        dataset_to_db_mapping: datasetMapping,
-        s3_tables_namespace: namespace || undefined,
+      // Only send namespace for S3 Tables destinations
+      const isS3Tables = report?.destination_type === 'iceberg_s3_tables';
+      const response = await bqIcebergApi.approveStructure(id, {
+        overrides: Object.keys(overrides).length > 0 ? overrides : undefined,
+        dataset_to_db_mapping: Object.keys(datasetMapping).length > 0 ? datasetMapping : undefined,
+        s3_tables_namespace: isS3Tables && namespace ? namespace : undefined,
       });
-      setSuccessMessage('Structure approved. Migration will proceed to load stage.');
-      setTimeout(() => navigate(`/migrations/bq-iceberg/${id}`), 2000);
+      console.log('Approve response:', response);
+      setSuccessMessage('Structure approved. Load stage starting...');
+      setTimeout(() => navigate('/migrations/bq-iceberg'), 1500);
     } catch (err: any) {
-      setError(err.message || 'Failed to approve structure');
+      console.error('Approve failed:', err);
+      const msg = err.message || 'Failed to approve structure';
+      if (msg.includes('expired') || msg.includes('token') || msg.toLowerCase().includes('401')) {
+        setError('Session expired. Please refresh the page and log in again.');
+      } else {
+        setError(`Approval failed: ${msg}`);
+      }
     } finally {
       setApproving(false);
     }
@@ -713,8 +766,8 @@ export const IcebergStructureReviewPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* Namespace for S3 Tables */}
-      {report.s3_tables_namespace !== undefined && (
+      {/* Namespace for S3 Tables only */}
+      {report.destination_type === 'iceberg_s3_tables' && (
         <Card className="structure-review-page__section">
           <h3 className="structure-review-page__section-title">S3 Tables Namespace</h3>
           <p className="structure-review-page__section-desc">
@@ -730,15 +783,17 @@ export const IcebergStructureReviewPage: React.FC = () => {
         </Card>
       )}
 
-      {/* Prerequisites */}
-      <Card className="structure-review-page__section">
+      {/* Prerequisites - collapsible, no extra card wrapper */}
+      <div className="structure-review-page__section" style={{padding: 0}}>
         <PrerequisitesChecklist prerequisites={report.prerequisites ?? []} />
-      </Card>
+      </div>
 
-      {/* Warnings */}
-      <Card className="structure-review-page__section">
-        <WarningsSection warnings={report.warnings ?? []} />
-      </Card>
+      {/* Warnings - only show if there are warnings */}
+      {(report.warnings ?? []).length > 0 && (
+        <Card className="structure-review-page__section">
+          <WarningsSection warnings={report.warnings ?? []} />
+        </Card>
+      )}
 
       {/* Table Structures */}
       <Card className="structure-review-page__section">

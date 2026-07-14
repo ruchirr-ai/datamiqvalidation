@@ -9,7 +9,7 @@ load_dotenv("../.env")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(name)s: %(message)s')
 
 # Use an existing Glue database (no CreateDatabase permission needed)
-EXISTING_GLUE_DB = "iceberg_demo"
+EXISTING_GLUE_DB = "datamiq_iceberg"
 
 from database import db_instance
 from sqlalchemy import text
@@ -75,7 +75,7 @@ except Exception as e:
 credential_provider = AWSCredentialProvider(kms_service=kms_service, sts_client=sts_client)
 
 from pyiceberg.catalog.glue import GlueCatalog
-s3_bucket = getattr(mig, "s3_bucket", "sk-manasa") or "sk-manasa"
+s3_bucket = getattr(mig, "s3_bucket", "datamiq-data") or "datamiq-data"
 s3_prefix = getattr(mig, "s3_path_prefix", "iceberg/") or "iceberg/"
 warehouse = f"s3://{s3_bucket}/{s3_prefix.rstrip('/')}"
 glue_catalog = GlueCatalog(name="glue", warehouse=warehouse, region_name=aws_region)

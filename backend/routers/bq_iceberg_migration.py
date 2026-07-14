@@ -29,6 +29,18 @@ from services.bq_iceberg_migration.validators import (
 
 logger = logging.getLogger(__name__)
 
+
+def _setup_thread_aws_env():
+    """Ensure AWS_PROFILE and region are propagated into background thread environment."""
+    import os as _os
+    from dotenv import load_dotenv as _ld
+    _ld(override=False)
+    _profile = _os.getenv("AWS_PROFILE")
+    if _profile:
+        _os.environ["AWS_PROFILE"] = _profile
+    _os.environ.setdefault("AWS_DEFAULT_REGION", _os.getenv("AWS_REGION", "us-east-1"))
+
+
 router = APIRouter(prefix="/api/migrations/bq-iceberg", tags=["BQ-Iceberg Migrations"])
 
 
@@ -744,6 +756,7 @@ async def start_migration(
         def run_migration_background(mid: int, wid: int):
             bg_db = db_instance.SessionLocal()
             try:
+                _setup_thread_aws_env()
                 from models.migration_bq_iceberg import MigrationBQIceberg
                 from services.bq_iceberg_migration.orchestrator import IcebergMigrationOrchestrator
                 from services.bq_iceberg_migration.structure_report import StructureReportGenerator
@@ -1242,9 +1255,11 @@ async def approve_structure(
             structure_plan['tables'] = tables_in_report
 
         # Store approved plan in checkpoint_data
-        checkpoint = migration.checkpoint_data or {}
+        checkpoint = dict(migration.checkpoint_data or {})
         checkpoint['iceberg_structure_plan'] = structure_plan
         migration.checkpoint_data = checkpoint
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(migration, 'checkpoint_data')
 
         # Transition status to running and start load automatically
         migration.status = 'running'
@@ -1269,6 +1284,7 @@ async def approve_structure(
         def run_migration_background(mid: int, wid: int):
             bg_db = db_instance.SessionLocal()
             try:
+                _setup_thread_aws_env()
                 from models.migration_bq_iceberg import MigrationBQIceberg
                 from services.bq_iceberg_migration.orchestrator import IcebergMigrationOrchestrator
                 from services.bq_iceberg_migration.structure_report import StructureReportGenerator

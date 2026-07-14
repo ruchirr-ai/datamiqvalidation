@@ -48,6 +48,8 @@ export const bqIcebergApi = {
   },
 
   /**
+   * Get structure report for a migration
+   */
   async getStructureReport(migrationId: number): Promise<StructureReport> {
     const response = await fetch(`${API_BASE}/${migrationId}/structure-report`, {
       headers: getAuthHeaders(),
