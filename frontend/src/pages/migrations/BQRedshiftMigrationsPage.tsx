@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Table, Badge, Modal, Input, Select, Alert } from '../../components/ui';
+import { Button, Table, Badge, Modal, Input, Alert } from '../../components/ui';
 import { bqRedshiftApi, Migration, CreateMigrationRequest } from '../../services/bqRedshiftApi';
 import './BQRedshiftMigrationsPage.css';
 
@@ -344,15 +344,16 @@ export const BQRedshiftMigrationsPage: React.FC = () => {
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
                 Migration Pathway *
               </label>
-              <Select
+              <select
                 value={formData.pathway}
                 onChange={(e) => setFormData({ ...formData, pathway: e.target.value as any })}
+                style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--color-divider)', borderRadius: '6px', fontSize: '0.875rem' }}
               >
                 <option value="A">Path A - GCP Native (Recommended)</option>
                 <option value="B">Path B - AWS Native</option>
                 <option value="C">Path C - Hybrid Sync</option>
                 <option value="D">Path D - CLI/Legacy</option>
-              </Select>
+              </select>
               <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
                 {getPathwayDescription(formData.pathway)}
               </p>
