@@ -10,6 +10,17 @@ Revision ID: 036
 Revises: 035
 Create Date: 2026-07-14
 
+NOTE: Due to duplicate revision 035 in the codebase, run this migration manually:
+  cd backend && python -c "
+  from alembic.config import Config
+  from alembic import command
+  alembic_cfg = Config('alembic.ini')
+  # Or run upgrade() directly
+  "
+  
+  Or apply directly via psql / Python:
+  from alembic.versions.036_create_iceberg_validations_and_fix_schema import upgrade
+
 """
 from alembic import op
 import sqlalchemy as sa
