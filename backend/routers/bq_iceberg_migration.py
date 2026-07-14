@@ -836,8 +836,8 @@ async def start_migration(
                     _os.environ["AWS_DEFAULT_REGION"] = aws_region
                     # Only set static key/secret if explicitly provided — never overwrite
                     # with empty strings, as that breaks SSO / AWS_PROFILE credential chain.
-                    _key = os.getenv("AWS_ACCESS_KEY_ID", "")
-                    _secret = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+                    _key = _os.getenv("AWS_ACCESS_KEY_ID", "")
+                    _secret = _os.getenv("AWS_SECRET_ACCESS_KEY", "")
                     if _key:
                         _os.environ["AWS_ACCESS_KEY_ID"] = _key
                     if _secret:
