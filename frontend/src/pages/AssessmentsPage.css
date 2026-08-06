@@ -130,7 +130,7 @@
 .assessments-table-container {
   background: var(--color-bg-surface);
   border-radius: 8px;
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 .assessments-table {
