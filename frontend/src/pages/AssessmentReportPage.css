@@ -4,7 +4,7 @@
  */
 
 .assessment-report-page {
-  padding: var(--spacing-4);
+  padding: var(--spacing-6);
   width: 100%;
   max-width: 100%;
   margin: 0 auto;
@@ -38,7 +38,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
   margin: 0;
@@ -104,8 +104,8 @@
 .report-content {
   background: var(--color-bg-surface);
   border: 1px solid var(--color-divider);
-  border-radius: var(--radius-md);
-  padding: var(--spacing-4);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-6);
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -131,10 +131,10 @@
 }
 
 .section-heading {
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
-  margin: 0 0 var(--spacing-6) 0;
+  margin: 0 0 var(--spacing-5) 0;
 }
 
 .section-header-row {
@@ -169,9 +169,9 @@
 /* Summary Grid */
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--spacing-3);
-  margin-bottom: var(--spacing-6);
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-8);
   width: 100%;
   max-width: 100%;
   overflow: hidden;
@@ -180,17 +180,17 @@
 .summary-card {
   display: flex;
   align-items: center;
-  gap: var(--spacing-4);
-  padding: var(--spacing-5);
+  gap: var(--spacing-3);
+  padding: var(--spacing-4) var(--spacing-5);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-divider);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   transition: all var(--transition-fast);
 }
 
 .summary-card:hover {
-  box-shadow: var(--shadow-sm);
-  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-color: var(--color-divider);
 }
 
 .summary-card-clickable {
@@ -199,45 +199,48 @@
 
 .summary-card-clickable:hover {
   border-color: var(--color-primary);
-  box-shadow: 0 4px 12px rgba(0, 112, 224, 0.15);
-  transform: translateY(-2px);
+  box-shadow: 0 2px 12px rgba(0, 112, 224, 0.08);
 }
 
 .summary-card-clickable:active {
-  transform: translateY(0);
+  transform: scale(0.98);
 }
 
 .summary-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--radius-md);
   flex-shrink: 0;
 }
 
 .summary-content {
   flex: 1;
+  min-width: 0;
 }
 
 .summary-value {
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-xl);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
   line-height: 1.2;
 }
 
 .summary-label {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
   margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Details Section */
 .details-section {
   margin-top: var(--spacing-8);
-  padding: var(--spacing-6);
+  padding: var(--spacing-5);
   background: var(--color-bg-primary);
   border: 1px solid var(--color-divider);
   border-radius: var(--radius-md);
@@ -297,7 +300,7 @@
   text-align: left;
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-secondary);
-  font-size: var(--font-size-xs);
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   vertical-align: middle;
