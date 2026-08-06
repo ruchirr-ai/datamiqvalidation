@@ -103,35 +103,46 @@ export const DashboardPage: React.FC = () => {
   return (
     <div className="dashboard-page">
       <div className="dashboard-header">
-        <h1 className="dashboard-title">
-          <svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <rect x="3" y="3" width="6" height="6" rx="1" />
-            <rect x="11" y="3" width="6" height="6" rx="1" />
-            <rect x="3" y="11" width="6" height="6" rx="1" />
-            <rect x="11" y="11" width="6" height="6" rx="1" />
-          </svg>
-          {t('dashboard.title')}
-        </h1>
-        <p className="dashboard-subtitle">{t('dashboard.subtitle')}</p>
+        <div className="dashboard-header-text">
+          <h1 className="dashboard-title">
+            <svg width="22" height="22" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="3" y="3" width="6" height="6" rx="1.5" />
+              <rect x="11" y="3" width="6" height="6" rx="1.5" />
+              <rect x="3" y="11" width="6" height="6" rx="1.5" />
+              <rect x="11" y="11" width="6" height="6" rx="1.5" />
+            </svg>
+            {t('dashboard.title')}
+          </h1>
+          <p className="dashboard-subtitle">{t('dashboard.subtitle')}</p>
+        </div>
+        <div className="dashboard-header-actions">
+          <span className="live-status-badge">
+            <span className="live-dot" /> Live System Status
+          </span>
+        </div>
       </div>
 
       {/* Summary Cards */}
       <div className="dashboard-cards">
         {/* Connections Card */}
         <div className="dash-card" onClick={() => navigate('/connections')}>
-          <div className="dash-card-icon blue">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M17 21v-2a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1" />
-              <path d="M7 21v-2a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1" />
-              <path d="M17 14V3" /><path d="M7 14V3" />
-              <path d="M17 3H7" /><path d="M17 8H7" />
-            </svg>
+          <div className="dash-card-top">
+            <div className="dash-card-icon blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a1 1 0 0 1-1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1" />
+                <path d="M7 21v-2a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v1a1 1 0 0 0 1 1" />
+                <path d="M17 14V3" /><path d="M7 14V3" />
+                <path d="M17 3H7" /><path d="M17 8H7" />
+              </svg>
+            </div>
+            <span className="dash-card-arrow">→</span>
           </div>
           <div className="dash-card-content">
             <div className="dash-card-label">{t('dashboard.connections')}</div>
             <div className="dash-card-value">{data.total_connections}</div>
             <div className="dash-card-detail">
               <span><span className="dash-detail-dot green" /> {data.connected_count} {t('dashboard.connected')}</span>
+              <span className="detail-separator">•</span>
               <span>{data.source_connections} {t('dashboard.src')} / {data.target_connections} {t('dashboard.tgt')}</span>
             </div>
           </div>
@@ -139,11 +150,14 @@ export const DashboardPage: React.FC = () => {
 
         {/* Assessments Card */}
         <div className="dash-card" onClick={() => navigate('/assessments')}>
-          <div className="dash-card-icon green">
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M9 2L3 6v4c0 4.5 3 7.5 6 8 3-.5 6-3.5 6-8V6l-6-4z" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M7 10l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+          <div className="dash-card-top">
+            <div className="dash-card-icon green">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <path d="M9 2L3 6v4c0 4.5 3 7.5 6 8 3-.5 6-3.5 6-8V6l-6-4z" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M7 10l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="dash-card-arrow">→</span>
           </div>
           <div className="dash-card-content">
             <div className="dash-card-label">{t('dashboard.assessments')}</div>
@@ -158,10 +172,13 @@ export const DashboardPage: React.FC = () => {
 
         {/* Migrations Card */}
         <div className="dash-card" onClick={() => navigate('/migrations')}>
-          <div className="dash-card-icon purple">
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 10h14M14 6l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+          <div className="dash-card-top">
+            <div className="dash-card-icon purple">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <path d="M3 10h14M14 6l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <span className="dash-card-arrow">→</span>
           </div>
           <div className="dash-card-content">
             <div className="dash-card-label">{t('dashboard.migrations')}</div>
@@ -176,12 +193,15 @@ export const DashboardPage: React.FC = () => {
 
         {/* Code Conversions Card */}
         <div className="dash-card" onClick={() => navigate('/converter')}>
-          <div className="dash-card-icon orange">
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M7 5L3 10l4 5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M13 5l4 5-4 5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M11 3L9 17" strokeLinecap="round" />
-            </svg>
+          <div className="dash-card-top">
+            <div className="dash-card-icon orange">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <path d="M7 5L3 10l4 5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M13 5l4 5-4 5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M11 3L9 17" strokeLinecap="round" />
+              </svg>
+            </div>
+            <span className="dash-card-arrow">→</span>
           </div>
           <div className="dash-card-content">
             <div className="dash-card-label">{t('dashboard.codeConversions')}</div>
@@ -189,6 +209,7 @@ export const DashboardPage: React.FC = () => {
             <div className="dash-card-detail">
               <span><span className="dash-detail-dot green" /> {data.completed_jobs} {t('dashboard.done')}</span>
               {data.failed_jobs > 0 && <span><span className="dash-detail-dot red" /> {data.failed_jobs} {t('dashboard.failed')}</span>}
+              <span className="detail-separator">•</span>
               <span>{data.total_batches} {t('dashboard.batches')}</span>
             </div>
           </div>
@@ -200,8 +221,11 @@ export const DashboardPage: React.FC = () => {
         {/* Assessment Discovery */}
         <div className="dash-section">
           <div className="dash-section-header">
-            <h3 className="dash-section-title">{t('dashboard.assessmentDiscovery')}</h3>
-            <a className="dash-section-link" onClick={() => navigate('/assessments')}>{t('dashboard.viewAll')}</a>
+            <div>
+              <h3 className="dash-section-title">{t('dashboard.assessmentDiscovery')}</h3>
+              <p className="dash-section-sub">Source database objects analyzed</p>
+            </div>
+            <a className="dash-section-link" onClick={() => navigate('/assessments')}>{t('dashboard.viewAll')} →</a>
           </div>
           <div className="discovery-stats">
             <div className="discovery-stat">
@@ -218,8 +242,9 @@ export const DashboardPage: React.FC = () => {
             </div>
           </div>
           {data.total_size_mb > 0 && (
-            <div style={{ textAlign: 'center', marginTop: 12, fontSize: 13, color: '#6B7280' }}>
-              {t('dashboard.totalDataVolume')}: <strong style={{ color: '#111827' }}>{formatSize(data.total_size_mb)}</strong>
+            <div className="volume-footer">
+              <span className="volume-label">{t('dashboard.totalDataVolume')}</span>
+              <span className="volume-badge">{formatSize(data.total_size_mb)}</span>
             </div>
           )}
         </div>
@@ -227,8 +252,11 @@ export const DashboardPage: React.FC = () => {
         {/* Migration Status */}
         <div className="dash-section">
           <div className="dash-section-header">
-            <h3 className="dash-section-title">{t('dashboard.migrationStatus')}</h3>
-            <a className="dash-section-link" onClick={() => navigate('/migrations')}>{t('dashboard.viewAll')}</a>
+            <div>
+              <h3 className="dash-section-title">{t('dashboard.migrationStatus')}</h3>
+              <p className="dash-section-sub">Pipeline execution progress</p>
+            </div>
+            <a className="dash-section-link" onClick={() => navigate('/migrations')}>{t('dashboard.viewAll')} →</a>
           </div>
           <div className="migration-status-list">
             <div className="migration-status-row">
@@ -265,91 +293,93 @@ export const DashboardPage: React.FC = () => {
 
       {/* Recent Activity */}
       <div className="dashboard-recent">
-        <div className="dash-section-header">
+        <div className="recent-header">
           <h3 className="dash-section-title">{t('dashboard.recentActivity')}</h3>
-        </div>
-        <div className="recent-tabs">
-          <button
-            className={`recent-tab ${recentTab === 'assessments' ? 'active' : ''}`}
-            onClick={() => setRecentTab('assessments')}
-          >
-            {t('dashboard.assessments')}
-          </button>
-          <button
-            className={`recent-tab ${recentTab === 'migrations' ? 'active' : ''}`}
-            onClick={() => setRecentTab('migrations')}
-          >
-            {t('dashboard.migrations')}
-          </button>
-          <button
-            className={`recent-tab ${recentTab === 'copies' ? 'active' : ''}`}
-            onClick={() => setRecentTab('copies')}
-          >
-            {t('dashboard.copyHistory')}
-          </button>
+          <div className="recent-tabs">
+            <button
+              className={`recent-tab ${recentTab === 'assessments' ? 'active' : ''}`}
+              onClick={() => setRecentTab('assessments')}
+            >
+              {t('dashboard.assessments')}
+            </button>
+            <button
+              className={`recent-tab ${recentTab === 'migrations' ? 'active' : ''}`}
+              onClick={() => setRecentTab('migrations')}
+            >
+              {t('dashboard.migrations')}
+            </button>
+            <button
+              className={`recent-tab ${recentTab === 'copies' ? 'active' : ''}`}
+              onClick={() => setRecentTab('copies')}
+            >
+              {t('dashboard.copyHistory')}
+            </button>
+          </div>
         </div>
 
         {recentItems.length === 0 ? (
           <div className="recent-empty">{t('dashboard.noRecentActivity')}</div>
         ) : (
-          <table className="recent-table">
-            <thead>
-              <tr>
-                {recentTab === 'assessments' && (
-                  <>
-                    <th>{t('dashboard.name')}</th>
-                    <th>{t('dashboard.status')}</th>
-                    <th>{t('dashboard.tables')}</th>
-                    <th>{t('dashboard.size')}</th>
-                    <th>{t('dashboard.started')}</th>
-                  </>
-                )}
-                {recentTab === 'migrations' && (
-                  <>
-                    <th>{t('dashboard.name')}</th>
-                    <th>{t('dashboard.status')}</th>
-                    <th>{t('dashboard.pathway')}</th>
-                    <th>{t('dashboard.created')}</th>
-                  </>
-                )}
-                {recentTab === 'copies' && (
-                  <>
-                    <th>{t('dashboard.table')}</th>
-                    <th>{t('dashboard.status')}</th>
-                    <th>{t('dashboard.rows')}</th>
-                    <th>{t('dashboard.started')}</th>
-                  </>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {recentTab === 'assessments' && recentItems.map((item: any) => (
-                <tr key={item.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/assessments/${item.id}/report`)}>
-                  <td>{item.name}</td>
-                  <td><span className={`recent-status ${item.status}`}>{item.status}</span></td>
-                  <td>{item.total_tables ?? 0}</td>
-                  <td>{formatSize(item.total_size_mb ?? 0)}</td>
-                  <td>{formatTimestamp(item.started_at)}</td>
+          <div className="recent-table-container">
+            <table className="recent-table">
+              <thead>
+                <tr>
+                  {recentTab === 'assessments' && (
+                    <>
+                      <th>{t('dashboard.name')}</th>
+                      <th>{t('dashboard.status')}</th>
+                      <th>{t('dashboard.tables')}</th>
+                      <th>{t('dashboard.size')}</th>
+                      <th>{t('dashboard.started')}</th>
+                    </>
+                  )}
+                  {recentTab === 'migrations' && (
+                    <>
+                      <th>{t('dashboard.name')}</th>
+                      <th>{t('dashboard.status')}</th>
+                      <th>{t('dashboard.pathway')}</th>
+                      <th>{t('dashboard.created')}</th>
+                    </>
+                  )}
+                  {recentTab === 'copies' && (
+                    <>
+                      <th>{t('dashboard.table')}</th>
+                      <th>{t('dashboard.status')}</th>
+                      <th>{t('dashboard.rows')}</th>
+                      <th>{t('dashboard.started')}</th>
+                    </>
+                  )}
                 </tr>
-              ))}
-              {recentTab === 'migrations' && recentItems.map((item: any) => (
-                <tr key={item.id}>
-                  <td>{item.name}</td>
-                  <td><span className={`recent-status ${item.status}`}>{item.status}</span></td>
-                  <td>Path {item.pathway}</td>
-                  <td>{formatTimestamp(item.created_at)}</td>
-                </tr>
-              ))}
-              {recentTab === 'copies' && recentItems.map((item: any) => (
-                <tr key={item.id}>
-                  <td>{item.table_name}</td>
-                  <td><span className={`recent-status ${item.status}`}>{item.status}</span></td>
-                  <td>{(item.rows_loaded ?? 0).toLocaleString()}</td>
-                  <td>{formatTimestamp(item.started_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {recentTab === 'assessments' && recentItems.map((item: any) => (
+                  <tr key={item.id} className="clickable-row" onClick={() => navigate(`/assessments/${item.id}/report`)}>
+                    <td className="font-medium">{item.name}</td>
+                    <td><span className={`recent-status ${item.status?.toLowerCase()}`}>{item.status}</span></td>
+                    <td>{item.total_tables ?? 0}</td>
+                    <td>{formatSize(item.total_size_mb ?? 0)}</td>
+                    <td className="text-muted">{formatTimestamp(item.started_at)}</td>
+                  </tr>
+                ))}
+                {recentTab === 'migrations' && recentItems.map((item: any) => (
+                  <tr key={item.id}>
+                    <td className="font-medium">{item.name}</td>
+                    <td><span className={`recent-status ${item.status?.toLowerCase()}`}>{item.status}</span></td>
+                    <td>Path {item.pathway}</td>
+                    <td className="text-muted">{formatTimestamp(item.created_at)}</td>
+                  </tr>
+                ))}
+                {recentTab === 'copies' && recentItems.map((item: any) => (
+                  <tr key={item.id}>
+                    <td className="font-medium">{item.table_name}</td>
+                    <td><span className={`recent-status ${item.status?.toLowerCase()}`}>{item.status}</span></td>
+                    <td>{(item.rows_loaded ?? 0).toLocaleString()}</td>
+                    <td className="text-muted">{formatTimestamp(item.started_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>
