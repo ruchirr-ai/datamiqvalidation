@@ -564,159 +564,95 @@ const QueryInsightsSection: React.FC<QueryInsightsSectionProps> = ({ assessmentI
       <div className="query-insights-metrics-grid">
         {/* Row 1 */}
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon blue"><Activity size={18} /></div>
-            <span className="qi-metric-tag">Queries</span>
-          </div>
-          <div className="qi-metric-value">{formatNumber(data.summary.total_query_count)}</div>
           <div className="qi-metric-label">Total Queries</div>
+          <div className="qi-metric-value">{formatNumber(data.summary.total_query_count)}</div>
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon purple"><Clock size={18} /></div>
-            <span className="qi-metric-tag">CPU</span>
-          </div>
-          <div className="qi-metric-value">{formatTime(data.summary.avg_execution_time_seconds)}</div>
           <div className="qi-metric-label">{isSQLServer ? 'Avg CPU Time / Query' : 'Avg Slot Time / Query'}</div>
+          <div className="qi-metric-value">{formatTime(data.summary.avg_execution_time_seconds)}</div>
           {!isSQLServer && <div className="qi-metric-sub">Total CPU time per query</div>}
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon green"><Database size={18} /></div>
-            <span className="qi-metric-tag">Storage</span>
-          </div>
+          <div className="qi-metric-label">{isSQLServer ? 'Logical Reads' : 'Bytes Scanned'}</div>
           <div className="qi-metric-value">{formatBytes(data.summary.total_bytes_scanned)}</div>
-          <div className="qi-metric-label">{isSQLServer ? 'Logical Reads (bytes)' : 'Bytes Scanned'}</div>
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon teal"><TrendingUp size={18} /></div>
-            <span className="qi-metric-tag">Cache</span>
-          </div>
-          <div className="qi-metric-value">{data.summary.cache_hit_rate.toFixed(1)}%</div>
           <div className="qi-metric-label">Cache Hit Rate</div>
+          <div className="qi-metric-value">{data.summary.cache_hit_rate.toFixed(1)}%</div>
         </div>
 
         {/* Row 2 */}
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon orange"><Users size={18} /></div>
-            <span className="qi-metric-tag">Concurrency</span>
-          </div>
-          <div className="qi-metric-value">{data.summary.max_concurrent_queries ?? 0}</div>
           <div className="qi-metric-label">Max Concurrent Queries</div>
+          <div className="qi-metric-value">{data.summary.max_concurrent_queries ?? 0}</div>
           <div className="qi-metric-sub">Per min window · Avg {data.summary.avg_concurrent_queries ?? 0}/min</div>
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon indigo"><BarChart3 size={18} /></div>
-            <span className="qi-metric-tag">Compute</span>
-          </div>
-          <div className="qi-metric-value">{data.summary.peak_slot_utilization ?? 0}</div>
           <div className="qi-metric-label">{isSQLServer ? 'Peak CPU Utilization' : 'Peak Slot Utilization'}</div>
+          <div className="qi-metric-value">{data.summary.peak_slot_utilization ?? 0}</div>
           <div className="qi-metric-sub">Avg: {data.summary.avg_slot_utilization ?? 0} {isSQLServer ? 'threads' : 'slots'}</div>
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon red"><Zap size={18} /></div>
-            <span className="qi-metric-tag">Runtime</span>
-          </div>
-          <div className="qi-metric-value">{formatTime(data.summary.max_query_runtime_seconds ?? 0)}</div>
           <div className="qi-metric-label">Max Query Runtime</div>
+          <div className="qi-metric-value">{formatTime(data.summary.max_query_runtime_seconds ?? 0)}</div>
           <div className="qi-metric-sub">Min: {formatTime(data.summary.min_query_runtime_seconds ?? 0)}</div>
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon purple"><Clock size={18} /></div>
-            <span className="qi-metric-tag">Runtime</span>
-          </div>
-          <div className="qi-metric-value">{formatTime(data.summary.avg_query_runtime_seconds ?? 0)}</div>
           <div className="qi-metric-label">Avg Query Runtime</div>
+          <div className="qi-metric-value">{formatTime(data.summary.avg_query_runtime_seconds ?? 0)}</div>
           <div className="qi-metric-sub">Avg {isSQLServer ? 'CPU' : 'Slot'} ms: {formatNumber(data.summary.avg_slot_ms_per_query ?? 0)}</div>
         </div>
 
         {/* Row 3 */}
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon yellow"><Zap size={18} /></div>
-            <span className="qi-metric-tag">Hours</span>
-          </div>
-          <div className="qi-metric-value">{((data.summary.total_slot_milliseconds ?? 0) / 3600000).toFixed(1)}h</div>
           <div className="qi-metric-label">{isSQLServer ? 'Total CPU Hours' : 'Total Slot Hours'}</div>
+          <div className="qi-metric-value">{((data.summary.total_slot_milliseconds ?? 0) / 3600000).toFixed(1)}h</div>
           {!isSQLServer && <div className="qi-metric-sub">Total BQ compute consumption</div>}
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon green"><Database size={18} /></div>
-            <span className="qi-metric-tag">Average</span>
-          </div>
-          <div className="qi-metric-value">{data.summary.total_query_count > 0 ? formatBytes(data.summary.total_bytes_scanned / data.summary.total_query_count) : '0 B'}</div>
           <div className="qi-metric-label">{isSQLServer ? 'Avg Reads / Query' : 'Avg Bytes / Query'}</div>
+          <div className="qi-metric-value">{data.summary.total_query_count > 0 ? formatBytes(data.summary.total_bytes_scanned / data.summary.total_query_count) : '0 B'}</div>
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon blue"><Users size={18} /></div>
-            <span className="qi-metric-tag">Users</span>
-          </div>
-          <div className="qi-metric-value">{data.summary.active_users_count ?? 0}</div>
           <div className="qi-metric-label">Active Users</div>
+          <div className="qi-metric-value">{data.summary.active_users_count ?? 0}</div>
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon teal"><Activity size={18} /></div>
-            <span className="qi-metric-tag">Types</span>
-          </div>
+          <div className="qi-metric-label">Read / Write Queries</div>
           <div className="qi-metric-value">{formatNumber(data.summary.read_queries)} / {formatNumber(data.summary.write_queries)}</div>
-          <div className="qi-metric-label">Read / Write Ratio</div>
         </div>
 
         {/* Row 4 */}
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon orange"><TrendingUp size={18} /></div>
-            <span className="qi-metric-tag">Peak</span>
-          </div>
-          <div className="qi-metric-value">{data.summary.peak_hour !== undefined ? `${data.summary.peak_hour}:00` : 'N/A'}</div>
           <div className="qi-metric-label">Peak Hour of Day</div>
+          <div className="qi-metric-value">{data.summary.peak_hour !== undefined ? `${data.summary.peak_hour}:00` : 'N/A'}</div>
           <div className="qi-metric-sub">{data.summary.peak_hour_queries ?? 0} queries · Peak day: {data.summary.peak_day_of_week ?? 'N/A'}</div>
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon indigo"><BarChart3 size={18} /></div>
-            <span className="qi-metric-tag">Repeat</span>
-          </div>
-          <div className="qi-metric-value">{data.summary.repeat_query_rate ?? 0}%</div>
           <div className="qi-metric-label">Repeat Query Rate</div>
+          <div className="qi-metric-value">{data.summary.repeat_query_rate ?? 0}%</div>
           <div className="qi-metric-sub">Caching candidate workload</div>
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon purple"><Clock size={18} /></div>
-            <span className="qi-metric-tag">Active</span>
-          </div>
-          <div className="qi-metric-value">{data.summary.active_hours_per_day ?? 0}h</div>
           <div className="qi-metric-label">Active Hours / Day</div>
+          <div className="qi-metric-value">{data.summary.active_hours_per_day ?? 0}h</div>
           <div className="qi-metric-sub">Span: {data.summary.query_time_span_days ?? 0} days</div>
         </div>
 
         <div className="qi-metric-card">
-          <div className="qi-metric-top">
-            <div className="qi-metric-icon green"><Activity size={18} /></div>
-            <span className="qi-metric-tag">Unique</span>
-          </div>
-          <div className="qi-metric-value">{formatNumber(data.summary.unique_query_count ?? 0)}</div>
           <div className="qi-metric-label">Unique Queries</div>
+          <div className="qi-metric-value">{formatNumber(data.summary.unique_query_count ?? 0)}</div>
           <div className="qi-metric-sub">Distinct SQL fingerprints</div>
         </div>
       </div>
