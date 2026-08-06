@@ -272,6 +272,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           )}
           <span className="nav-label">{item.label}</span>
+          {!isChild && hasChildren && !isCollapsed && (
+            <svg
+              className={`nav-arrow ${isExpanded ? 'open' : ''}`}
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            >
+              <path d="M4.5 3L7.5 6L4.5 9" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
         </button>
         {shouldShowChildren && (
           <div 

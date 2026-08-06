@@ -10,9 +10,9 @@
 /* Main Content Area */
 .main-content {
   flex: 1;
-  margin-left: 260px;
-  width: calc(100% - 260px);
-  max-width: calc(100% - 260px);
+  margin-left: 240px;
+  width: calc(100% - 240px);
+  max-width: calc(100% - 240px);
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -22,9 +22,9 @@
 }
 
 .main-content.sidebar-collapsed {
-  margin-left: 72px;
-  width: calc(100% - 72px);
-  max-width: calc(100% - 72px);
+  margin-left: 64px;
+  width: calc(100% - 64px);
+  max-width: calc(100% - 64px);
 }
 
 /* Page Content */
