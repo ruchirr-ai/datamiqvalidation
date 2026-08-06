@@ -276,10 +276,9 @@
 .next-run-info svg { flex-shrink: 0; }
 
 /* ─── Summary Grid ─── */
-.summary-grid {
+.scheduling-summary-grid {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--color-divider);
   border-radius: 8px;
   overflow: hidden;
 }

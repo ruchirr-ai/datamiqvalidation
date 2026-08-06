@@ -324,7 +324,7 @@ export const SchedulingMonitoringStep: React.FC<SchedulingMonitoringStepProps> =
         {/* Migration Summary */}
         <div className="config-section">
           <h3>Migration Summary</h3>
-          <div className="summary-grid">
+          <div className="scheduling-summary-grid">
             {[
               ['Migration Name', formData.migrationName || '—'],
               ['Pathway', formData.pathway === 'B' ? 'Path B — AWS DataSync' : formData.pathway ? `Path ${formData.pathway}` : '—'],
