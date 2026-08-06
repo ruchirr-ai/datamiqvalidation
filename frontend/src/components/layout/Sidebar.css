@@ -21,8 +21,8 @@
   --sidebar-collapsed-width: 64px;
   --sidebar-padding-x: 10px;
   --sidebar-header-height: 52px;
-  --nav-row-height: 36px;
-  --nav-child-row-height: 32px;
+  --nav-row-height: 38px;
+  --nav-child-row-height: 34px;
   --icon-size: 16px;
   --icon-container-width: 22px;
   --gap-icon-label: 10px;
@@ -156,9 +156,9 @@
   border: none;
   background: transparent;
   color: var(--sidebar-text-secondary);
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 500;
-  line-height: 1;
+  line-height: 1.4;
   text-align: left;
   cursor: pointer;
   border-radius: var(--pill-radius);
@@ -187,10 +187,11 @@
 .nav-item.child {
   height: var(--nav-child-row-height);
   min-height: var(--nav-child-row-height);
-  padding-left: 38px;
-  font-size: 12.5px;
+  padding-left: 36px;
+  font-size: 13px;
   font-weight: 450;
   margin-top: 1px;
+  line-height: 1.4;
 }
 
 .nav-item.child:hover {
@@ -243,6 +244,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   letter-spacing: -0.01em;
+  line-height: 1.4;
+  padding: 2px 0;
 }
 
 .collapsed .nav-label {
