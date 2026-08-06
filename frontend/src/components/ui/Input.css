@@ -29,7 +29,8 @@
 
 .input {
   width: 100%;
-  padding: var(--spacing-4) var(--spacing-6);
+  height: 36px;
+  padding: 0 var(--spacing-4);
   font-family: var(--font-family);
   font-size: var(--font-size-base);
   color: var(--color-text-primary);
@@ -38,6 +39,13 @@
   border-radius: var(--radius-md);
   transition: all var(--transition-base);
   outline: none;
+}
+
+/* Textarea inputs keep auto height */
+textarea.input {
+  height: auto;
+  padding: var(--spacing-4);
+  line-height: 1.5;
 }
 
 .input:hover:not(:disabled) {

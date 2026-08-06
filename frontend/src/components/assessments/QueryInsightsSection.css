@@ -1,39 +1,45 @@
 .query-insights-container {
-  padding: 20px;
+  padding: 0;
 }
 
 .query-insights-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
 }
 
 .timeframe-filter {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .filter-btn {
-  padding: 8px 16px;
-  border: 1px solid #e0e0e0;
-  background: white;
-  border-radius: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--color-divider);
+  background: var(--color-bg-surface);
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 14px;
-  color: #001435;
-  transition: all 0.2s;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
 }
 
 .filter-btn:hover {
-  background: #f5f5f5;
-  border-color: #0070E0;
+  background: var(--color-hover-bg);
+  border-color: var(--color-primary);
+  color: var(--color-text-primary);
 }
 
 .filter-btn.active {
-  background: #0070E0;
-  color: white;
-  border-color: #0070E0;
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
 }
 
 .query-insights-metrics-grid {
