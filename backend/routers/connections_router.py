@@ -515,6 +515,7 @@ def test_sqlserver_connection(params: Dict[str, Any]) -> ConnectionResponse:
                 f"SERVER={server};"
                 f"DATABASE={database};"
                 f"Trusted_Connection=yes;"
+                f"TrustServerCertificate=yes;"
             )
             logger.info(f"Using Windows Authentication for {server}")
         else:
@@ -529,6 +530,7 @@ def test_sqlserver_connection(params: Dict[str, Any]) -> ConnectionResponse:
                 f"DATABASE={database};"
                 f"UID={username};"
                 f"PWD={password};"
+                f"TrustServerCertificate=yes;"
             )
             logger.info(f"Using SQL Server Authentication for {server} as user {username}")
 

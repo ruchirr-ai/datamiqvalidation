@@ -29,7 +29,12 @@ class ValidationRun(Base):
     bedrock_model = Column(String(255), nullable=True)
     run_name = Column(String(255), nullable=True)
     batch_size = Column(Integer, nullable=False, default=10000)
+
     type_mapping_overrides = Column(JSONB, nullable=True)
+
+    # Stores selected validation checks and their parameters.
+    validation_config = Column(JSONB, nullable=True)
+
     status = Column(String(50), nullable=False, default='pending')
     progress_percentage = Column(Integer, nullable=False, default=0)
     tables_total = Column(Integer, nullable=False, default=0)
@@ -40,9 +45,19 @@ class ValidationRun(Base):
     completed_at = Column(DateTime, nullable=True)
     duration_seconds = Column(Integer, nullable=True)
     created_by = Column(String(255), nullable=False)
-    created_at = Column(DateTime, nullable=False, server_default=func.current_timestamp())
-    updated_at = Column(DateTime, nullable=False, server_default=func.current_timestamp(),
-                        onupdate=func.current_timestamp())
+
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp()
+    )
+
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp()
+    )
 
     __table_args__ = (
         Index('idx_validation_runs_workspace', 'workspace_id'),
@@ -67,6 +82,7 @@ class ValidationRun(Base):
             'bedrock_model': self.bedrock_model,
             'batch_size': self.batch_size,
             'type_mapping_overrides': self.type_mapping_overrides,
+            'validation_config': self.validation_config,
             'run_name': self.run_name,
             'status': self.status,
             'progress_percentage': self.progress_percentage,
@@ -74,10 +90,26 @@ class ValidationRun(Base):
             'tables_passed': self.tables_passed,
             'tables_failed': self.tables_failed,
             'tables_error': self.tables_error,
-            'started_at': (self.started_at.isoformat() + 'Z') if self.started_at else None,
-            'completed_at': (self.completed_at.isoformat() + 'Z') if self.completed_at else None,
+            'started_at': (
+                self.started_at.isoformat() + 'Z'
+                if self.started_at
+                else None
+            ),
+            'completed_at': (
+                self.completed_at.isoformat() + 'Z'
+                if self.completed_at
+                else None
+            ),
             'duration_seconds': self.duration_seconds,
             'created_by': self.created_by,
-            'created_at': (self.created_at.isoformat() + 'Z') if self.created_at else None,
-            'updated_at': (self.updated_at.isoformat() + 'Z') if self.updated_at else None,
+            'created_at': (
+                self.created_at.isoformat() + 'Z'
+                if self.created_at
+                else None
+            ),
+            'updated_at': (
+                self.updated_at.isoformat() + 'Z'
+                if self.updated_at
+                else None
+            ),
         }

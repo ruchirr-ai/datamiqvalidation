@@ -20,6 +20,8 @@ from models.validation_schemas import (
     ValidationRunResponse,
     ValidationTableDetailResponse,
     ValidationTableResultResponse,
+    DirectValidationRequest,
+    DirectValidationResponse,
 )
 from services.validation_cache import ValidationCache
 from services.validation_service import ValidationService
@@ -246,7 +248,53 @@ async def get_migration_info(
             detail="An error occurred while processing the request",
         )
 
+# ---------------------------------------------------------------------------
+# Get columns for a migration table
+# ---------------------------------------------------------------------------
 
+
+@router.get("/migration/{migration_id}/tables/{table_name}/columns")
+async def get_migration_table_columns(
+    migration_id: int,
+    table_name: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """Get source and target columns for a selected migration table."""
+    try:
+        service = _build_service(db)
+
+        result = service.get_migration_table_columns(
+            migration_id=migration_id,
+            table_name=table_name,
+            workspace_id=workspace_id,
+        )
+
+        if result is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Table '{table_name}' not found for migration {migration_id}",
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Failed to get migration table columns",
+            extra={
+                "workspace_id": workspace_id,
+                "migration_id": migration_id,
+                "table_name": table_name,
+                "error": str(exc),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while retrieving table columns",
+        )
 # ---------------------------------------------------------------------------
 # Get validation run details
 # ---------------------------------------------------------------------------
@@ -427,4 +475,105 @@ async def delete_validation_run(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while processing the request",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Direct validation test (connection-to-connection, no migration required)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/connections/{connection_id}/tables")
+async def list_connection_tables(
+    connection_id: int,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """List user tables (schema + table) for a connection, for the Quick Test picker."""
+    try:
+        service = _build_service(db)
+        return service.list_connection_tables(connection_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error(
+            "Failed to list connection tables",
+            extra={"connection_id": connection_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list tables: {exc}",
+        )
+
+
+@router.get("/connections/{connection_id}/columns")
+async def list_connection_columns(
+    connection_id: int,
+    schema: str,
+    table: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """List columns for a table on a connection, for the Quick Test column pickers."""
+    try:
+        service = _build_service(db)
+        return service.list_connection_columns(connection_id, schema, table)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error(
+            "Failed to list connection columns",
+            extra={"connection_id": connection_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list columns: {exc}",
+        )
+
+
+@router.post("/direct-test", response_model=DirectValidationResponse)
+async def run_direct_validation_test(
+    request: DirectValidationRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """Run validation checks directly between two connections (no migration).
+
+    Works across any supported engine pair (e.g. SQL Server -> Redshift).
+    Runs synchronously and returns results inline.
+    """
+    try:
+        service = _build_service(db)
+        result = service.run_direct_validation(
+            source_connection_id=request.source_connection_id,
+            target_connection_id=request.target_connection_id,
+            source_schema=request.source_schema,
+            target_schema=request.target_schema,
+            table_name=request.table_name,
+            checks={
+                "row_count": request.row_count,
+                "null_check": request.null_check,
+                "null_column": request.null_column,
+                "duplicate_check": request.duplicate_check,
+                "duplicate_match_key": request.duplicate_match_key,
+                "sum_check": request.sum_check,
+                "sum_column": request.sum_column,
+                "average_check": request.average_check,
+                "average_column": request.average_column,
+            },
+        )
+        return DirectValidationResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error(
+            "Direct validation test failed",
+            extra={"workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Direct validation failed: {exc}",
         )

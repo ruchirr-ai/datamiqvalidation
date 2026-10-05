@@ -1,8 +1,8 @@
-"""
+﻿"""
 Validation Service
 
-Core orchestration logic for post-migration data validation between
-BigQuery and Redshift. Manages validation run lifecycle, delegates to
+Core orchestration logic for post-migration data validation across
+supported source and target database types. Manages validation run lifecycle, delegates to
 repository for persistence and cache for Redis caching.
 """
 
@@ -18,6 +18,10 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 import psycopg2
+from pymongo import MongoClient
+import clickhouse_connect
+import pyodbc
+import pymysql
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from sqlalchemy.orm import Session
@@ -123,7 +127,7 @@ class ValidationService:
     # ------------------------------------------------------------------
 
     MAX_CONCURRENT_RUNS_PER_WORKSPACE = 10
-
+    
     def get_migration_info(self, migration_id: int, workspace_id: int) -> Optional[Dict[str, Any]]:
         """Get migration details for auto-filling the validation form.
 
@@ -234,7 +238,122 @@ class ValidationService:
             "tables": tables,
             "table_row_counts": table_row_counts,
         }
+    def get_migration_table_columns(
+        self,
+        migration_id: int,
+        table_name: str,
+        workspace_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Get source and target columns for a selected migration table."""
 
+        migration = (
+            self.db.query(MigrationBQRedshift)
+            .filter(
+                MigrationBQRedshift.id == migration_id,
+                MigrationBQRedshift.workspace_id == workspace_id,
+            )
+            .first()
+        )
+
+        if not migration:
+            return None
+
+        tables = migration.source_tables or []
+
+        matched_table = next(
+            (
+                table
+                for table in tables
+                if str(table).lower() == table_name.lower()
+            ),
+            None,
+        )
+
+        if not matched_table:
+            return None
+
+        source_columns: List[Dict[str, Any]] = []
+        target_columns: List[Dict[str, Any]] = []
+
+        # --------------------------------------------------------------
+        # Source: BigQuery column metadata
+        # --------------------------------------------------------------
+        if migration.source_connection_id:
+            try:
+                from models.assessment import Assessment
+
+                assessment = (
+                    self.db.query(Assessment)
+                    .filter(
+                        Assessment.source_connection_id
+                        == migration.source_connection_id,
+                        Assessment.workspace_id == workspace_id,
+                        Assessment.status == "completed",
+                    )
+                    .order_by(Assessment.id.desc())
+                    .first()
+                )
+
+                if assessment:
+                    source_columns = self._get_source_columns(
+                        assessment_id=assessment.id,
+                        dataset_name=migration.source_dataset,
+                        table_name=matched_table,
+                        workspace_id=workspace_id,
+                    )
+
+            except Exception as exc:
+                logger.warning(
+                    "Failed to retrieve source columns",
+                    extra={
+                        "migration_id": migration_id,
+                        "table_name": matched_table,
+                        "error": str(exc),
+                    },
+                )
+
+        # --------------------------------------------------------------
+        # Target: Redshift column metadata
+        # --------------------------------------------------------------
+        if migration.target_connection_id:
+            try:
+                target_connection = (
+                    self.db.query(Connection)
+                    .filter(
+                        Connection.id == migration.target_connection_id
+                    )
+                    .first()
+                )
+
+                if target_connection:
+                    target_conn_params = (
+                        self.decrypt_connection_credentials(
+                            target_connection
+                        )
+                    )
+
+                    target_columns = self._get_target_columns(
+                        conn_params=target_conn_params,
+                        schema_name=migration.target_schema,
+                        table_name=matched_table,
+                    )
+
+            except Exception as exc:
+                logger.warning(
+                    "Failed to retrieve target columns",
+                    extra={
+                        "migration_id": migration_id,
+                        "table_name": matched_table,
+                        "error": self._sanitize_error_message(str(exc)),
+                    },
+                )
+
+        return {
+            "migration_id": migration_id,
+            "table_name": matched_table,
+            "source_columns": source_columns,
+            "target_columns": target_columns,
+        }
     def create_validation_run(
         self,
         workspace_id: int,
@@ -265,7 +384,7 @@ class ValidationService:
                     are retrieved from the migration record's source_tables.
             bedrock_model: Optional Bedrock model ID for AI analysis.
             batch_size: Row batch size for record-level matching.
-            type_mapping_overrides: Optional BQ→Redshift type overrides.
+            type_mapping_overrides: Optional BQâ†’Redshift type overrides.
             created_by: Username or identifier of the requesting user.
 
         Returns:
@@ -277,7 +396,7 @@ class ValidationService:
             RuntimeError: If the workspace has reached the maximum number
                           of concurrent validation runs.
         """
-        # 0. Rate limiting — enforce max concurrent runs per workspace
+        # 0. Rate limiting â€” enforce max concurrent runs per workspace
         active_count = self.repo.count_active_runs(workspace_id)
         if active_count >= self.MAX_CONCURRENT_RUNS_PER_WORKSPACE:
             logger.warning(
@@ -355,8 +474,9 @@ class ValidationService:
             target_connection_id=target_connection_id,
             bedrock_model=bedrock_model,
             batch_size=batch_size,
-            type_mapping_overrides=type_mapping_overrides,
-            status="pending",
+             type_mapping_overrides=type_mapping_overrides,
+            validation_config=table_configs,
+            status="pending",           
             progress_percentage=0,
             tables_total=len(resolved_tables),
             tables_passed=0,
@@ -366,17 +486,48 @@ class ValidationService:
             run_name=run_name,
         )
 
-        # 6. Create one ValidationTableResult per table
+        
+                # 6. Create one ValidationTableResult per table
         # Build a lookup for per-table check flags from table_configs
         config_lookup: Dict[str, Dict[str, Any]] = {}
+
         if table_configs:
             for tc in table_configs:
-                tname = tc.get("table_name", "")
+                tname = str(tc.get("table_name", "")).strip()
                 if tname:
-                    config_lookup[tname] = tc
+                    config_lookup[tname.lower()] = tc
+
+        # Validate table-specific configuration before any background work starts.
+        # This prevents a run from being created with silently unusable checks.
+        for table_name in resolved_tables:
+            tc = config_lookup.get(str(table_name).lower(), {})
+            if tc.get("null_check") and not str(tc.get("null_column") or "").strip():
+                raise ValueError(f"NULL Validation requires a column for table '{table_name}'")
+            if tc.get("duplicate_check") and not str(tc.get("duplicate_match_key") or "").strip():
+                raise ValueError(f"Duplicate Validation requires a match key for table '{table_name}'")
+            if tc.get("sum_check") and not str(tc.get("sum_column") or "").strip():
+                raise ValueError(f"SUM Validation requires a column for table '{table_name}'")
+            if tc.get("average_check") and not str(tc.get("average_column") or "").strip():
+                raise ValueError(f"AVERAGE Validation requires a column for table '{table_name}'")
+            if tc.get("specific_row_check"):
+                match_key = str(tc.get("specific_row_match_key") or "").strip()
+                if not match_key:
+                    raise ValueError(f"Specific Row Validation requires a match key for table '{table_name}'")
+                start = tc.get("specific_row_start")
+                end = tc.get("specific_row_end")
+                if start is None or end is None:
+                    raise ValueError(f"Specific Row Validation requires Start Row and End Row for table '{table_name}'")
+                try:
+                    start = int(start)
+                    end = int(end)
+                except (TypeError, ValueError):
+                    raise ValueError(f"Specific Row Validation requires numeric Start Row and End Row for table '{table_name}'")
+                if start < 1 or end < 1 or end < start:
+                    raise ValueError(f"Specific Row Validation requires 1 <= Start Row <= End Row for table '{table_name}'")
 
         for table_name in resolved_tables:
-            tc = config_lookup.get(table_name, {})
+            tc = config_lookup.get(str(table_name).lower(), {})
+
             self.repo.create_table_result(
                 run_id=run.id,
                 workspace_id=workspace_id,
@@ -384,7 +535,13 @@ class ValidationService:
                 status="pending",
                 ddl_check=tc.get("ddl_check", True),
                 row_count_check=tc.get("row_count_check", True),
-                data_match_check=tc.get("data_match_check", True),
+                data_match_check=tc.get("data_match_check", False),
+                null_check=tc.get("null_check", False),
+                duplicate_check=tc.get("duplicate_check", False),
+                sum_check=tc.get("sum_check", False),
+                average_check=tc.get("average_check", False),
+                specific_row_check=tc.get("specific_row_check", False),
+                
             )
 
         # 7. Cache the run in Redis (TTL 15 min)
@@ -411,8 +568,8 @@ class ValidationService:
     def run_validation_background(self, run_id: int, workspace_id: int) -> None:
         """Execute validation as a background task for all tables in a run.
 
-        Processes tables sequentially: DDL comparison → row count
-        validation → record-level matching. Updates progress, table
+        Processes tables sequentially: DDL comparison â†’ row count
+        validation â†’ record-level matching. Updates progress, table
         results, and run summary after each table completes.
 
         Designed to be passed to ``BackgroundTasks.add_task()``.
@@ -521,7 +678,9 @@ class ValidationService:
             )
 
         source_conn_params = (
-            source_conn.connection_params if source_conn else {}
+            self.decrypt_connection_credentials(source_conn)
+            if source_conn
+            else {}
         )
         target_conn_params = (
             self.decrypt_connection_credentials(target_conn)
@@ -536,8 +695,18 @@ class ValidationService:
         # The migration's target_database/target_schema fields are often
         # stale placeholders (e.g. "target_db" / "public") and do NOT
         # reflect the actual Redshift database created during migration.
-        if migration:
-            # First try checkpoint_data.load_summary (gold standard — set
+        # Keep source and target namespaces separate.  A source dataset/schema
+        # and target schema are not necessarily the same name, especially when
+        # validating heterogeneous databases.
+        source_conn_params["_validation_namespace"] = (
+            migration.source_dataset if migration and migration.source_dataset else dataset_name
+        )
+        target_conn_params["_validation_namespace"] = (
+            migration.target_schema if migration and migration.target_schema else dataset_name
+        )
+
+        if migration and self._get_database_type(target_conn_params) == "redshift":
+            # First try checkpoint_data.load_summary (gold standard â€” set
             # by pathway_c after a successful load).
             load_summary = (migration.checkpoint_data or {}).get("load_summary", {})
             actual_db = load_summary.get("database_name")
@@ -556,6 +725,7 @@ class ValidationService:
                 )
             if actual_schema:
                 dataset_name = actual_schema
+                target_conn_params["_validation_namespace"] = actual_schema
                 logger.info(
                     f"Using computed Redshift schema / BQ dataset: {actual_schema}",
                     extra={"run_id": run_id},
@@ -668,12 +838,193 @@ class ValidationService:
                     table_has_error = True
                 elif rc_status == "failed":
                     table_has_failure = True
+                # --- NULL validation (skip if null_check is False) ---
+                null_result = {"status": "skipped", "result": {}}
 
+                if getattr(table_result, "null_check", False):
+                    null_column = ""
+
+                    for tc in (run.validation_config or []):
+                        if (
+                            isinstance(tc, dict)
+                            and tc.get("table_name") == table_name
+                        ):
+                            null_column = tc.get("null_column") or ""
+                            break
+
+                    null_result = self._validate_nulls(
+                        source_conn_params=source_conn_params,
+                        target_conn_params=target_conn_params,
+                        dataset_name=tbl_dataset,
+                        table_name=table_name,
+                        column_name=null_column,
+                    )
+
+                null_status = null_result["status"]
+
+                if null_status == "error":
+                    table_has_error = True
+                elif null_status == "failed":
+                    table_has_failure = True
+                                # --- Duplicate validation (skip if duplicate_check is False) ---
+                duplicate_result = {
+                    "status": "skipped",
+                    "result": {},
+                }
+
+                if getattr(table_result, "duplicate_check", False):
+                    duplicate_match_key = ""
+
+                    for tc in (run.validation_config or []):
+                        if (
+                            isinstance(tc, dict)
+                            and tc.get("table_name") == table_name
+                        ):
+                            duplicate_match_key = (
+                                tc.get("duplicate_match_key") or ""
+                            )
+                            break
+
+                    duplicate_result = self._validate_duplicates(
+                        source_conn_params=source_conn_params,
+                        target_conn_params=target_conn_params,
+                        dataset_name=tbl_dataset,
+                        table_name=table_name,
+                        match_key=duplicate_match_key,
+                    )
+
+                duplicate_status = duplicate_result["status"]
+
+                if duplicate_status == "error":
+                    table_has_error = True
+                elif duplicate_status == "failed":
+                    table_has_failure = True
+                                # --- SUM validation ---
+                sum_result = {
+                    "status": "skipped",
+                    "result": {},
+                }
+
+                sum_column = ""
+
+                for tc in (run.validation_config or []):
+                    if (
+                        isinstance(tc, dict)
+                        and tc.get("table_name") == table_name
+                    ):
+                        sum_column = tc.get("sum_column") or ""
+                        break
+
+                if getattr(table_result, "sum_check", False):
+                    sum_result = self._validate_aggregate(
+                        source_conn_params=source_conn_params,
+                        target_conn_params=target_conn_params,
+                        dataset_name=tbl_dataset,
+                        table_name=table_name,
+                        column_name=sum_column,
+                        aggregate_type="SUM",
+                    )
+
+                sum_status = sum_result["status"]
+
+                if sum_status == "error":
+                    table_has_error = True
+                elif sum_status == "failed":
+                    table_has_failure = True
+
+
+                # --- AVERAGE validation ---
+                average_result = {
+                    "status": "skipped",
+                    "result": {},
+                }
+
+                average_column = ""
+
+                for tc in (run.validation_config or []):
+                    if (
+                        isinstance(tc, dict)
+                        and tc.get("table_name") == table_name
+                    ):
+                        average_column = tc.get("average_column") or ""
+                        break
+
+                if getattr(table_result, "average_check", False):
+                    average_result = self._validate_aggregate(
+                        source_conn_params=source_conn_params,
+                        target_conn_params=target_conn_params,
+                        dataset_name=tbl_dataset,
+                        table_name=table_name,
+                        column_name=average_column,
+                        aggregate_type="AVERAGE",
+                    )
+
+                average_status = average_result["status"]
+
+                if average_status == "error":
+                    table_has_error = True
+                elif average_status == "failed":
+                    table_has_failure = True
                 # --- Record-level matching (skip if data_match_check is False) ---
-                records_result = {"status": "skipped", "result": {}}
-                if getattr(table_result, 'data_match_check', True):
+                                # --- Record-level / Specific Row validation -------------------
+                records_result = {
+                    "status": "skipped",
+                    "result": {},
+                }
+
+                data_match_enabled = getattr(
+                    table_result,
+                    "data_match_check",
+                    False,
+                )
+
+                specific_row_enabled = getattr(
+                    table_result,
+                    "specific_row_check",
+                    False,
+                )
+                specific_row_match_key = None
+
+                if specific_row_enabled:
+                    for tc in (run.validation_config or []):
+                        if (
+                            isinstance(tc, dict)
+                            and tc.get("table_name") == table_name
+                        ):
+                            specific_row_match_key = tc.get(
+                                "specific_row_match_key"
+                            )
+                            break
+
+                # Run record comparison only when the user explicitly selected
+                # Data Match or Specific Row validation.
+                if specific_row_enabled:
+                    specific_row_match_key = str(specific_row_match_key or "").strip()
+                    if not specific_row_match_key:
+                        raise ValueError(
+                            f"Specific Row Validation requires a match key for table '{table_name}'"
+                        )
+                    if specific_row_start is None or specific_row_end is None:
+                        raise ValueError(
+                            f"Specific Row Validation requires Start Row and End Row for table '{table_name}'"
+                        )
+                    try:
+                        specific_row_start = int(specific_row_start)
+                        specific_row_end = int(specific_row_end)
+                    except (TypeError, ValueError):
+                        raise ValueError(
+                            f"Specific Row Validation requires numeric Start Row and End Row for table '{table_name}'"
+                        )
+                    if specific_row_start < 1 or specific_row_end < specific_row_start:
+                        raise ValueError(
+                            f"Specific Row Validation requires 1 <= Start Row <= End Row for table '{table_name}'"
+                        )
+
+                if data_match_enabled or specific_row_enabled:
+
                     # Determine primary key from AssessmentColumn metadata
                     primary_key = []
+
                     if assessment_id is not None and tbl_dataset:
                         try:
                             assessment_table = (
@@ -685,6 +1036,7 @@ class ValidationService:
                                 )
                                 .first()
                             )
+
                             if assessment_table:
                                 pk_columns = (
                                     self.db.query(AssessmentColumn)
@@ -694,10 +1046,15 @@ class ValidationService:
                                     )
                                     .all()
                                 )
+
                                 for col in pk_columns:
                                     meta = col.column_metadata or {}
+
                                     if meta.get("is_primary_key"):
-                                        primary_key.append(col.column_name)
+                                        primary_key.append(
+                                            col.column_name
+                                        )
+
                         except Exception as pk_exc:
                             logger.warning(
                                 "Failed to determine primary key from assessment",
@@ -708,50 +1065,124 @@ class ValidationService:
                                 },
                             )
 
+                    # Read Specific Row configuration only when that check
+                    # was explicitly selected.
+                    specific_row_start = None
+                    specific_row_end = None
+
+                    if specific_row_enabled:
+                        for tc in (run.validation_config or []):
+                            if (
+                                isinstance(tc, dict)
+                                and tc.get("table_name") == table_name
+                            ):
+                                specific_row_start = tc.get(
+                                    "specific_row_start"
+                                )
+                                specific_row_end = tc.get(
+                                    "specific_row_end"
+                                )
+                                break
+
                     records_result = self._validate_records(
                         run_id=run_id,
                         table_name=table_name,
                         dataset_name=tbl_dataset,
                         source_conn_params=source_conn_params,
                         target_conn_params=target_conn_params,
-                        primary_key=primary_key,
+                        primary_key=(
+                            [specific_row_match_key]
+                            if specific_row_enabled
+                            else primary_key
+                        ),
                         batch_size=batch_size,
                         type_mapping_overrides=type_mapping_overrides,
                         workspace_id=workspace_id,
+                        specific_row_start=(
+                            specific_row_start
+                            if specific_row_enabled
+                            else None
+                        ),
+                        specific_row_end=(
+                            specific_row_end
+                            if specific_row_enabled
+                            else None
+                        ),
                     )
 
+                # Only an actually executed record validation can affect
+                # the overall table status.
                 rec_status = records_result["status"]
+
                 if rec_status == "error":
                     table_has_error = True
+
                 elif rec_status == "failed":
                     table_has_failure = True
-
-                # --- Determine overall table status -------------------
+                                # --- Determine overall table status -------------------
                 # Filter out skipped checks for status determination
                 active_statuses = [
-                    s for s in [ddl_result["status"], row_count_result["status"], records_result["status"]]
+                    s
+                    for s in [
+                        ddl_result["status"],
+                        row_count_result["status"],
+                        null_result["status"],
+                        duplicate_result["status"],
+                        sum_result["status"],
+                        average_result["status"],
+                        records_result["status"],
+                    ]
                     if s != "skipped"
                 ]
-                all_error = all(s == "error" for s in active_statuses) if active_statuses else False
+
                 if not active_statuses:
                     # All checks were skipped
                     table_status = "completed"
-                elif all_error:
+                elif table_has_error:
+                    # Any check that actually errored takes priority over
+                    # a failure — an infra/connection error is not the same
+                    # thing as a genuine data discrepancy, and should never
+                    # be masked by other checks that happened to pass.
                     table_status = "error"
-                elif table_has_failure or table_has_error:
+                elif table_has_failure:
                     table_status = "failed"
                 else:
                     table_status = "completed"
 
                 # Build error message from any error steps
                 error_messages = []
-                if ddl_result.get("error_message"):
-                    error_messages.append(f"DDL: {ddl_result['error_message']}")
-                if row_count_result.get("error_message"):
-                    error_messages.append(f"Row count: {row_count_result['error_message']}")
-                if records_result.get("error_message"):
-                    error_messages.append(f"Records: {records_result['error_message']}")
 
+                if ddl_result.get("error_message"):
+                    error_messages.append(
+                        f"DDL: {ddl_result['error_message']}"
+                    )
+
+                if row_count_result.get("error_message"):
+                    error_messages.append(
+                        f"Row count: {row_count_result['error_message']}"
+                    )
+
+                if null_result.get("error_message"):
+                    error_messages.append(
+                        f"NULL: {null_result['error_message']}"
+                    )
+                if duplicate_result.get("error_message"):
+                    error_messages.append(
+                        f"Duplicate: {duplicate_result['error_message']}"
+                    )
+                if sum_result.get("error_message"):
+                     error_messages.append(
+                        f"SUM: {sum_result['error_message']}"
+                    )
+
+                if average_result.get("error_message"):
+                   error_messages.append(
+                        f"AVERAGE: {average_result['error_message']}"
+                    )
+                if records_result.get("error_message"):
+                    error_messages.append(
+                        f"Records: {records_result['error_message']}"
+                    )
                 table_end = datetime.utcnow()
                 table_duration = int((table_end - table_start).total_seconds())
 
@@ -762,8 +1193,34 @@ class ValidationService:
                     ddl_comparison_result=ddl_result["result"],
                     row_count_status=row_count_result["status"],
                     row_count_result=row_count_result["result"],
-                    data_match_status=records_result["status"],
-                    data_match_result=records_result["result"],
+                    null_status=null_result["status"],
+                    null_result=null_result["result"],
+                    duplicate_status=duplicate_result["status"],
+                    duplicate_result=duplicate_result["result"],
+                    sum_status=sum_result["status"],
+                    sum_result=sum_result["result"],
+                    average_status=average_result["status"],
+                    average_result=average_result["result"],
+                    specific_row_status=(
+                        records_result["status"]
+                        if getattr(table_result, "specific_row_check", False)
+                        else "skipped"
+                    ),
+                    specific_row_result=(
+                        records_result["result"]
+                        if getattr(table_result, "specific_row_check", False)
+                        else {}
+                    ),
+                    data_match_status=(
+                        records_result["status"]
+                        if data_match_enabled
+                        else "skipped"
+                    ),
+                    data_match_result=(
+                        records_result["result"]
+                        if data_match_enabled
+                        else {}
+                    ),
                     status=table_status,
                     error_message="; ".join(error_messages) if error_messages else None,
                     completed_at=table_end,
@@ -879,7 +1336,7 @@ class ValidationService:
                     self.cache.invalidate_table_result(run_id, tr.table_name, workspace_id)
         else:
             logger.info(
-                "Skipping Bedrock analysis — no bedrock_model configured on run",
+                "Skipping Bedrock analysis â€” no bedrock_model configured on run",
                 extra={"run_id": run_id, "workspace_id": workspace_id},
             )
 
@@ -887,7 +1344,9 @@ class ValidationService:
         run_end = datetime.utcnow()
         run_duration = int((run_end - run_start).total_seconds())
 
-        if tables_error == total_tables:
+        if tables_error > 0:
+            final_status = "error"
+        elif tables_failed > 0:
             final_status = "failed"
         else:
             final_status = "completed"
@@ -918,7 +1377,7 @@ class ValidationService:
             },
         )
 
-        # 10. Credential cleanup — discard decrypted credentials from memory
+        # 10. Credential cleanup â€” discard decrypted credentials from memory
         if target_conn_params:
             target_conn_params.pop("password", None)
             target_conn_params.pop("username", None)
@@ -1169,7 +1628,9 @@ class ValidationService:
 
         Returns 'passed' when all tables passed, otherwise 'failed'.
         """
-        if run.tables_failed > 0 or run.tables_error > 0:
+        if run.tables_error > 0 or run.status == "error":
+            return "error"
+        if run.tables_failed > 0 or run.status == "failed":
             return "failed"
         if run.status == "completed" and run.tables_passed == run.tables_total:
             return "passed"
@@ -1190,7 +1651,7 @@ class ValidationService:
         type_mapping_overrides: dict,
         workspace_id: int,
     ) -> dict:
-        """Compare source BigQuery DDL against target Redshift DDL.
+        """Compare source schema metadata against target schema metadata.
 
         Retrieves source column metadata from AssessmentColumn records and
         queries the Redshift target to get actual column metadata, then
@@ -1203,7 +1664,7 @@ class ValidationService:
             dataset_name: BigQuery dataset name (used as Redshift schema).
             assessment_id: Assessment ID to look up source columns.
             target_conn_params: Decrypted Redshift connection parameters.
-            type_mapping_overrides: Optional BQ→Redshift type overrides.
+            type_mapping_overrides: Optional BQâ†’Redshift type overrides.
             workspace_id: Tenant isolation identifier.
 
         Returns:
@@ -1229,8 +1690,12 @@ class ValidationService:
             )
 
             # --- 2. Retrieve target columns from Redshift -----------------
+            target_schema = (
+                target_conn_params.get("_validation_namespace")
+                or dataset_name
+            )
             target_columns = self._get_target_columns(
-                target_conn_params, dataset_name, table_name,
+                target_conn_params, target_schema, table_name,
             )
 
             # --- 3. Build type mapper with overrides ----------------------
@@ -1272,20 +1737,24 @@ class ValidationService:
                     })
                     continue
 
-                # Both exist – check type equivalence
-                if not mapper.is_equivalent(src["data_type"], tgt["data_type"]):
+                # Both exist â€“ check type equivalence
+                if not self._types_equivalent(src["data_type"], tgt["data_type"]):
                     discrepancies.append({
                         "type": "type_mismatch",
                         "column_name": src["column_name"],
                         "source_type": src["data_type"],
                         "target_type": tgt["data_type"],
-                        "expected_type": mapper.get_expected_redshift_type(src["data_type"]),
+                        "expected_type": None,
                     })
 
                 # Check nullability
-                src_nullable = src.get("is_nullable", True)
-                tgt_nullable = tgt.get("is_nullable", True)
-                if src_nullable != tgt_nullable:
+                src_nullable = src.get("is_nullable")
+                tgt_nullable = tgt.get("is_nullable")
+                if (
+                    src_nullable is not None
+                    and tgt_nullable is not None
+                    and src_nullable != tgt_nullable
+                ):
                     discrepancies.append({
                         "type": "nullability_mismatch",
                         "column_name": src["column_name"],
@@ -1343,11 +1812,433 @@ class ValidationService:
                 },
                 "error_message": self._sanitize_error_message(str(exc)),
             }
+    # ------------------------------------------------------------------
+    # Validation database type helper
+    # ------------------------------------------------------------------
+
 
     # ------------------------------------------------------------------
-    # Row count validation
+    # Multi-database validation helpers
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _get_database_type(conn_params: dict) -> str:
+        """Normalize the database type already stored in connection params."""
+        raw = (
+            conn_params.get("database_type")
+            or conn_params.get("db_type")
+            or conn_params.get("connection_type")
+            or conn_params.get("engine")
+            or conn_params.get("service")
+            or conn_params.get("type")
+        )
+        if not raw:
+            candidate = str(conn_params.get("database", "")).strip().lower()
+            raw = {
+                "mongo": "mongodb",
+                "mongodb": "mongodb",
+                "documentdb": "documentdb",
+                "amazon documentdb": "documentdb",
+                "postgres": "postgresql",
+                "postgresql": "postgresql",
+                "mysql": "mysql",
+                "oracle": "oracle",
+                "sqlserver": "sqlserver",
+                "sql server": "sqlserver",
+                "mssql": "sqlserver",
+                "bigquery": "bigquery",
+                "clickhouse": "clickhouse",
+                "redshift": "redshift",
+                "sybase": "sybase",
+                "sap sybase": "sybase",
+                "db2": "db2",
+                "ibm db2": "db2",
+            }.get(candidate, "")
+        value = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+        return {
+            "mongo": "mongodb",
+            "mongodb": "mongodb",
+            "documentdb": "documentdb",
+            "amazon_documentdb": "documentdb",
+            "postgres": "postgresql",
+            "postgresql": "postgresql",
+            "mysql": "mysql",
+            "oracle": "oracle",
+            "sql_server": "sqlserver",
+            "sqlserver": "sqlserver",
+            "mssql": "sqlserver",
+            "bigquery": "bigquery",
+            "clickhouse": "clickhouse",
+            "redshift": "redshift",
+            "sybase": "sybase",
+            "sap_sybase": "sybase",
+            "db2": "db2",
+            "ibm_db2": "db2",
+        }.get(value, value)
+
+    @staticmethod
+    def _quote_identifier(name: str, database_type: str) -> str:
+        if not name or not re.match(r"^[A-Za-z_][A-Za-z0-9_$]*$", str(name)):
+            raise ValueError(f"Invalid identifier: {name}")
+        if database_type == "mysql":
+            return f"`{name}`"
+        if database_type == "sqlserver":
+            return f"[{name}]"
+        return f'"{name}"'
+
+    @classmethod
+    def _qualified_table(cls, database_type: str, dataset_name: str, table_name: str) -> str:
+        db = database_type
+        table = cls._quote_identifier(table_name, db)
+        if db == "mysql":
+            return f"{cls._quote_identifier(dataset_name, db)}.{table}" if dataset_name else table
+        schema = dataset_name or "public"
+        return f"{cls._quote_identifier(schema, db)}.{table}"
+
+    @staticmethod
+    def _sql_connection(conn_params: dict, database_type: str, timeout: int = 30):
+        db = database_type
+        host = (
+            conn_params.get("host")
+            or conn_params.get("server_name")
+            or conn_params.get("cluster")
+            or conn_params.get("endpoint")
+        )
+        user = conn_params.get("username") or conn_params.get("user")
+        password = conn_params.get("password")
+        database = (
+            conn_params.get("database_name")
+            or conn_params.get("database")
+            or conn_params.get("db_name")
+        )
+        default_ports = {
+            "postgresql": 5432, "redshift": 5439, "mysql": 3306,
+            "oracle": 1521, "sqlserver": 1433, "sybase": 5000, "db2": 50000,
+        }
+        port = int(conn_params.get("port") or default_ports.get(db, 0))
+
+        if db in ("postgresql", "redshift"):
+            return psycopg2.connect(
+                host=host,
+                port=port,
+                database=database or ("dev" if db == "redshift" else None),
+                user=user,
+                password=password,
+                connect_timeout=timeout,
+                options=f"-c statement_timeout={timeout * 1000}",
+            )
+        if db == "mysql":
+            return pymysql.connect(
+                host=host, port=port, user=user, password=password,
+                database=database or None, connect_timeout=timeout,
+                read_timeout=timeout, write_timeout=timeout,
+            )
+        if db in ("oracle", "sqlserver", "sybase", "db2"):
+            dsn = conn_params.get("dsn") or conn_params.get("data_source")
+            driver = conn_params.get("driver") or conn_params.get("odbc_driver")
+            if not dsn:
+                driver = driver or {
+                    "sqlserver": "ODBC Driver 18 for SQL Server",
+                    "oracle": "Oracle in OraDB19Home1",
+                    "sybase": "Adaptive Server Enterprise",
+                    "db2": "IBM DB2 ODBC DRIVER",
+                }[db]
+                if not host:
+                    raise ValueError(f"{db} host is missing")
+                server = f"{host},{port}" if db == "sqlserver" else f"{host}:{port}"
+                parts = [f"DRIVER={{{driver}}}", f"SERVER={server}"]
+                if database:
+                    parts.append(f"DATABASE={database}")
+
+                windows_auth = bool(
+                    conn_params.get("windows_auth")
+                    or conn_params.get("windows_authentication")
+                    or conn_params.get("trusted_connection")
+                )
+                if db == "sqlserver" and windows_auth and not user:
+                    parts.append("Trusted_Connection=yes")
+                else:
+                    if user:
+                        parts.append(f"UID={user}")
+                    if password is not None:
+                        parts.append(f"PWD={password}")
+
+                if db == "sqlserver":
+                    encrypt = conn_params.get("encrypt")
+                    if encrypt is not None:
+                        parts.append(f"Encrypt={'yes' if bool(encrypt) else 'no'}")
+                    trust_server_certificate = conn_params.get("trust_server_certificate")
+                    if trust_server_certificate is not None:
+                        parts.append(
+                            f"TrustServerCertificate={'yes' if bool(trust_server_certificate) else 'no'}"
+                        )
+                dsn = ";".join(parts)
+            return pyodbc.connect(dsn, timeout=timeout)
+        raise ValueError(f"Unsupported SQL database type: {db}")
+
+    @staticmethod
+    def _mongo_client(conn_params: dict):
+        uri = (
+            conn_params.get("uri")
+            or conn_params.get("connection_string")
+            or conn_params.get("connectionString")
+        )
+        kwargs = {"serverSelectionTimeoutMS": 30000}
+        tls = conn_params.get("tls", conn_params.get("ssl"))
+        if tls is not None:
+            kwargs["tls"] = bool(tls)
+        ca_file = conn_params.get("tlsCAFile") or conn_params.get("tls_ca_file") or conn_params.get("ca_file")
+        if ca_file:
+            kwargs["tlsCAFile"] = ca_file
+        if not uri:
+            host = conn_params.get("host") or conn_params.get("server_name") or conn_params.get("endpoint")
+            port = int(conn_params.get("port") or 27017)
+            user = conn_params.get("username") or conn_params.get("user")
+            password = conn_params.get("password")
+            if not host:
+                raise ValueError("MongoDB/DocumentDB host is missing")
+            auth = f"{user}:{password}@" if user else ""
+            uri = f"mongodb://{auth}{host}:{port}/"
+        return MongoClient(uri, **kwargs)
+
+    @staticmethod
+    def _clickhouse_client(conn_params: dict):
+        return clickhouse_connect.get_client(
+            host=conn_params.get("host") or conn_params.get("server_name") or conn_params.get("endpoint"),
+            port=int(conn_params.get("port") or 8123),
+            username=conn_params.get("username") or conn_params.get("user") or "default",
+            password=conn_params.get("password") or "",
+            database=conn_params.get("database_name") or conn_params.get("database") or "default",
+        )
+
+    @staticmethod
+    def _get_bigquery_client(conn_params: dict):
+        credentials_json = (
+            conn_params.get("credentials_json")
+            or conn_params.get("service_account_key")
+            or conn_params.get("serviceAccountKey")
+            or conn_params.get("credentialsJson")
+            or conn_params.get("credentials")
+        )
+        if isinstance(credentials_json, str):
+            credentials_json = json.loads(credentials_json)
+        project_id = (
+            conn_params.get("project_id")
+            or conn_params.get("projectId")
+            or (credentials_json.get("project_id") if credentials_json else None)
+        )
+        if not credentials_json or not project_id:
+            raise ValueError("BigQuery credentials/project_id not found in connection params")
+        credentials = service_account.Credentials.from_service_account_info(credentials_json)
+        return bigquery.Client(credentials=credentials, project=project_id), project_id
+
+    def _get_database_row_count(
+        self, conn_params: dict, database_type: str,
+        dataset_name: str, table_name: str, timeout: int = 300,
+    ) -> int:
+        db = self._get_database_type({**conn_params, "database_type": database_type})
+        dataset_name = conn_params.get("_validation_namespace") or dataset_name
+        if db == "bigquery":
+            client, project_id = self._get_bigquery_client(conn_params)
+            rows = list(client.query(
+                f"SELECT COUNT(*) FROM `{project_id}.{dataset_name}.{table_name}`"
+            ).result(timeout=timeout))
+            return int(rows[0][0]) if rows else 0
+        if db in ("mongodb", "documentdb"):
+            client = self._mongo_client(conn_params)
+            try:
+                db_name = conn_params.get("database_name") or conn_params.get("database") or dataset_name
+                return int(client[db_name][table_name].count_documents({}))
+            finally:
+                client.close()
+        if db == "clickhouse":
+            client = self._clickhouse_client(conn_params)
+            try:
+                ref = self._qualified_table(db, dataset_name, table_name)
+                rows = client.query(f"SELECT count() FROM {ref}").result_rows
+                return int(rows[0][0]) if rows else 0
+            finally:
+                client.close()
+        conn = self._sql_connection(conn_params, db, timeout=min(timeout, 60))
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT COUNT(*) FROM {self._qualified_table(db, dataset_name, table_name)}")
+                row = cur.fetchone()
+                return int(row[0]) if row else 0
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _normalize_data_type(value: Any) -> str:
+        s = re.sub(r"\([^)]*\)", "", str(value or "").upper().strip())
+        groups = {
+            "STRING": ("CHAR", "CLOB", "TEXT", "STRING", "VARCHAR", "NVARCHAR"),
+            "INTEGER": ("INT", "BIGINT", "SMALLINT", "TINYINT", "INTEGER"),
+            "DECIMAL": ("DECIMAL", "NUMERIC", "NUMBER", "MONEY", "FLOAT", "DOUBLE", "REAL"),
+            "BOOLEAN": ("BOOL", "BOOLEAN"),
+            "DATE": ("DATE",),
+            "DATETIME": ("TIMESTAMP", "DATETIME", "TIME"),
+            "BINARY": ("BINARY", "BLOB", "VARBINARY", "BYTEA"),
+        }
+        for canonical, members in groups.items():
+            if any(member in s for member in members):
+                return canonical
+        return s
+
+    @classmethod
+    def _types_equivalent(cls, source_type: Any, target_type: Any) -> bool:
+        return cls._normalize_data_type(source_type) == cls._normalize_data_type(target_type)
+
+    @classmethod
+    def _get_database_columns(cls, conn_params: dict, database_type: str, dataset_name: str, table_name: str) -> List[Dict[str, Any]]:
+        db = cls._get_database_type({**conn_params, "database_type": database_type})
+        dataset_name = conn_params.get("_validation_namespace") or dataset_name
+        if db == "bigquery":
+            client, project_id = cls._get_bigquery_client(conn_params)
+            table = client.get_table(f"{project_id}.{dataset_name}.{table_name}")
+            return [
+                {"column_name": f.name, "data_type": f.field_type,
+                 "is_nullable": f.mode != "REQUIRED", "ordinal_position": i + 1}
+                for i, f in enumerate(table.schema)
+            ]
+        if db in ("mongodb", "documentdb"):
+            client = cls._mongo_client(conn_params)
+            try:
+                db_name = conn_params.get("database_name") or conn_params.get("database") or dataset_name
+                docs = list(client[db_name][table_name].find({}).limit(200))
+                fields = {}
+                for doc in docs:
+                    for key, value in doc.items():
+                        if key not in fields:
+                            fields[key] = {
+                                "column_name": key,
+                                "data_type": type(value).__name__.upper() if value is not None else "NULL",
+                                "is_nullable": None,
+                                "ordinal_position": len(fields) + 1,
+                            }
+                return list(fields.values())
+            finally:
+                client.close()
+        if db == "clickhouse":
+            client = cls._clickhouse_client(conn_params)
+            try:
+                result = client.query(
+                    f"DESCRIBE TABLE {cls._qualified_table(db, dataset_name, table_name)}"
+                )
+                return [
+                    {"column_name": r[0], "data_type": r[1],
+                     "is_nullable": None, "ordinal_position": i + 1}
+                    for i, r in enumerate(result.result_rows)
+                ]
+            finally:
+                client.close()
+
+        conn = cls._sql_connection(conn_params, db)
+        try:
+            with conn.cursor() as cur:
+                if db == "oracle":
+                    cur.execute(
+                        "SELECT column_name, data_type, nullable, column_id "
+                        "FROM all_tab_columns WHERE owner = ? AND table_name = ? ORDER BY column_id",
+                        (str(dataset_name).upper(), str(table_name).upper()),
+                    )
+                elif db == "db2":
+                    cur.execute(
+                        "SELECT COLNAME, TYPENAME, NULLS, COLNO "
+                        "FROM SYSCAT.COLUMNS WHERE TABSCHEMA = ? AND TABNAME = ? ORDER BY COLNO",
+                        (str(dataset_name).upper(), str(table_name).upper()),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT column_name, data_type, is_nullable, ordinal_position "
+                        "FROM information_schema.columns "
+                        "WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position",
+                        (dataset_name, table_name),
+                    )
+                rows = cur.fetchall()
+                result = []
+                for i, row in enumerate(rows, 1):
+                    nullable = row[2]
+                    if isinstance(nullable, str):
+                        nullable = nullable.upper() in ("YES", "Y", "TRUE")
+                    result.append({
+                        "column_name": row[0],
+                        "data_type": str(row[1]).upper(),
+                        "is_nullable": bool(nullable),
+                        "ordinal_position": row[3] or i,
+                    })
+                return result
+        finally:
+            conn.close()
+
+    @classmethod
+    def _read_database_rows(
+        cls, conn_params: dict, database_type: str,
+        dataset_name: str, table_name: str, batch_size: int,
+        order_by: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        db = cls._get_database_type({**conn_params, "database_type": database_type})
+        dataset_name = conn_params.get("_validation_namespace") or dataset_name
+        if db == "bigquery":
+            client, project_id = cls._get_bigquery_client(conn_params)
+            order_sql = ""
+            if order_by:
+                if not re.match(r"^[A-Za-z_][A-Za-z0-9_$]*$", str(order_by)):
+                    raise ValueError(f"Invalid order-by column: {order_by}")
+                order_sql = f" ORDER BY `{order_by}`"
+            result = client.query(
+                f"SELECT * FROM `{project_id}.{dataset_name}.{table_name}`{order_sql}"
+            ).result(page_size=batch_size)
+            return [{k.lower(): v for k, v in dict(row).items()} for row in result]
+        if db in ("mongodb", "documentdb"):
+            client = cls._mongo_client(conn_params)
+            try:
+                db_name = conn_params.get("database_name") or conn_params.get("database") or dataset_name
+                cursor = client[db_name][table_name].find({})
+                if order_by:
+                    cursor = cursor.sort(order_by, 1)
+                else:
+                    cursor = cursor.sort("_id", 1)
+                return [
+                    {str(k).lower(): v for k, v in doc.items()}
+                    for doc in cursor
+                ]
+            finally:
+                client.close()
+        if db == "clickhouse":
+            client = cls._clickhouse_client(conn_params)
+            try:
+                order_sql = ""
+                if order_by:
+                    if not re.match(r"^[A-Za-z_][A-Za-z0-9_$]*$", str(order_by)):
+                        raise ValueError(f"Invalid order-by column: {order_by}")
+                    order_sql = f" ORDER BY {cls._quote_identifier(order_by, db)}"
+                result = client.query(
+                    f"SELECT * FROM {cls._qualified_table(db, dataset_name, table_name)}{order_sql}"
+                )
+                names = [c.lower() for c in result.column_names]
+                return [dict(zip(names, row)) for row in result.result_rows]
+            finally:
+                client.close()
+        conn = cls._sql_connection(conn_params, db)
+        try:
+            with conn.cursor() as cur:
+                query = f"SELECT * FROM {cls._qualified_table(db, dataset_name, table_name)}"
+                if order_by:
+                    if not re.match(r"^[A-Za-z_][A-Za-z0-9_$]*$", str(order_by)):
+                        raise ValueError(f"Invalid order-by column: {order_by}")
+                    query += f" ORDER BY {cls._quote_identifier(order_by, db)}"
+                cur.execute(query)
+                names = [d[0].lower() for d in cur.description]
+                rows = []
+                while True:
+                    batch = cur.fetchmany(batch_size)
+                    if not batch:
+                        break
+                    rows.extend(dict(zip(names, row)) for row in batch)
+                return rows
+        finally:
+            conn.close()
     def _validate_row_count(
         self,
         run_id: int,
@@ -1357,7 +2248,7 @@ class ValidationService:
         target_conn_params: dict,
         workspace_id: int,
     ) -> dict:
-        """Compare row counts between BigQuery source and Redshift target.
+        """Compare row counts between the configured source and target databases.
 
         Queries both databases for the current row count of the given
         table, compares them, and returns a status with detailed results.
@@ -1377,6 +2268,13 @@ class ValidationService:
         """
         ROW_COUNT_TIMEOUT = 300  # seconds
         rc_start = time.time()
+        source_database_type = self._get_database_type(
+        source_conn_params
+        )
+
+        target_database_type = self._get_database_type(
+        target_conn_params
+        )
 
         logger.info(
             "Row count validation started",
@@ -1390,9 +2288,13 @@ class ValidationService:
 
         # --- 1. Query source (BigQuery) row count ------------------------
         try:
-            source_count = self._get_bigquery_row_count(
-                source_conn_params, dataset_name, table_name, ROW_COUNT_TIMEOUT,
-            )
+            source_count = self._get_database_row_count(
+                conn_params=source_conn_params,
+                database_type=source_database_type,
+                dataset_name=dataset_name,
+                table_name=table_name,
+                timeout=ROW_COUNT_TIMEOUT,
+        )
         except Exception as exc:
             rc_duration_ms = int((time.time() - rc_start) * 1000)
             is_timeout = "timeout" in str(exc).lower()
@@ -1408,7 +2310,10 @@ class ValidationService:
                         "timeout_seconds": ROW_COUNT_TIMEOUT,
                     },
                 )
-            error_msg = f"Source (BigQuery) row count query failed: {exc}"
+            error_msg = (
+                f"Source ({source_database_type}) "
+                f"row count query failed: {exc}"
+                )
             logger.error(
                 "Row count source query error",
                 extra={
@@ -1434,8 +2339,12 @@ class ValidationService:
 
         # --- 2. Query target (Redshift) row count ------------------------
         try:
-            target_count = self._get_redshift_row_count(
-                target_conn_params, dataset_name, table_name, ROW_COUNT_TIMEOUT,
+            target_count = self._get_database_row_count(
+                conn_params=target_conn_params,
+                database_type=target_database_type,
+                dataset_name=dataset_name,
+                table_name=table_name,
+                timeout=ROW_COUNT_TIMEOUT,
             )
         except Exception as exc:
             rc_duration_ms = int((time.time() - rc_start) * 1000)
@@ -1452,7 +2361,10 @@ class ValidationService:
                         "timeout_seconds": ROW_COUNT_TIMEOUT,
                     },
                 )
-            error_msg = f"Target (Redshift) row count query failed: {exc}"
+            error_msg = (
+                f"Target ({target_database_type}) "
+                f"row count query failed: {exc}"
+                )
             logger.error(
                 "Row count target query error",
                 extra={
@@ -1627,6 +2539,65 @@ class ValidationService:
 
         return row[0] if row else 0
 
+
+    @staticmethod
+    def _get_postgresql_row_count(
+        conn_params: dict,
+        schema_name: str,
+        table_name: str,
+        timeout: int = 300,
+    ) -> int:
+        """Return the row count for a PostgreSQL table."""
+
+        host = (
+            conn_params.get("host")
+            or conn_params.get("server_name")
+            or conn_params.get("endpoint")
+        )
+
+        port = int(conn_params.get("port", 5432))
+
+        database = (
+            conn_params.get("database")
+            or conn_params.get("database_name")
+        )
+
+        username = (
+            conn_params.get("username")
+            or conn_params.get("user")
+        )
+
+        password = conn_params.get("password")
+
+        if not host:
+            raise ValueError("PostgreSQL host is missing")
+
+        if not database:
+            raise ValueError("PostgreSQL database is missing")
+
+        if not username:
+            raise ValueError("PostgreSQL username is missing")
+
+        conn = psycopg2.connect(
+            host=host,
+            port=port,
+            database=database,
+            user=username,
+            password=password,
+            connect_timeout=30,
+            options=f"-c statement_timeout={timeout * 1000}",
+        )
+
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f'SELECT COUNT(*) FROM "{schema_name}"."{table_name}"'
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+
+        return int(row[0]) if row else 0
     # ------------------------------------------------------------------
     # DDL helpers
     # ------------------------------------------------------------------
@@ -1691,75 +2662,20 @@ class ValidationService:
             for col in columns
         ]
 
-    @staticmethod
+    @classmethod
     def _get_target_columns(
+        cls,
         conn_params: dict,
         schema_name: str,
         table_name: str,
     ) -> List[Dict[str, Any]]:
-        """Query Redshift information_schema for target column metadata.
-
-        Opens a short-lived psycopg2 connection using the provided
-        (already-decrypted) connection parameters.
-
-        Args:
-            conn_params: Dict with host, port, database, username,
-                         password keys.
-            schema_name: Redshift schema to query.
-            table_name: Redshift table name.
-
-        Returns:
-            List of dicts with column_name, data_type, is_nullable,
-            ordinal_position.
-        """
-        host = (
-            conn_params.get("host")
-            or conn_params.get("server_name")
-            or conn_params.get("cluster")
-            or conn_params.get("endpoint")
+        """Return target column metadata for any supported validation database."""
+        return cls._get_database_columns(
+            conn_params,
+            cls._get_database_type(conn_params),
+            schema_name,
+            table_name,
         )
-        port = int(conn_params.get("port", 5439))
-        database = (
-            conn_params.get("database")
-            or conn_params.get("database_name")
-            or "dev"
-        )
-        username = conn_params.get("username")
-        password = conn_params.get("password")
-
-        conn = psycopg2.connect(
-            host=host,
-            port=port,
-            database=database,
-            user=username,
-            password=password,
-            connect_timeout=30,
-        )
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    SELECT column_name, data_type, is_nullable, ordinal_position
-                    FROM information_schema.columns
-                    WHERE table_schema = %s
-                      AND table_name = %s
-                    ORDER BY ordinal_position
-                    """,
-                    (schema_name, table_name),
-                )
-                rows = cur.fetchall()
-        finally:
-            conn.close()
-
-        return [
-            {
-                "column_name": row[0],
-                "data_type": row[1].upper(),
-                "is_nullable": row[2].upper() == "YES",
-                "ordinal_position": row[3],
-            }
-            for row in rows
-        ]
 
     # ------------------------------------------------------------------
     # Record-level data matching
@@ -1776,8 +2692,10 @@ class ValidationService:
         batch_size: int,
         type_mapping_overrides: dict,
         workspace_id: int,
+        specific_row_start: Optional[int] = None,
+        specific_row_end: Optional[int] = None,
     ) -> dict:
-        """Compare source BigQuery records against target Redshift records.
+        """Compare source records against target records across supported databases.
 
         Reads data in configurable batches from both databases, matches
         rows by primary key (or hash of all columns when no PK is
@@ -1786,13 +2704,13 @@ class ValidationService:
         Args:
             run_id: Parent validation run ID (for logging).
             table_name: Name of the table to compare.
-            dataset_name: BigQuery dataset / Redshift schema name.
-            source_conn_params: Decrypted BigQuery connection parameters.
-            target_conn_params: Decrypted Redshift connection parameters.
+            dataset_name: Fallback namespace; source/target connection params may override it.
+            source_conn_params: Decrypted source connection parameters.
+            target_conn_params: Decrypted target connection parameters.
             primary_key: List of PK column names. If empty/None, a hash
                          of all column values is used as the row key.
             batch_size: Number of rows per batch (default 10000).
-            type_mapping_overrides: BQ→Redshift type overrides for
+            type_mapping_overrides: Optional type comparison overrides for
                                     type-aware comparison.
             workspace_id: Tenant isolation identifier.
 
@@ -1826,15 +2744,52 @@ class ValidationService:
             )
 
         try:
-            # --- 1. Read all source rows from BigQuery --------------------
-            source_rows = self._read_bigquery_rows(
-                source_conn_params, dataset_name, table_name, batch_size,
+            # Specific Row means: select a deterministic range from the SOURCE,
+            # then locate those same match keys anywhere in the TARGET.  The target
+            # must not be sliced by physical position because source/target ordering
+            # is not guaranteed to be identical.
+            is_specific_row = (
+                specific_row_start is not None or specific_row_end is not None
+            )
+            if is_specific_row:
+                if specific_row_start is None or specific_row_end is None:
+                    raise ValueError(
+                        "Specific Row Start Row and End Row are both required"
+                    )
+                if specific_row_start < 1 or specific_row_end < specific_row_start:
+                    raise ValueError(
+                        "Specific Row requires 1 <= Start Row <= End Row"
+                    )
+                if not primary_key:
+                    raise ValueError(
+                        "Specific Row Validation requires a match key"
+                    )
+            # --- 1. Read source rows using its database adapter. For Specific Row,
+            # order by the selected key so row ranges are deterministic.
+            source_rows = self._read_database_rows(
+                source_conn_params,
+                self._get_database_type(source_conn_params),
+                dataset_name,
+                table_name,
+                batch_size,
+                order_by=(primary_key[0] if is_specific_row and primary_key else None),
             )
 
-            # --- 2. Read all target rows from Redshift --------------------
-            target_rows = self._read_redshift_rows(
-                target_conn_params, dataset_name, table_name, batch_size,
+            # --- 2. Read all target rows. Target is never sliced by physical position.
+            target_rows = self._read_database_rows(
+                target_conn_params,
+                self._get_database_type(target_conn_params),
+                dataset_name,
+                table_name,
+                batch_size,
             )
+
+            if is_specific_row:
+                if specific_row_start > len(source_rows):
+                    raise ValueError(
+                        f"Specific Row Start Row {specific_row_start} is beyond the source row count ({len(source_rows)})"
+                    )
+                source_rows = source_rows[specific_row_start - 1:specific_row_end]
 
             # --- 3. Determine column names --------------------------------
             if source_rows:
@@ -1846,6 +2801,40 @@ class ValidationService:
 
             pk_columns = primary_key if not use_hash_key else None
 
+            if pk_columns:
+                normalized_columns = {str(c).lower() for c in columns}
+                missing_source_keys = [
+                    key for key in pk_columns if str(key).lower() not in normalized_columns
+                ]
+                if missing_source_keys:
+                    raise ValueError(
+                        f"Match key column(s) not found in source table: {', '.join(missing_source_keys)}"
+                    )
+
+                target_columns = (
+                    list(target_rows[0].keys()) if target_rows else []
+                )
+                normalized_target_columns = {str(c).lower() for c in target_columns}
+                missing_target_keys = [
+                    key for key in pk_columns if str(key).lower() not in normalized_target_columns
+                ]
+                if missing_target_keys:
+                    raise ValueError(
+                        f"Match key column(s) not found in target table: {', '.join(missing_target_keys)}"
+                    )
+
+                if is_specific_row:
+                    source_key_count = self._count_duplicate_keys(source_rows, pk_columns)
+                    if source_key_count > 0:
+                        raise ValueError(
+                            f"Specific Row match key '{pk_columns[0]}' is not unique in the selected source rows"
+                        )
+                    target_key_count = self._count_duplicate_keys(target_rows, pk_columns)
+                    if target_key_count > 0:
+                        raise ValueError(
+                            f"Specific Row match key '{pk_columns[0]}' is not unique in the target table"
+                        )
+
             # --- 4. Index rows by key -------------------------------------
             source_by_key = self._index_rows_by_key(
                 source_rows, pk_columns, columns,
@@ -1853,6 +2842,16 @@ class ValidationService:
             target_by_key = self._index_rows_by_key(
                 target_rows, pk_columns, columns,
             )
+
+            if is_specific_row:
+                # Only target rows corresponding to the selected source keys
+                # participate in Specific Row validation. Rows outside the
+                # requested source range are not "extra" for this check.
+                target_by_key = {
+                    key: target_by_key[key]
+                    for key in source_by_key
+                    if key in target_by_key
+                }
 
             # --- 5. Compare rows ------------------------------------------
             total_compared = len(source_by_key)
@@ -1905,8 +2904,12 @@ class ValidationService:
                 if not row_has_mismatch:
                     matched_count += 1
 
-            # Check for extra rows in target
-            for key in target_by_key:
+            # Check for extra rows in target. For Specific Row validation,
+            # extras outside the selected source range are intentionally ignored.
+            target_keys_to_check = (
+                target_by_key.keys() if not is_specific_row else []
+            )
+            for key in target_keys_to_check:
                 if key not in source_by_key:
                     extra_count += 1
                     if len(sample_discrepancies) < MAX_SAMPLE_DISCREPANCIES:
@@ -1990,51 +2993,10 @@ class ValidationService:
         table_name: str,
         batch_size: int,
     ) -> List[Dict[str, Any]]:
-        """Read all rows from a BigQuery table in batches.
-
-        Args:
-            conn_params: Dict with credentials_json and project_id.
-            dataset_name: BigQuery dataset name.
-            table_name: BigQuery table name.
-            batch_size: Page size for result iteration.
-
-        Returns:
-            List of row dicts with lowercase column names.
-        """
-        credentials_json = (
-            conn_params.get("credentials_json")
-            or conn_params.get("service_account_key")
-            or conn_params.get("serviceAccountKey")
-            or conn_params.get("credentialsJson")
-            or conn_params.get("credentials")
+        """Backward-compatible BigQuery row reader."""
+        return ValidationService._read_database_rows(
+            conn_params, "bigquery", dataset_name, table_name, batch_size
         )
-        if isinstance(credentials_json, str):
-            credentials_json = json.loads(credentials_json)
-
-        project_id = (
-            conn_params.get("project_id")
-            or conn_params.get("projectId")
-            or (credentials_json.get("project_id") if credentials_json else None)
-        )
-
-        if not credentials_json:
-            raise ValueError("BigQuery credentials not found in source connection params")
-        if not project_id:
-            raise ValueError("BigQuery project_id not found in source connection params")
-
-        credentials = service_account.Credentials.from_service_account_info(credentials_json)
-        client = bigquery.Client(credentials=credentials, project=project_id)
-
-        query = f"SELECT * FROM `{project_id}.{dataset_name}.{table_name}` ORDER BY 1"
-        job_config = bigquery.QueryJobConfig()
-        job = client.query(query, job_config=job_config)
-
-        rows: List[Dict[str, Any]] = []
-        for page in job.result(page_size=batch_size).pages:
-            for row in page:
-                rows.append({k.lower(): v for k, v in dict(row).items()})
-
-        return rows
 
     @staticmethod
     def _read_redshift_rows(
@@ -2043,57 +3005,10 @@ class ValidationService:
         table_name: str,
         batch_size: int,
     ) -> List[Dict[str, Any]]:
-        """Read all rows from a Redshift table in batches.
-
-        Args:
-            conn_params: Dict with host, port, database, username, password.
-            schema_name: Redshift schema name.
-            table_name: Redshift table name.
-            batch_size: Fetch size for cursor iteration.
-
-        Returns:
-            List of row dicts with lowercase column names.
-        """
-        host = (
-            conn_params.get("host")
-            or conn_params.get("server_name")
-            or conn_params.get("cluster")
-            or conn_params.get("endpoint")
+        """Backward-compatible Redshift row reader."""
+        return ValidationService._read_database_rows(
+            conn_params, "redshift", schema_name, table_name, batch_size
         )
-        port = int(conn_params.get("port", 5439))
-        database = (
-            conn_params.get("database")
-            or conn_params.get("database_name")
-            or "dev"
-        )
-        username = conn_params.get("username")
-        password = conn_params.get("password")
-
-        conn = psycopg2.connect(
-            host=host,
-            port=port,
-            database=database,
-            user=username,
-            password=password,
-            connect_timeout=30,
-        )
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"SELECT * FROM {schema_name}.{table_name} ORDER BY 1",
-                )
-                col_names = [desc[0].lower() for desc in cur.description]
-                rows: List[Dict[str, Any]] = []
-                while True:
-                    batch = cur.fetchmany(batch_size)
-                    if not batch:
-                        break
-                    for row_tuple in batch:
-                        rows.append(dict(zip(col_names, row_tuple)))
-        finally:
-            conn.close()
-
-        return rows
 
     @staticmethod
     def _compute_row_hash(row: dict, columns: list) -> str:
@@ -2102,7 +3017,7 @@ class ValidationService:
         Used as a surrogate key when no primary key is available.
 
         Args:
-            row: Dict of column_name → value.
+            row: Dict of column_name â†’ value.
             columns: Ordered list of column names.
 
         Returns:
@@ -2114,6 +3029,26 @@ class ValidationService:
             parts.append(str(val) if val is not None else "\\x00")
         combined = "|".join(parts)
         return hashlib.sha256(combined.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _count_duplicate_keys(
+        rows: List[Dict[str, Any]],
+        pk_columns: List[str],
+    ) -> int:
+        """Return the number of duplicate composite keys in a row set."""
+        seen = set()
+        duplicates = 0
+        for row in rows:
+            parts = []
+            for pk_col in pk_columns:
+                value = row.get(pk_col.lower(), row.get(pk_col))
+                parts.append(str(value) if value is not None else "\x00")
+            key = "|".join(parts)
+            if key in seen:
+                duplicates += 1
+            else:
+                seen.add(key)
+        return duplicates
 
     @staticmethod
     def _index_rows_by_key(
@@ -2129,7 +3064,7 @@ class ValidationService:
             all_columns: All column names (for hash computation).
 
         Returns:
-            Dict mapping key string → row dict.
+            Dict mapping key string â†’ row dict.
         """
         indexed: Dict[str, Dict[str, Any]] = {}
         for row in rows:
@@ -2208,7 +3143,7 @@ class ValidationService:
         try:
             src_dec = Decimal(str(source_val))
             tgt_dec = Decimal(str(target_val))
-            # Both are valid decimals – compare numerically
+            # Both are valid decimals â€“ compare numerically
             return src_dec == tgt_dec
         except (InvalidOperation, ValueError, TypeError):
             pass
@@ -2406,40 +3341,11 @@ class ValidationService:
 
     @staticmethod
     def decrypt_connection_credentials(connection: "Connection") -> dict:
-        """Decrypt connection credentials using KMS.
-
-        Handles both encrypted and plain-text passwords for backward
-        compatibility, following the pattern in pathway_c.
-
-        Args:
-            connection: A Connection model instance.
-
-        Returns:
-            Dict with host, port, database, username, password ready
-            for psycopg2.connect().
-        """
-        conn_params = connection.connection_params or {}
-
-        host = (
-            conn_params.get("host")
-            or conn_params.get("server_name")
-            or conn_params.get("cluster")
-            or conn_params.get("endpoint")
-        )
-        port = int(conn_params.get("port", 5439))
-        database = (
-            conn_params.get("database")
-            or conn_params.get("database_name")
-            or "dev"
-        )
-        username = conn_params.get("username")
-
-        password_encrypted = conn_params.get("password_encrypted")
-        password_plain = conn_params.get("password")
-
+        """Preserve database-specific connection parameters and decrypt password."""
+        params = dict(connection.connection_params or {})
+        password_encrypted = params.get("password_encrypted")
         if password_encrypted:
             from services.unified_kms_service import get_unified_kms_service
-
             kms = get_unified_kms_service()
             password = kms.decrypt_credential(
                 ciphertext=password_encrypted,
@@ -2449,16 +3355,633 @@ class ValidationService:
                 allow_plaintext_fallback=True,
             )
         else:
-            password = password_plain
+            password = params.get("password")
+
+        params["password"] = password
+        params.pop("password_encrypted", None)
+
+        # Preserve the database engine/type from the Connection model so
+        # validation never confuses the database name with the database type.
+        connection_type = (
+            getattr(connection, "database_type", None)
+            or getattr(connection, "connection_type", None)
+            or getattr(connection, "db_type", None)
+            or getattr(connection, "type", None)
+        )
+        if connection_type:
+            params["database_type"] = connection_type
+
+        return params
+
+        # ------------------------------------------------------------------
+    # NULL validation
+    # ------------------------------------------------------------------
+
+
+    def _validate_nulls(
+        self,
+        source_conn_params: dict,
+        target_conn_params: dict,
+        dataset_name: str,
+        table_name: str,
+        column_name: str,
+    ) -> dict:
+        """Compare NULL counts for a selected column across supported databases."""
+        start_time = time.time()
+        try:
+            if not column_name:
+                raise ValueError("Column name is required for NULL validation")
+            if not re.match(r"^[A-Za-z_][A-Za-z0-9_$]*$", column_name):
+                raise ValueError(f"Invalid column name: {column_name}")
+
+            counts = []
+            for params in (source_conn_params, target_conn_params):
+                db = self._get_database_type(params)
+                effective_dataset_name = (
+                    params.get("_validation_namespace") or dataset_name
+                )
+
+                if db in ("mongodb", "documentdb"):
+                    client = self._mongo_client(params)
+                    try:
+                        db_name = params.get("database_name") or params.get("database") or effective_dataset_name
+                        count = client[db_name][table_name].count_documents(
+                            {column_name: {"$type": 10}}
+                        )
+                    finally:
+                        client.close()
+
+                elif db == "bigquery":
+                    client, project_id = self._get_bigquery_client(params)
+                    rows = list(client.query(
+                        f"SELECT COUNT(*) FROM `{project_id}.{effective_dataset_name}.{table_name}` "
+                        f"WHERE `{column_name}` IS NULL"
+                    ).result())
+                    count = int(rows[0][0]) if rows else 0
+
+                elif db == "clickhouse":
+                    client = self._clickhouse_client(params)
+                    try:
+                        ref = self._qualified_table(db, effective_dataset_name, table_name)
+                        col = self._quote_identifier(column_name, db)
+                        rows = client.query(
+                            f"SELECT countIf(isNull({col})) FROM {ref}"
+                        ).result_rows
+                        count = int(rows[0][0]) if rows else 0
+                    finally:
+                        client.close()
+
+                else:
+                    conn = self._sql_connection(params, db)
+                    try:
+                        ref = self._qualified_table(db, effective_dataset_name, table_name)
+                        col = self._quote_identifier(column_name, db)
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                f"SELECT COUNT(*) FROM {ref} WHERE {col} IS NULL"
+                            )
+                            row = cur.fetchone()
+                            count = int(row[0]) if row else 0
+                    finally:
+                        conn.close()
+
+                counts.append(count)
+
+            source_count, target_count = counts
+            difference = source_count - target_count
+            status = "passed" if source_count == target_count else "failed"
+            result = {
+                "column": column_name,
+                "source_null_count": source_count,
+                "target_null_count": target_count,
+                "difference": difference,
+                "status": status,
+            }
+            return {
+                "status": status,
+                "result": result,
+                "duration_seconds": round(time.time() - start_time, 3),
+            }
+
+        except Exception as exc:
+            logger.error(
+                "NULL validation failed",
+                extra={
+                    "table_name": table_name,
+                    "column_name": column_name,
+                    "error": str(exc),
+                },
+            )
+            return {
+                "status": "error",
+                "result": {},
+                "error_message": self._sanitize_error_message(str(exc)),
+                "duration_seconds": round(time.time() - start_time, 3),
+            }
+
+    def _validate_aggregate(
+        self,
+        source_conn_params: dict,
+        target_conn_params: dict,
+        dataset_name: str,
+        table_name: str,
+        column_name: str,
+        aggregate_type: str,
+    ) -> dict:
+        """Compare SUM or AVERAGE for a selected column across databases."""
+        start_time = time.time()
+        try:
+            if not column_name:
+                raise ValueError(
+                    f"Column name is required for {aggregate_type} validation"
+                )
+            if aggregate_type not in ("SUM", "AVERAGE"):
+                raise ValueError(
+                    f"Unsupported aggregate type: {aggregate_type}"
+                )
+            if not re.match(r"^[A-Za-z_][A-Za-z0-9_$]*$", column_name):
+                raise ValueError(f"Invalid column name: {column_name}")
+
+            values = []
+            for params in (source_conn_params, target_conn_params):
+                db = self._get_database_type(params)
+                effective_dataset_name = (
+                    params.get("_validation_namespace") or dataset_name
+                )
+
+                if db in ("mongodb", "documentdb"):
+                    client = self._mongo_client(params)
+                    try:
+                        db_name = params.get("database_name") or params.get("database") or effective_dataset_name
+                        op = "$sum" if aggregate_type == "SUM" else "$avg"
+                        rows = client[db_name][table_name].aggregate([
+                            {"$group": {"_id": None, "value": {op: f"${column_name}"}}}
+                        ])
+                        row = next(iter(rows), None)
+                        value = (
+                            float(row["value"])
+                            if row and row.get("value") is not None
+                            else 0.0
+                        )
+                    finally:
+                        client.close()
+
+                elif db == "bigquery":
+                    client, project_id = self._get_bigquery_client(params)
+                    op = "SUM" if aggregate_type == "SUM" else "AVG"
+                    rows = list(client.query(
+                        f"SELECT {op}(`{column_name}`) "
+                        f"FROM `{project_id}.{effective_dataset_name}.{table_name}`"
+                    ).result())
+                    value = (
+                        float(rows[0][0])
+                        if rows and rows[0][0] is not None
+                        else 0.0
+                    )
+
+                elif db == "clickhouse":
+                    client = self._clickhouse_client(params)
+                    try:
+                        op = "sum" if aggregate_type == "SUM" else "avg"
+                        ref = self._qualified_table(db, effective_dataset_name, table_name)
+                        col = self._quote_identifier(column_name, db)
+                        rows = client.query(
+                            f"SELECT {op}({col}) FROM {ref}"
+                        ).result_rows
+                        value = (
+                            float(rows[0][0])
+                            if rows and rows[0][0] is not None
+                            else 0.0
+                        )
+                    finally:
+                        client.close()
+
+                else:
+                    conn = self._sql_connection(params, db)
+                    try:
+                        op = "SUM" if aggregate_type == "SUM" else "AVG"
+                        ref = self._qualified_table(db, effective_dataset_name, table_name)
+                        col = self._quote_identifier(column_name, db)
+                        with conn.cursor() as cur:
+                            cur.execute(f"SELECT {op}({col}) FROM {ref}")
+                            row = cur.fetchone()
+                            value = (
+                                float(row[0])
+                                if row and row[0] is not None
+                                else 0.0
+                            )
+                    finally:
+                        conn.close()
+
+                values.append(value)
+
+            source_value, target_value = values
+            difference = source_value - target_value
+            passed = abs(difference) <= 0.000001
+            result = {
+                "column": column_name,
+                "aggregate_type": aggregate_type,
+                "source_value": source_value,
+                "target_value": target_value,
+                "difference": difference,
+                "status": "passed" if passed else "failed",
+            }
+            return {
+                "status": result["status"],
+                "result": result,
+                "duration_seconds": round(time.time() - start_time, 3),
+            }
+
+        except Exception as exc:
+            logger.error(
+                f"{aggregate_type} validation failed",
+                extra={
+                    "table_name": table_name,
+                    "column_name": column_name,
+                    "error": str(exc),
+                },
+            )
+            return {
+                "status": "error",
+                "result": {},
+                "error_message": self._sanitize_error_message(str(exc)),
+                "duration_seconds": round(time.time() - start_time, 3),
+            }
+
+    def _validate_duplicates(
+        self,
+        source_conn_params: dict,
+        target_conn_params: dict,
+        dataset_name: str,
+        table_name: str,
+        match_key: str,
+    ) -> dict:
+        """Compare duplicate-key group counts across databases."""
+        start_time = time.time()
+        try:
+            if not match_key:
+                raise ValueError(
+                    "Match key is required for Duplicate validation"
+                )
+            if not re.match(r"^[A-Za-z_][A-Za-z0-9_$]*$", match_key):
+                raise ValueError(f"Invalid match key: {match_key}")
+
+            counts = []
+            for params in (source_conn_params, target_conn_params):
+                db = self._get_database_type(params)
+                effective_dataset_name = (
+                    params.get("_validation_namespace") or dataset_name
+                )
+
+                if db in ("mongodb", "documentdb"):
+                    client = self._mongo_client(params)
+                    try:
+                        db_name = params.get("database_name") or params.get("database") or effective_dataset_name
+                        pipeline = [
+                            {"$group": {"_id": f"${match_key}", "n": {"$sum": 1}}},
+                            {"$match": {"n": {"$gt": 1}}},
+                            {"$count": "duplicate_groups"},
+                        ]
+                        row = next(
+                            iter(client[db_name][table_name].aggregate(pipeline)),
+                            None,
+                        )
+                        count = int(row["duplicate_groups"]) if row else 0
+                    finally:
+                        client.close()
+
+                elif db == "bigquery":
+                    client, project_id = self._get_bigquery_client(params)
+                    rows = list(client.query(
+                        f"SELECT COUNT(*) FROM ("
+                        f"SELECT `{match_key}` "
+                        f"FROM `{project_id}.{effective_dataset_name}.{table_name}` "
+                        f"GROUP BY `{match_key}` HAVING COUNT(*) > 1)"
+                    ).result())
+                    count = int(rows[0][0]) if rows else 0
+
+                elif db == "clickhouse":
+                    client = self._clickhouse_client(params)
+                    try:
+                        ref = self._qualified_table(db, effective_dataset_name, table_name)
+                        col = self._quote_identifier(match_key, db)
+                        rows = client.query(
+                            f"SELECT count() FROM ("
+                            f"SELECT {col} FROM {ref} "
+                            f"GROUP BY {col} HAVING count() > 1)"
+                        ).result_rows
+                        count = int(rows[0][0]) if rows else 0
+                    finally:
+                        client.close()
+
+                else:
+                    conn = self._sql_connection(params, db)
+                    try:
+                        ref = self._qualified_table(db, effective_dataset_name, table_name)
+                        col = self._quote_identifier(match_key, db)
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                f"SELECT COUNT(*) FROM ("
+                                f"SELECT {col} FROM {ref} "
+                                f"GROUP BY {col} HAVING COUNT(*) > 1) duplicate_groups"
+                            )
+                            row = cur.fetchone()
+                            count = int(row[0]) if row else 0
+                    finally:
+                        conn.close()
+
+                counts.append(count)
+
+            source_count, target_count = counts
+            passed = source_count == target_count
+            result = {
+                "match_key": match_key,
+                "source_duplicate_count": source_count,
+                "target_duplicate_count": target_count,
+                "difference": source_count - target_count,
+                "status": "passed" if passed else "failed",
+            }
+            return {
+                "status": result["status"],
+                "result": result,
+                "duration_seconds": round(time.time() - start_time, 3),
+            }
+
+        except Exception as exc:
+            logger.error(
+                "Duplicate validation failed",
+                extra={
+                    "table_name": table_name,
+                    "match_key": match_key,
+                    "error": str(exc),
+                },
+            )
+            return {
+                "status": "error",
+                "result": {},
+                "error_message": self._sanitize_error_message(str(exc)),
+                "duration_seconds": round(time.time() - start_time, 3),
+            }
+    # ------------------------------------------------------------------
+    # Direct validation (connection-to-connection, no migration required)
+    # ------------------------------------------------------------------
+
+    def _engine_for_connection(self, connection: "Connection") -> str:
+        """Resolve the normalized engine key for a connection record."""
+        params = dict(connection.connection_params or {})
+        ctype = (
+            getattr(connection, "type", None)
+            or getattr(connection, "database_type", None)
+        )
+        if ctype:
+            params["database_type"] = ctype
+        return self._get_database_type(params)
+
+    def _direct_params(self, connection: "Connection", schema: str) -> dict:
+        """Build decrypted conn params for a direct check, pinned to a schema.
+
+        Reuses ``decrypt_connection_credentials`` (which preserves the engine
+        type and all engine-specific keys) and sets ``_validation_namespace``
+        so the generalized check helpers target the given schema/dataset.
+        """
+        params = self.decrypt_connection_credentials(connection)
+        if schema:
+            params["_validation_namespace"] = schema
+        return params
+
+    def list_connection_tables(self, connection_id: int) -> Dict[str, Any]:
+        """List user tables (schema + table) for a connection via information_schema.
+
+        Supported for SQL engines (postgresql/redshift/mysql/sqlserver/etc.).
+        """
+        conn = (
+            self.db.query(Connection)
+            .filter(Connection.id == connection_id)
+            .first()
+        )
+        if not conn or not conn.is_active:
+            raise ValueError(f"Connection id={connection_id} is missing or inactive.")
+
+        engine = self._engine_for_connection(conn)
+        params = self.decrypt_connection_credentials(conn)
+
+        if engine in ("mongodb", "documentdb"):
+            client = self._mongo_client(params)
+            try:
+                db_name = params.get("database_name") or params.get("database")
+                tables = [
+                    {"schema": db_name or "", "table": name}
+                    for name in client[db_name].list_collection_names()
+                ]
+            finally:
+                client.close()
+        elif engine == "clickhouse":
+            client = self._clickhouse_client(params)
+            try:
+                rows = client.query(
+                    "SELECT database, name FROM system.tables "
+                    "WHERE database NOT IN ('system','INFORMATION_SCHEMA','information_schema')"
+                ).result_rows
+                tables = [{"schema": r[0], "table": r[1]} for r in rows]
+            finally:
+                client.close()
+        elif engine == "bigquery":
+            client, project_id = self._get_bigquery_client(params)
+            dataset = params.get("dataset") or params.get("_validation_namespace")
+            tables = []
+            datasets = [dataset] if dataset else [d.dataset_id for d in client.list_datasets()]
+            for ds in datasets:
+                for tbl in client.list_tables(f"{project_id}.{ds}"):
+                    tables.append({"schema": ds, "table": tbl.table_id})
+        else:
+            conn_db = self._sql_connection(params, engine)
+            try:
+                with conn_db.cursor() as cur:
+                    cur.execute(
+                        "SELECT table_schema, table_name FROM information_schema.tables "
+                        "WHERE table_type = 'BASE TABLE' ORDER BY table_schema, table_name"
+                    )
+                    rows = cur.fetchall()
+                system = {
+                    "information_schema", "sys", "pg_catalog", "pg_internal",
+                }
+                tables = [
+                    {"schema": r[0], "table": r[1]}
+                    for r in rows
+                    if str(r[0]).lower() not in system
+                ]
+            finally:
+                conn_db.close()
 
         return {
-            "host": host,
-            "port": port,
-            "database": database,
-            "username": username,
-            "password": password,
+            "connection_id": connection_id,
+            "connection_name": conn.name,
+            "engine": engine,
+            "tables": tables,
         }
 
+    def list_connection_columns(
+        self, connection_id: int, schema: str, table: str
+    ) -> Dict[str, Any]:
+        """List columns (name + data_type) for a table on a connection."""
+        conn = (
+            self.db.query(Connection)
+            .filter(Connection.id == connection_id)
+            .first()
+        )
+        if not conn or not conn.is_active:
+            raise ValueError(f"Connection id={connection_id} is missing or inactive.")
+        engine = self._engine_for_connection(conn)
+        params = self.decrypt_connection_credentials(conn)
+        columns = self._get_database_columns(params, engine, schema, table)
+        return {
+            "connection_id": connection_id,
+            "engine": engine,
+            "schema": schema,
+            "table": table,
+            "columns": columns,
+        }
+
+    def run_direct_validation(
+        self,
+        source_connection_id: int,
+        target_connection_id: int,
+        source_schema: str,
+        target_schema: str,
+        table_name: str,
+        checks: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Run validation checks directly between two connections (no migration).
+
+        Reuses the generalized multi-engine check helpers so this works for any
+        supported source/target engine pair (e.g. SQL Server -> Redshift).
+        """
+        source_conn = (
+            self.db.query(Connection)
+            .filter(Connection.id == source_connection_id)
+            .first()
+        )
+        target_conn = (
+            self.db.query(Connection)
+            .filter(Connection.id == target_connection_id)
+            .first()
+        )
+        if not source_conn or not source_conn.is_active:
+            raise ValueError(
+                f"Source connection id={source_connection_id} is missing or inactive."
+            )
+        if not target_conn or not target_conn.is_active:
+            raise ValueError(
+                f"Target connection id={target_connection_id} is missing or inactive."
+            )
+
+        source_engine = self._engine_for_connection(source_conn)
+        target_engine = self._engine_for_connection(target_conn)
+
+        source_params = self._direct_params(source_conn, source_schema)
+        target_params = self._direct_params(target_conn, target_schema)
+
+        results: Dict[str, Any] = {}
+
+        def _record(check_name: str, check_result: dict, src_key: str, tgt_key: str):
+            """Normalize a check helper result into the direct-test shape."""
+            r = check_result.get("result", {}) or {}
+            if check_result.get("status") == "error":
+                results[check_name] = {
+                    "status": "error",
+                    "error_message": check_result.get("error_message", "check failed"),
+                }
+            else:
+                results[check_name] = {
+                    "status": check_result.get("status"),
+                    "source_value": r.get(src_key),
+                    "target_value": r.get(tgt_key),
+                    "difference": r.get("difference"),
+                }
+
+        # Row count
+        if checks.get("row_count"):
+            res = self._validate_row_count(
+                run_id=0,
+                table_name=table_name,
+                dataset_name=source_schema,
+                source_conn_params=source_params,
+                target_conn_params={**target_params, "_validation_namespace": target_schema},
+                workspace_id=0,
+            )
+            _record("row_count", res, "source_count", "target_count")
+
+        # NULL
+        if checks.get("null_check"):
+            col = checks.get("null_column")
+            if not col:
+                results["null_check"] = {"status": "error", "error_message": "null_column is required"}
+            else:
+                res = self._validate_nulls(
+                    source_params,
+                    {**target_params, "_validation_namespace": target_schema},
+                    source_schema, table_name, col,
+                )
+                _record("null_check", res, "source_null_count", "target_null_count")
+
+        # Duplicate
+        if checks.get("duplicate_check"):
+            key = checks.get("duplicate_match_key")
+            if not key:
+                results["duplicate_check"] = {"status": "error", "error_message": "duplicate_match_key is required"}
+            else:
+                res = self._validate_duplicates(
+                    source_params,
+                    {**target_params, "_validation_namespace": target_schema},
+                    source_schema, table_name, key,
+                )
+                _record("duplicate_check", res, "source_duplicate_count", "target_duplicate_count")
+
+        # SUM
+        if checks.get("sum_check"):
+            col = checks.get("sum_column")
+            if not col:
+                results["sum_check"] = {"status": "error", "error_message": "sum_column is required"}
+            else:
+                res = self._validate_aggregate(
+                    source_params,
+                    {**target_params, "_validation_namespace": target_schema},
+                    source_schema, table_name, col, "SUM",
+                )
+                _record("sum_check", res, "source_value", "target_value")
+
+        # AVERAGE
+        if checks.get("average_check"):
+            col = checks.get("average_column")
+            if not col:
+                results["average_check"] = {"status": "error", "error_message": "average_column is required"}
+            else:
+                res = self._validate_aggregate(
+                    source_params,
+                    {**target_params, "_validation_namespace": target_schema},
+                    source_schema, table_name, col, "AVERAGE",
+                )
+                _record("average_check", res, "source_value", "target_value")
+
+        statuses = [r.get("status") for r in results.values()]
+        if not statuses:
+            overall = "no_checks"
+        elif any(s == "error" for s in statuses):
+            overall = "error"
+        elif any(s == "failed" for s in statuses):
+            overall = "failed"
+        else:
+            overall = "passed"
+
+        return {
+            "overall_status": overall,
+            "source_engine": source_engine,
+            "target_engine": target_engine,
+            "source_connection": source_conn.name,
+            "target_connection": target_conn.name,
+            "table_name": table_name,
+            "checks": results,
+        }
 
     # ------------------------------------------------------------------
     # Deletion
@@ -2484,3 +4007,4 @@ class ValidationService:
                 extra={"run_id": run_id, "workspace_id": workspace_id},
             )
         return deleted
+

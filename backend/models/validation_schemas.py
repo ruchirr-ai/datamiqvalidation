@@ -36,13 +36,108 @@ class SamplingMode(str, Enum):
 
 class TableValidationConfig(BaseModel):
     """Per-table validation configuration."""
-    table_name: str = Field(..., description="Name of the table to validate")
-    ddl_check: bool = Field(default=True, description="Run DDL/schema comparison")
-    row_count_check: bool = Field(default=True, description="Run row count comparison")
-    data_match_check: bool = Field(default=True, description="Run record-level data matching")
-    sampling_mode: Optional[SamplingMode] = Field(default=None, description="Per-table sampling mode override")
-    sample_limit: Optional[int] = Field(default=None, ge=100, le=10000000, description="Per-table sample limit when sampling_mode is 'random'")
-    batch_size: Optional[int] = Field(default=None, ge=0, le=10000000, description="Per-table batch size for record-level matching")
+
+    table_name: str = Field(
+        ...,
+        description="Name of the table to validate"
+    )
+
+    # Existing checks
+    ddl_check: bool = Field(
+        default=True,
+        description="Run DDL/schema comparison"
+    )
+
+    row_count_check: bool = Field(
+        default=True,
+        description="Run row count comparison"
+    )
+
+    data_match_check: bool = Field(
+        default=True,
+        description="Run record-level data matching"
+    )
+
+    # New validation checks
+    null_check: bool = Field(
+        default=False,
+        description="Run NULL validation"
+    )
+
+    null_column: Optional[str] = Field(
+        default=None,
+        description="Column to check for NULL values"
+    )
+
+    duplicate_check: bool = Field(
+        default=False,
+        description="Run duplicate validation"
+    )
+
+    duplicate_match_key: Optional[str] = Field(
+        default=None,
+        description="Column used as the duplicate match key"
+    )
+
+    sum_check: bool = Field(
+        default=False,
+        description="Run SUM validation"
+    )
+
+    sum_column: Optional[str] = Field(
+        default=None,
+        description="Numeric column used for SUM validation"
+    )
+
+    average_check: bool = Field(
+        default=False,
+        description="Run AVERAGE validation"
+    )
+
+    average_column: Optional[str] = Field(
+        default=None,
+        description="Numeric column used for AVERAGE validation"
+    )
+
+    specific_row_check: bool = Field(
+        default=False,
+        description="Run specific row validation"
+    )
+
+    specific_row_match_key: Optional[str] = Field(
+        default=None,
+        description="Match key for specific row validation"
+    )
+
+    specific_row_start: Optional[int] = Field(
+        default=None,
+        description="Starting row for specific row validation"
+    )
+
+    specific_row_end: Optional[int] = Field(
+        default=None,
+        description="Ending row for specific row validation"
+    )
+
+    # Existing sampling configuration
+    sampling_mode: Optional[SamplingMode] = Field(
+        default=None,
+        description="Per-table sampling mode override"
+    )
+
+    sample_limit: Optional[int] = Field(
+        default=None,
+        ge=100,
+        le=10000000,
+        description="Per-table sample limit when sampling_mode is 'random'"
+    )
+
+    batch_size: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=10000000,
+        description="Per-table batch size for record-level matching"
+    )
 
 
 class CreateValidationRunRequest(BaseModel):
@@ -95,9 +190,26 @@ class ValidationTableResultResponse(BaseModel):
     run_id: int
     table_name: str
     dataset_name: Optional[str] = None
+
     ddl_status: Optional[str] = None
     row_count_status: Optional[str] = None
     data_match_status: Optional[str] = None
+
+    null_status: Optional[str] = None
+    null_result: Optional[dict] = None
+
+    duplicate_status: Optional[str] = None
+    duplicate_result: Optional[dict] = None
+
+    sum_status: Optional[str] = None
+    sum_result: Optional[dict] = None
+
+    average_status: Optional[str] = None
+    average_result: Optional[dict] = None
+
+    specific_row_status: Optional[str] = None
+    specific_row_result: Optional[dict] = None
+
     status: str
     error_message: Optional[str] = None
     started_at: Optional[datetime] = None
@@ -112,6 +224,10 @@ class ValidationTableDetailResponse(ValidationTableResultResponse):
     ddl_comparison_result: Optional[dict] = None
     row_count_result: Optional[dict] = None
     data_match_result: Optional[dict] = None
+    duplicate_result: Optional[dict] = None
+    sum_result: Optional[dict] = None
+    average_result: Optional[dict] = None
+    specific_row_result: Optional[dict] = None
     ai_analysis: Optional[dict] = None
 
 
@@ -160,3 +276,51 @@ class BedrockModelResponse(BaseModel):
     model_id: str
     model_name: str
     provider: str
+
+
+# ---------------------------------------------------------------------------
+# Direct validation test (connection-to-connection, no migration)
+# ---------------------------------------------------------------------------
+
+class DirectValidationRequest(BaseModel):
+    """Request body for POST /api/validations/direct-test.
+
+    Runs validation checks directly between two connections without a
+    migration record. Works across any supported engine pair
+    (e.g. SQL Server source -> Redshift target).
+    """
+    source_connection_id: int = Field(..., description="Source connection ID")
+    target_connection_id: int = Field(..., description="Target connection ID")
+    source_schema: str = Field(..., description="Source schema / dataset name")
+    target_schema: str = Field(..., description="Target schema name")
+    table_name: str = Field(..., description="Table to validate (same name on both sides)")
+
+    row_count: bool = Field(default=True, description="Run row count comparison")
+    null_check: bool = Field(default=False, description="Run NULL count comparison")
+    null_column: Optional[str] = Field(default=None, description="Column for NULL check")
+    duplicate_check: bool = Field(default=False, description="Run duplicate count comparison")
+    duplicate_match_key: Optional[str] = Field(default=None, description="Match key column for duplicate check")
+    sum_check: bool = Field(default=False, description="Run SUM comparison")
+    sum_column: Optional[str] = Field(default=None, description="Numeric column for SUM check")
+    average_check: bool = Field(default=False, description="Run AVERAGE comparison")
+    average_column: Optional[str] = Field(default=None, description="Numeric column for AVERAGE check")
+
+
+class DirectValidationCheckResult(BaseModel):
+    """Result of a single direct validation check."""
+    status: str
+    source_value: Optional[float] = None
+    target_value: Optional[float] = None
+    difference: Optional[float] = None
+    error_message: Optional[str] = None
+
+
+class DirectValidationResponse(BaseModel):
+    """Response for a direct validation test."""
+    overall_status: str
+    source_engine: str
+    target_engine: str
+    source_connection: str
+    target_connection: str
+    table_name: str
+    checks: dict

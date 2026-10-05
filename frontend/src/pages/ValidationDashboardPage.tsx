@@ -26,13 +26,67 @@ import {
   getMigrationInfo,
   listValidationBedrockModels,
   getValidationTableResults,
+  getMigrationTableColumns,
+  MigrationColumn,
 } from '../services/validationApi';
 import { bqRedshiftApi } from '../services/bqRedshiftApi';
+import { QuickValidationTest } from './QuickValidationTest';
 import './ValidationDashboardPage.css';
 
 const AUTO_REFRESH_MS = 5000;
 const STATUS_OPTIONS = ['all', 'pending', 'running', 'completed', 'failed'];
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
+
+/**
+ * Per-table validation configuration held in dashboard form state.
+ * Extends the base DDL/row-count/data-match checks with the column-based
+ * checks (NULL, duplicate, SUM, AVERAGE, specific row).
+ */
+interface TableConfig {
+  ddl: boolean;
+  row_count: boolean;
+  data_match: boolean;
+  sampling_mode: 'all' | 'random';
+  sample_limit: number | undefined;
+  batch_size: number;
+  // New column-based checks
+  null_check: boolean;
+  null_column: string;
+  duplicate_check: boolean;
+  duplicate_match_key: string;
+  sum_check: boolean;
+  sum_column: string;
+  average_check: boolean;
+  average_column: string;
+  specific_row_check: boolean;
+  specific_row_match_key: string;
+  specific_row_start: number | undefined;
+  specific_row_end: number | undefined;
+}
+
+/** Factory for a default per-table config (all base checks on, new checks off). */
+function makeDefaultTableConfig(batchSize: number): TableConfig {
+  return {
+    ddl: true,
+    row_count: true,
+    data_match: true,
+    sampling_mode: 'all',
+    sample_limit: undefined,
+    batch_size: batchSize,
+    null_check: false,
+    null_column: '',
+    duplicate_check: false,
+    duplicate_match_key: '',
+    sum_check: false,
+    sum_column: '',
+    average_check: false,
+    average_column: '',
+    specific_row_check: false,
+    specific_row_match_key: '',
+    specific_row_start: undefined,
+    specific_row_end: undefined,
+  };
+}
 
 import { useLanguage } from '../contexts/LanguageContext';
 
@@ -82,10 +136,17 @@ export const ValidationDashboardPage: React.FC = () => {
 
   // --- Create form ---
   const [showForm, setShowForm] = useState(false);
+  // --- Quick direct-test panel ---
+  const [showQuickTest, setShowQuickTest] = useState(false);
   const [runName, setRunName] = useState<string>('');
   const [formMigrationId, setFormMigrationId] = useState<number>(0);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
-  const [tableConfigs, setTableConfigs] = useState<Record<string, { ddl: boolean; row_count: boolean; data_match: boolean; sampling_mode: 'all' | 'random'; sample_limit: number | undefined; batch_size: number }>>({});
+  const [tableConfigs, setTableConfigs] = useState<Record<string, TableConfig>>({});
+  // Per-table available columns (source), lazily fetched for column-based checks
+  const [tableColumns, setTableColumns] = useState<Record<string, MigrationColumn[]>>({});
+  const [columnsLoading, setColumnsLoading] = useState<Record<string, boolean>>({});
+  // Which tables have their advanced (column-based) checks panel expanded
+  const [expandedConfigTables, setExpandedConfigTables] = useState<Record<string, boolean>>({});
   const [bedrockModel, setBedrockModel] = useState<string>('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -149,12 +210,12 @@ export const ValidationDashboardPage: React.FC = () => {
         setMigrationInfo(info);
         // Auto-select all tables
         setSelectedTables(info.tables || []);
-        // Initialize per-table configs with all checks enabled + default sampling
-        const configs: Record<string, { ddl: boolean; row_count: boolean; data_match: boolean; sampling_mode: 'all' | 'random'; sample_limit: number | undefined; batch_size: number }> = {};
+        // Initialize per-table configs with base checks enabled + default sampling
+        const configs: Record<string, TableConfig> = {};
         (info.tables || []).forEach((t) => {
           const rowCount = info.table_row_counts?.[t] ?? 0;
           const defaultBatch = Math.min(10000, rowCount || 10000);
-          configs[t] = { ddl: true, row_count: true, data_match: true, sampling_mode: 'all', sample_limit: undefined, batch_size: defaultBatch };
+          configs[t] = makeDefaultTableConfig(defaultBatch);
         });
         setTableConfigs(configs);
       } catch {
@@ -284,7 +345,7 @@ export const ValidationDashboardPage: React.FC = () => {
       } else {
         setTableConfigs((c) => ({
           ...c,
-          [tableName]: { ddl: true, row_count: true, data_match: true, sampling_mode: 'all' as const, sample_limit: undefined, batch_size: 10000 },
+          [tableName]: makeDefaultTableConfig(10000),
         }));
         return [...prev, tableName];
       }
@@ -298,21 +359,58 @@ export const ValidationDashboardPage: React.FC = () => {
       setTableConfigs({});
     } else {
       setSelectedTables([...allTables]);
-      const configs: Record<string, { ddl: boolean; row_count: boolean; data_match: boolean; sampling_mode: 'all' | 'random'; sample_limit: number | undefined; batch_size: number }> = {};
+      const configs: Record<string, TableConfig> = {};
       allTables.forEach((t) => {
         const rowCount = migrationInfo?.table_row_counts?.[t] ?? 0;
         const defaultBatch = Math.min(10000, rowCount || 10000);
-        configs[t] = { ddl: true, row_count: true, data_match: true, sampling_mode: 'all', sample_limit: undefined, batch_size: defaultBatch };
+        configs[t] = makeDefaultTableConfig(defaultBatch);
       });
       setTableConfigs(configs);
     }
   };
 
-  const toggleTableCheck = (tableName: string, check: 'ddl' | 'row_count' | 'data_match') => {
+  const toggleTableCheck = (
+    tableName: string,
+    check: 'ddl' | 'row_count' | 'data_match' | 'null_check' | 'duplicate_check' | 'sum_check' | 'average_check' | 'specific_row_check'
+  ) => {
     setTableConfigs((prev) => ({
       ...prev,
       [tableName]: { ...prev[tableName], [check]: !prev[tableName]?.[check] },
     }));
+  };
+
+  // Update an arbitrary field on a table's config (used by column pickers / row inputs)
+  const setTableConfigField = <K extends keyof TableConfig>(
+    tableName: string,
+    field: K,
+    value: TableConfig[K]
+  ) => {
+    setTableConfigs((prev) => ({
+      ...prev,
+      [tableName]: { ...prev[tableName], [field]: value },
+    }));
+  };
+
+  // Toggle the advanced (column-based) checks panel for a table, lazily fetching columns
+  const toggleAdvancedConfig = (tableName: string) => {
+    setExpandedConfigTables((prev) => {
+      const next = { ...prev, [tableName]: !prev[tableName] };
+      return next;
+    });
+    // Fetch columns on first expand
+    if (!tableColumns[tableName] && !columnsLoading[tableName] && formMigrationId) {
+      setColumnsLoading((prev) => ({ ...prev, [tableName]: true }));
+      getMigrationTableColumns(formMigrationId, tableName)
+        .then((res) => {
+          setTableColumns((prev) => ({ ...prev, [tableName]: res.source_columns || [] }));
+        })
+        .catch(() => {
+          setTableColumns((prev) => ({ ...prev, [tableName]: [] }));
+        })
+        .finally(() => {
+          setColumnsLoading((prev) => ({ ...prev, [tableName]: false }));
+        });
+    }
   };
 
   const handleCreate = async () => {
@@ -320,14 +418,30 @@ export const ValidationDashboardPage: React.FC = () => {
     setCreating(true);
     setCreateError(null);
 
-    const tableConfigsList: TableValidationConfig[] = selectedTables.map((t) => ({
-      table_name: t,
-      ddl_check: tableConfigs[t]?.ddl ?? true,
-      row_count_check: tableConfigs[t]?.row_count ?? true,
-      data_match_check: tableConfigs[t]?.data_match ?? true,
-      sampling_mode: tableConfigs[t]?.sampling_mode ?? 'all',
-      sample_limit: tableConfigs[t]?.sampling_mode === 'random' ? tableConfigs[t]?.sample_limit : undefined,
-    }));
+    const tableConfigsList: TableValidationConfig[] = selectedTables.map((t) => {
+      const cfg = tableConfigs[t];
+      return {
+        table_name: t,
+        ddl_check: cfg?.ddl ?? true,
+        row_count_check: cfg?.row_count ?? true,
+        data_match_check: cfg?.data_match ?? true,
+        sampling_mode: cfg?.sampling_mode ?? 'all',
+        sample_limit: cfg?.sampling_mode === 'random' ? cfg?.sample_limit : undefined,
+        // New column-based checks (only send column params when the check is enabled)
+        null_check: cfg?.null_check ?? false,
+        null_column: cfg?.null_check ? (cfg?.null_column || undefined) : undefined,
+        duplicate_check: cfg?.duplicate_check ?? false,
+        duplicate_match_key: cfg?.duplicate_check ? (cfg?.duplicate_match_key || undefined) : undefined,
+        sum_check: cfg?.sum_check ?? false,
+        sum_column: cfg?.sum_check ? (cfg?.sum_column || undefined) : undefined,
+        average_check: cfg?.average_check ?? false,
+        average_column: cfg?.average_check ? (cfg?.average_column || undefined) : undefined,
+        specific_row_check: cfg?.specific_row_check ?? false,
+        specific_row_match_key: cfg?.specific_row_check ? (cfg?.specific_row_match_key || undefined) : undefined,
+        specific_row_start: cfg?.specific_row_check ? cfg?.specific_row_start : undefined,
+        specific_row_end: cfg?.specific_row_check ? cfg?.specific_row_end : undefined,
+      };
+    });
 
     const payload: CreateValidationRunRequest = {
       migration_id: formMigrationId,
@@ -399,11 +513,19 @@ export const ValidationDashboardPage: React.FC = () => {
       {/* Toolbar */}
       <div className="validation-toolbar">
         <div className="validation-toolbar-left">
-          <button className="validation-new-btn" onClick={() => setShowForm((v) => !v)} type="button">
+          <button className="validation-new-btn" onClick={() => navigate('/validations/new')} type="button">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M7 1v12M1 7h12" strokeLinecap="round" />
             </svg>
             {t('validation.newValidation')}
+          </button>
+          <button
+            className="validation-filter-select"
+            onClick={() => setShowQuickTest((v) => !v)}
+            type="button"
+            style={{ cursor: 'pointer' }}
+          >
+            {showQuickTest ? 'Hide Quick Test' : 'Quick Test'}
           </button>
           <select
             className="validation-filter-select"
@@ -418,6 +540,9 @@ export const ValidationDashboardPage: React.FC = () => {
         </div>
         <div className="validation-toolbar-right" />
       </div>
+
+      {/* Quick direct-test panel (SQL Server / Redshift, no migration) */}
+      {showQuickTest && <QuickValidationTest />}
 
       {/* Create Form */}
       {showForm && (
@@ -571,9 +696,28 @@ export const ValidationDashboardPage: React.FC = () => {
                     const rowCount = migrationInfo?.table_row_counts?.[t];
                     const cfg = tableConfigs[t];
                     const isAll = (cfg?.sampling_mode ?? 'all') === 'all';
+                    const advancedOpen = !!expandedConfigTables[t];
+                    const advancedCount = [cfg?.null_check, cfg?.duplicate_check, cfg?.sum_check, cfg?.average_check, cfg?.specific_row_check].filter(Boolean).length;
+                    const cols = tableColumns[t] || [];
+                    const colsLoading = !!columnsLoading[t];
                     return (
-                      <tr key={t}>
-                        <td className="vtc-td-name" title={t}>{t}</td>
+                      <React.Fragment key={t}>
+                      <tr>
+                        <td className="vtc-td-name" title={t}>
+                          <button
+                            type="button"
+                            className={`vtc-advanced-toggle ${advancedOpen ? 'open' : ''}`}
+                            onClick={() => toggleAdvancedConfig(t)}
+                            aria-expanded={advancedOpen}
+                            aria-label="Toggle advanced checks"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                              <path d="M3 4.5l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                          <span className="vtc-td-name-text">{t}</span>
+                          {advancedCount > 0 && <span className="vtc-advanced-badge">+{advancedCount}</span>}
+                        </td>
                         <td className="vtc-td-rows">{rowCount != null ? rowCount.toLocaleString() : '—'}</td>
                         <td className="vtc-td-center">
                           <input type="checkbox" checked={cfg?.ddl ?? true} onChange={() => toggleTableCheck(t, 'ddl')} />
@@ -620,6 +764,118 @@ export const ValidationDashboardPage: React.FC = () => {
                           </div>
                         </td>
                       </tr>
+                      {advancedOpen && (
+                        <tr className="vtc-advanced-row">
+                          <td colSpan={6}>
+                            <div className="vtc-advanced-panel">
+                              {colsLoading && <span className="vtc-advanced-hint">Loading columns…</span>}
+                              <div className="vtc-advanced-grid">
+                                {/* NULL check */}
+                                <div className="vtc-advanced-item">
+                                  <label className="vtc-advanced-check">
+                                    <input type="checkbox" checked={cfg?.null_check ?? false} onChange={() => toggleTableCheck(t, 'null_check')} />
+                                    <span>NULL</span>
+                                  </label>
+                                  <select
+                                    className="vtc-advanced-select"
+                                    disabled={!cfg?.null_check}
+                                    value={cfg?.null_column ?? ''}
+                                    onChange={(e) => setTableConfigField(t, 'null_column', e.target.value)}
+                                  >
+                                    <option value="">Select column…</option>
+                                    {cols.map((c) => <option key={c.column_name} value={c.column_name}>{c.column_name}</option>)}
+                                  </select>
+                                </div>
+                                {/* Duplicate check */}
+                                <div className="vtc-advanced-item">
+                                  <label className="vtc-advanced-check">
+                                    <input type="checkbox" checked={cfg?.duplicate_check ?? false} onChange={() => toggleTableCheck(t, 'duplicate_check')} />
+                                    <span>Duplicate</span>
+                                  </label>
+                                  <select
+                                    className="vtc-advanced-select"
+                                    disabled={!cfg?.duplicate_check}
+                                    value={cfg?.duplicate_match_key ?? ''}
+                                    onChange={(e) => setTableConfigField(t, 'duplicate_match_key', e.target.value)}
+                                  >
+                                    <option value="">Match key column…</option>
+                                    {cols.map((c) => <option key={c.column_name} value={c.column_name}>{c.column_name}</option>)}
+                                  </select>
+                                </div>
+                                {/* SUM check */}
+                                <div className="vtc-advanced-item">
+                                  <label className="vtc-advanced-check">
+                                    <input type="checkbox" checked={cfg?.sum_check ?? false} onChange={() => toggleTableCheck(t, 'sum_check')} />
+                                    <span>SUM</span>
+                                  </label>
+                                  <select
+                                    className="vtc-advanced-select"
+                                    disabled={!cfg?.sum_check}
+                                    value={cfg?.sum_column ?? ''}
+                                    onChange={(e) => setTableConfigField(t, 'sum_column', e.target.value)}
+                                  >
+                                    <option value="">Numeric column…</option>
+                                    {cols.map((c) => <option key={c.column_name} value={c.column_name}>{c.column_name}</option>)}
+                                  </select>
+                                </div>
+                                {/* AVERAGE check */}
+                                <div className="vtc-advanced-item">
+                                  <label className="vtc-advanced-check">
+                                    <input type="checkbox" checked={cfg?.average_check ?? false} onChange={() => toggleTableCheck(t, 'average_check')} />
+                                    <span>AVERAGE</span>
+                                  </label>
+                                  <select
+                                    className="vtc-advanced-select"
+                                    disabled={!cfg?.average_check}
+                                    value={cfg?.average_column ?? ''}
+                                    onChange={(e) => setTableConfigField(t, 'average_column', e.target.value)}
+                                  >
+                                    <option value="">Numeric column…</option>
+                                    {cols.map((c) => <option key={c.column_name} value={c.column_name}>{c.column_name}</option>)}
+                                  </select>
+                                </div>
+                                {/* Specific row check */}
+                                <div className="vtc-advanced-item vtc-advanced-item-wide">
+                                  <label className="vtc-advanced-check">
+                                    <input type="checkbox" checked={cfg?.specific_row_check ?? false} onChange={() => toggleTableCheck(t, 'specific_row_check')} />
+                                    <span>Specific Row</span>
+                                  </label>
+                                  <div className="vtc-advanced-row-inputs">
+                                    <select
+                                      className="vtc-advanced-select"
+                                      disabled={!cfg?.specific_row_check}
+                                      value={cfg?.specific_row_match_key ?? ''}
+                                      onChange={(e) => setTableConfigField(t, 'specific_row_match_key', e.target.value)}
+                                    >
+                                      <option value="">Match key…</option>
+                                      {cols.map((c) => <option key={c.column_name} value={c.column_name}>{c.column_name}</option>)}
+                                    </select>
+                                    <input
+                                      type="number"
+                                      className="vtc-advanced-num"
+                                      placeholder="Start"
+                                      min={1}
+                                      disabled={!cfg?.specific_row_check}
+                                      value={cfg?.specific_row_start ?? ''}
+                                      onChange={(e) => setTableConfigField(t, 'specific_row_start', e.target.value ? Number(e.target.value) : undefined)}
+                                    />
+                                    <input
+                                      type="number"
+                                      className="vtc-advanced-num"
+                                      placeholder="End"
+                                      min={1}
+                                      disabled={!cfg?.specific_row_check}
+                                      value={cfg?.specific_row_end ?? ''}
+                                      onChange={(e) => setTableConfigField(t, 'specific_row_end', e.target.value ? Number(e.target.value) : undefined)}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>

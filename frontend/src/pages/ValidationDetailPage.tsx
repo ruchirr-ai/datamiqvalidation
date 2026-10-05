@@ -40,9 +40,32 @@ function formatDuration(seconds: number | null): string {
 // Status Badge (text-based replacement for SVG StatusIcon)
 // ---------------------------------------------------------------------------
 
-function StatusBadge({ status }: { status: string | null }) {
-  const label = status === 'passed' ? 'Passed' : status === 'failed' ? 'Failed' : status === 'error' ? 'Error' : 'Pending';
-  return <span className={`vd-status-badge ${status || 'pending'}`}>{label}</span>;
+
+// ---------------------------------------------------------------------------
+// Status Badge (text-based replacement for SVG StatusIcon)
+// ---------------------------------------------------------------------------
+
+function StatusBadge({
+  status,
+}: {
+  status?: string | null;
+}) {
+  const label =
+    status === 'passed'
+      ? 'Passed'
+      : status === 'failed'
+      ? 'Failed'
+      : status === 'error'
+      ? 'Error'
+      : status === 'skipped'
+      ? 'Skipped'
+      : 'Pending';
+
+  return (
+    <span className={`vd-status-badge ${status || 'pending'}`}>
+      {label}
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -50,11 +73,38 @@ function StatusBadge({ status }: { status: string | null }) {
 // ---------------------------------------------------------------------------
 
 function overallTableStatus(t: ValidationTableDetail): string {
-  if (t.status === 'error') return 'error';
-  const steps = [t.ddl_status, t.row_count_status, t.data_match_status];
-  if (steps.some((s) => s === 'failed')) return 'failed';
-  if (steps.some((s) => s === 'error')) return 'error';
-  if (steps.every((s) => s === 'passed')) return 'passed';
+  if (t.status === 'error') {
+    return 'error';
+  }
+
+  const steps = [
+    t.ddl_status,
+    t.row_count_status,
+    t.data_match_status,
+    t.null_status,
+    t.duplicate_status,
+    t.sum_status,
+    t.average_status,
+    t.specific_row_status,
+  ].filter(
+    (status) =>
+      status !== null &&
+      status !== undefined &&
+      status !== 'skipped'
+  );
+
+  if (steps.some((status) => status === 'error')) {
+    return 'error';
+  }
+
+  if (steps.some((status) => status === 'failed')) {
+    return 'failed';
+  }
+
+  if (steps.length > 0 && steps.every((status) => status === 'passed')) {
+    return 'passed';
+  }
+
   return 'pending';
 }
 
@@ -130,16 +180,112 @@ export const ValidationDetailPage: React.FC = () => {
     }
   };
 
-  const handleDownloadReport = () => {
-    if (!report) return;
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `validation-report-${runId}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+ const handleDownloadReport = () => {
+  if (!report) return;
+
+  const rows: string[][] = [];
+
+  const escapeCsv = (value: unknown) => {
+    const text = String(value ?? '');
+    return `"${text.replace(/"/g, '""')}"`;
   };
+
+  const addRow = (
+    tableName: string,
+    check: string,
+    status: string | null | undefined,
+    details: string
+  ) => {
+    rows.push([
+      tableName,
+      check,
+      status || 'Skipped',
+      details,
+    ]);
+  };
+
+  report.tables.forEach((table) => {
+    addRow(
+      table.table_name,
+      'Row Count',
+      table.row_count_status,
+      JSON.stringify(table.row_count_result || {})
+    );
+
+    addRow(
+      table.table_name,
+      'NULL',
+      table.null_status,
+      JSON.stringify(table.null_result || {})
+    );
+
+    addRow(
+      table.table_name,
+      'Schema',
+      table.ddl_status,
+      JSON.stringify(table.ddl_comparison_result || {})
+    );
+
+    addRow(
+      table.table_name,
+      'Duplicate',
+      table.duplicate_status,
+      JSON.stringify(table.duplicate_result || {})
+    );
+
+    addRow(
+      table.table_name,
+      'SUM',
+      table.sum_status,
+      JSON.stringify(table.sum_result || {})
+    );
+
+    addRow(
+      table.table_name,
+      'AVERAGE',
+      table.average_status,
+      JSON.stringify(table.average_result || {})
+    );
+
+    addRow(
+      table.table_name,
+      'Specific Row',
+      table.specific_row_status,
+      JSON.stringify(table.specific_row_result || {})
+    );
+  });
+
+  const csvRows = [
+    [
+      'Table Name',
+      'Validation Check',
+      'Status',
+      'Details',
+    ],
+    ...rows,
+  ];
+
+  const csvContent = csvRows
+    .map((row) => row.map(escapeCsv).join(','))
+    .join('\n');
+
+  const blob = new Blob(
+    [csvContent],
+    { type: 'text/csv;charset=utf-8;' }
+  );
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+
+  a.href = url;
+  a.download = `validation-report-${runId}.csv`;
+
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  URL.revokeObjectURL(url);
+};
 
   const toggleExpand = (tableName: string) => {
     setExpandedTable((prev) => (prev === tableName ? null : tableName));
@@ -151,6 +297,8 @@ export const ValidationDetailPage: React.FC = () => {
     if (s === 'completed' || s === 'passed') return 'completed';
     if (s === 'running') return 'running';
     if (s === 'failed') return 'failed';
+    if (s === 'error') return 'error';
+    if (s === 'skipped') return 'skipped';
     return 'pending';
   };
 
@@ -297,14 +445,14 @@ export const ValidationDetailPage: React.FC = () => {
       <div className="validation-detail-table">
         <table>
           <thead>
-            <tr>
-              <th>Table Name</th>
-              <th>DDL</th>
-              <th>Row Count</th>
-              <th>Data Match</th>
-              <th>Status</th>
-            </tr>
-          </thead>
+  <tr>
+    <th>Table Name</th>
+    <th>DDL</th>
+    <th>Row Count</th>
+    <th>Data Match</th>
+    <th>Status</th>
+  </tr>
+</thead>
           <tbody>
             {report.tables.map((t) => {
               const overall = overallTableStatus(t);
@@ -325,10 +473,22 @@ export const ValidationDetailPage: React.FC = () => {
                     }}
                   >
                     <td>{t.table_name}</td>
-                    <td><StatusBadge status={t.ddl_status} /></td>
-                    <td><StatusBadge status={t.row_count_status} /></td>
-                    <td><StatusBadge status={t.data_match_status} /></td>
-                    <td><StatusBadge status={overall} /></td>
+
+<td>
+  <StatusBadge status={t.ddl_status} />
+</td>
+
+<td>
+  <StatusBadge status={t.row_count_status} />
+</td>
+
+<td>
+  <StatusBadge status={t.data_match_status} />
+</td>
+
+<td>
+  <StatusBadge status={overall} />
+</td>
                   </tr>
 
                   {isExpanded && (
@@ -354,8 +514,430 @@ export const ValidationDetailPage: React.FC = () => {
     </div>
   );
 };
+function ValidationChecksSection({
+  table,
+}: {
+  table: ValidationTableDetail;
+}) {
+  const checks = [
+    {
+      label: 'Row Count',
+      status: table.row_count_status,
+    },
+    {
+      label: 'NULL',
+      status: table.null_status,
+    },
+    {
+      label: 'Schema',
+      status: table.ddl_status,
+    },
+    {
+      label: 'Duplicate',
+      status: table.duplicate_status,
+    },
+    {
+      label: 'SUM',
+      status: table.sum_status,
+    },
+    {
+      label: 'AVERAGE',
+      status: table.average_status,
+    },
+    {
+      label: 'Specific Row',
+      status: table.specific_row_status,
+    },
+  ];
+
+  return (
+    <div className="validation-checks-section">
+      <div className="validation-checks-section-header">
+        <h3>Validation Checks</h3>
+        <span>
+          {checks.filter(
+  (check) =>
+    check.status &&
+    check.status !== 'skipped'
+).length}{' '}
+checks executed
+        </span>
+      </div>
+
+      <div className="validation-checks-grid">
+        {checks.map((check) => (
+          <div
+            key={check.label}
+            className="validation-check-item"
+          >
+            <span className="validation-check-name">
+              {check.label}
+            </span>
+
+            <StatusBadge
+              status={check.status}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+function SpecificRowValidationSection({
+  result,
+}: {
+  result?: Record<string, any> | null;
+}) {
+  if (!result || Object.keys(result).length === 0) {
+    return null;
+  }
+
+  const discrepancies = Array.isArray(
+    result.sample_discrepancies
+  )
+    ? result.sample_discrepancies
+    : [];
+
+  const formatPrimaryKey = (
+    primaryKey: Record<string, any> | null | undefined
+  ) => {
+    if (!primaryKey) {
+      return '—';
+    }
+
+    return Object.entries(primaryKey)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(', ');
+  };
+
+  return (
+    <div className="validation-result-section">
+      <div className="validation-result-section-header">
+        <div>
+          <h3>Specific Row Details</h3>
+          <span>
+            Record-level comparison details
+          </span>
+        </div>
+      </div>
+
+      <div className="validation-result-summary">
+        <div className="validation-result-metric">
+          <span>Total Compared</span>
+          <strong>
+            {result.total_compared ?? 0}
+          </strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Matched</span>
+          <strong>
+            {result.matched_count ?? 0}
+          </strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Missing</span>
+          <strong>
+            {result.missing_count ?? 0}
+          </strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Extra</span>
+          <strong>
+            {result.extra_count ?? 0}
+          </strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Mismatched</span>
+          <strong>
+            {result.mismatch_count ?? 0}
+          </strong>
+        </div>
+      </div>
+
+      {discrepancies.length > 0 && (
+        <div className="validation-discrepancies">
+          <h4>Discrepancies</h4>
+
+          {discrepancies.map(
+            (
+              discrepancy: any,
+              index: number
+            ) => {
+              const type =
+                discrepancy?.type;
+
+              const primaryKey =
+                formatPrimaryKey(
+                  discrepancy?.primary_key
+                );
+
+              if (
+                type ===
+                'missing_in_target'
+              ) {
+                return (
+                  <div
+                    key={index}
+                    className="validation-discrepancy-item"
+                  >
+                    <div className="validation-discrepancy-title">
+                      Missing in Target
+                    </div>
+
+                    <div className="validation-discrepancy-detail">
+                      <strong>
+                        Primary Key:
+                      </strong>{' '}
+                      {primaryKey}
+                    </div>
+                  </div>
+                );
+              }
+
+              if (
+                type ===
+                'extra_in_target'
+              ) {
+                return (
+                  <div
+                    key={index}
+                    className="validation-discrepancy-item"
+                  >
+                    <div className="validation-discrepancy-title">
+                      Extra in Target
+                    </div>
+
+                    <div className="validation-discrepancy-detail">
+                      <strong>
+                        Primary Key:
+                      </strong>{' '}
+                      {primaryKey}
+                    </div>
+                  </div>
+                );
+              }
+
+              if (
+                type ===
+                'value_mismatch'
+              ) {
+                const details =
+                  discrepancy?.details ||
+                  {};
+
+                return (
+                  <div
+                    key={index}
+                    className="validation-discrepancy-item"
+                  >
+                    <div className="validation-discrepancy-title">
+                      Value Mismatch
+                    </div>
+
+                    <div className="validation-discrepancy-detail">
+                      <strong>
+                        Primary Key:
+                      </strong>{' '}
+                      {primaryKey}
+                    </div>
+
+                    <div className="validation-discrepancy-detail">
+                      <strong>
+                        Column:
+                      </strong>{' '}
+                      {details.column ||
+                        '—'}
+                    </div>
+
+                    <div className="validation-discrepancy-values">
+                      <div>
+                        <span>
+                          Source
+                        </span>
+                        <code>
+                          {details.source_value ??
+                            'NULL'}
+                        </code>
+                      </div>
+
+                      <div>
+                        <span>
+                          Target
+                        </span>
+                        <code>
+                          {details.target_value ??
+                            'NULL'}
+                        </code>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return null;
+            }
+          )}
+        </div>
+      )}
+
+      {discrepancies.length === 0 &&
+        (result.missing_count > 0 ||
+          result.extra_count > 0 ||
+          result.mismatch_count > 0) && (
+          <div className="validation-discrepancy-empty">
+            Discrepancy counts are available,
+            but no sample records were returned.
+          </div>
+        )}
+    </div>
+  );
+}
+function NullValidationSection({
+  result,
+}: {
+  result?: Record<string, any> | null;
+}) {
+  if (!result || Object.keys(result).length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="validation-result-section">
+      <div className="validation-result-section-header">
+        <div>
+          <h3>NULL Validation Details</h3>
+          <span>NULL count comparison</span>
+        </div>
+      </div>
+
+      <div className="validation-result-summary">
+        <div className="validation-result-metric">
+          <span>Column</span>
+          <strong>{result.column || '—'}</strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Source NULLs</span>
+          <strong>{result.source_null_count ?? 0}</strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Target NULLs</span>
+          <strong>{result.target_null_count ?? 0}</strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Difference</span>
+          <strong>{result.difference ?? 0}</strong>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 
+function DuplicateValidationSection({
+  result,
+}: {
+  result?: Record<string, any> | null;
+}) {
+  if (!result || Object.keys(result).length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="validation-result-section">
+      <div className="validation-result-section-header">
+        <div>
+          <h3>Duplicate Validation Details</h3>
+          <span>Duplicate group comparison</span>
+        </div>
+      </div>
+
+      <div className="validation-result-summary">
+        <div className="validation-result-metric">
+          <span>Match Key</span>
+          <strong>{result.match_key || '—'}</strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Source Duplicates</span>
+          <strong>
+            {result.source_duplicate_count ?? 0}
+          </strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Target Duplicates</span>
+          <strong>
+            {result.target_duplicate_count ?? 0}
+          </strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Difference</span>
+          <strong>{result.difference ?? 0}</strong>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function AggregateValidationSection({
+  result,
+  title,
+}: {
+  result?: Record<string, any> | null;
+  title: 'SUM' | 'AVERAGE';
+}) {
+  if (!result || Object.keys(result).length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="validation-result-section">
+      <div className="validation-result-section-header">
+        <div>
+          <h3>{title} Validation Details</h3>
+          <span>
+            Source and target aggregate comparison
+          </span>
+        </div>
+      </div>
+
+      <div className="validation-result-summary">
+        <div className="validation-result-metric">
+          <span>Column</span>
+          <strong>{result.column || '—'}</strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Source Value</span>
+          <strong>
+            {result.source_value ?? 0}
+          </strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Target Value</span>
+          <strong>
+            {result.target_value ?? 0}
+          </strong>
+        </div>
+
+        <div className="validation-result-metric">
+          <span>Difference</span>
+          <strong>{result.difference ?? 0}</strong>
+        </div>
+      </div>
+    </div>
+  );
+}
 // ---------------------------------------------------------------------------
 // Expanded Panel
 // ---------------------------------------------------------------------------
@@ -367,10 +949,61 @@ interface ExpandedPanelProps {
 function ExpandedPanel({ table }: ExpandedPanelProps) {
   return (
     <div className="validation-detail-expand-inner">
-      <DDLSection result={table.ddl_comparison_result} />
-      <RowCountSection result={table.row_count_result} />
-      <DataMatchSection result={table.data_match_result} />
-      {table.ai_analysis && <AIAnalysisSection analysis={table.ai_analysis} />}
+
+      {/* Validation status overview */}
+      <ValidationChecksSection
+        table={table}
+      />
+
+      {/* Schema / DDL */}
+      <DDLSection
+        result={table.ddl_comparison_result}
+      />
+
+      {/* Row Count */}
+      <RowCountSection
+        result={table.row_count_result}
+      />
+
+      {/* Data Match */}
+      <DataMatchSection
+        result={table.data_match_result}
+      />
+
+      {/* NULL */}
+      <NullValidationSection
+        result={table.null_result}
+      />
+
+      {/* Duplicate */}
+      <DuplicateValidationSection
+        result={table.duplicate_result}
+      />
+
+      {/* SUM */}
+      <AggregateValidationSection
+        title="SUM"
+        result={table.sum_result}
+      />
+
+      {/* AVERAGE */}
+      <AggregateValidationSection
+        title="AVERAGE"
+        result={table.average_result}
+      />
+
+      {/* Specific Row */}
+      <SpecificRowValidationSection
+        result={table.specific_row_result}
+      />
+
+      {/* AI Analysis */}
+      {table.ai_analysis && (
+        <AIAnalysisSection
+          analysis={table.ai_analysis}
+        />
+      )}
+
     </div>
   );
 }
@@ -384,6 +1017,10 @@ interface DDLSectionProps {
 }
 
 function DDLSection({ result }: DDLSectionProps) {
+  if (!result || Object.keys(result).length === 0) {
+    return null;
+  }
+
   const discrepancies = (result?.discrepancies ?? []) as Array<Record<string, unknown>>;
   const sourceCount = (result?.source_column_count ?? '—') as number | string;
   const targetCount = (result?.target_column_count ?? '—') as number | string;
@@ -445,20 +1082,8 @@ interface RowCountSectionProps {
 }
 
 function RowCountSection({ result }: RowCountSectionProps) {
-  if (!result) {
-    return (
-      <div className="validation-detail-section">
-        <div className="validation-detail-section-header">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-            <path d="M2 4h12M2 8h12M2 12h12" strokeLinecap="round" />
-          </svg>
-          Row Count
-        </div>
-        <div className="validation-detail-section-body">
-          <p className="validation-detail-no-data">No row count data available.</p>
-        </div>
-      </div>
-    );
+  if (!result || Object.keys(result).length === 0) {
+    return null;
   }
 
   const sourceCount = result.source_count as number | undefined;
@@ -515,21 +1140,8 @@ interface DataMatchSectionProps {
 }
 
 function DataMatchSection({ result }: DataMatchSectionProps) {
-  if (!result) {
-    return (
-      <div className="validation-detail-section">
-        <div className="validation-detail-section-header">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-            <circle cx="8" cy="8" r="6" />
-            <path d="M5.5 8l2 2 3-3" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          Data Match
-        </div>
-        <div className="validation-detail-section-body">
-          <p className="validation-detail-no-data">No data match results available.</p>
-        </div>
-      </div>
-    );
+  if (!result || Object.keys(result).length === 0) {
+    return null;
   }
 
   const totalCompared = result.total_compared as number | undefined;

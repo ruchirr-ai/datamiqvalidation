@@ -30,6 +30,7 @@ import { StandaloneConverterPage } from './pages/StandaloneConverterPage';
 import { BatchConverterPage } from './pages/BatchConverterPage';
 import { ValidationDashboardPage } from './pages/ValidationDashboardPage';
 import { ValidationDetailPage } from './pages/ValidationDetailPage';
+import ValidationWizardPage from './pages/ValidationWizardPage';
 import { WorkspacesPage } from './pages/WorkspacesPage';
 import { CopyHistoryPage } from './pages/CopyHistoryPage';
 import { TaskHistoryPage } from './pages/TaskHistoryPage';
@@ -201,6 +202,7 @@ const AppContent: React.FC = () => {
                   <Route path="/converter" element={<StandaloneConverterPage />} />
                   <Route path="/converter/batch" element={<BatchConverterPage />} />
                   <Route path="/validations" element={<ValidationDashboardPage />} />
+                  <Route path="/validations/new" element={<ValidationWizardPage />} />
                   <Route path="/validations/:runId" element={<ValidationDetailPage />} />
                   <Route path="/monitoring" element={<Navigate to="/monitoring/query-history" replace />} />
                   <Route path="/monitoring/copy-history" element={<CopyHistoryPage />} />

@@ -297,8 +297,8 @@ describe('ValidationDetailPage', () => {
 
     const createObjectURLMock = vi.fn().mockReturnValue('blob:mock-url');
     const revokeObjectURLMock = vi.fn();
-    global.URL.createObjectURL = createObjectURLMock;
-    global.URL.revokeObjectURL = revokeObjectURLMock;
+    globalThis.URL.createObjectURL = createObjectURLMock;
+    globalThis.URL.revokeObjectURL = revokeObjectURLMock;
 
     const clickMock = vi.fn();
     const origCreateElement = document.createElement.bind(document);
