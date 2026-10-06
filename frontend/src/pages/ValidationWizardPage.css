@@ -1246,3 +1246,101 @@
 .validation-direct-results + .validation-direct-results {
   margin-top: 16px;
 }
+
+/* =========================================================
+   Per-pair validation check cards (connection mode)
+   ========================================================= */
+
+.validation-pair-check-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.validation-pair-check-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #f8fafc;
+  border-bottom: 1px solid #eef0f3;
+}
+
+.validation-pair-check-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+  word-break: break-all;
+}
+
+.validation-pair-check-count {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eff6ff;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.validation-pair-checks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+  padding: 16px 18px;
+}
+
+.validation-pair-check-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.validation-pair-col-select,
+.validation-pair-num-input {
+  width: 100%;
+  min-height: 38px;
+  box-sizing: border-box;
+  padding: 0 11px;
+  margin-left: 26px;      /* align under the checkbox label text */
+  max-width: calc(100% - 26px);
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  font-size: 13px;
+  outline: none;
+}
+
+.validation-pair-col-select:focus,
+.validation-pair-num-input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.10);
+}
+
+.validation-pair-specific-row {
+  display: flex;
+  gap: 8px;
+  margin-left: 26px;
+  max-width: calc(100% - 26px);
+}
+
+.validation-pair-specific-row .validation-pair-col-select,
+.validation-pair-specific-row .validation-pair-num-input {
+  margin-left: 0;
+  max-width: none;
+}
+
+.validation-pair-num-input {
+  width: 90px;
+  flex-shrink: 0;
+}
+
+.validation-pair-loading {
+  padding: 0 18px 14px;
+  font-size: 12px;
+  color: #6b7280;
+}

@@ -40,6 +40,46 @@ const CHECKS = [
   'Specific Row Validation',
 ];
 
+/** Per-pair check configuration (connection mode). Each table pair carries
+ *  its own set of selected checks, column params, and discovered columns. */
+interface PairCheckConfig {
+  checks: string[];
+  nullColumn: string;
+  duplicateMatchKey: string;
+  sumColumn: string;
+  averageColumn: string;
+  specificRowMatchKey: string;
+  specificRowStart: string;
+  specificRowEnd: string;
+  columns: string[];
+  columnsLoading: boolean;
+}
+
+interface TablePair {
+  source: string;     // "schema.table"
+  target: string;     // "schema.table"
+  config: PairCheckConfig;
+}
+
+function makeDefaultPairConfig(): PairCheckConfig {
+  return {
+    checks: ['Row Count Validation'],
+    nullColumn: '',
+    duplicateMatchKey: '',
+    sumColumn: '',
+    averageColumn: '',
+    specificRowMatchKey: '',
+    specificRowStart: '',
+    specificRowEnd: '',
+    columns: [],
+    columnsLoading: false,
+  };
+}
+
+function makeDefaultPair(): TablePair {
+  return { source: '', target: '', config: makeDefaultPairConfig() };
+}
+
 export default function ValidationWizardPage() {
   const navigate = useNavigate();
 
@@ -62,10 +102,10 @@ export default function ValidationWizardPage() {
   const [sourceConnTablesLoading, setSourceConnTablesLoading] = useState(false);
   const [targetConnTablesLoading, setTargetConnTablesLoading] = useState(false);
 
-  // Table pairs to validate: each is a source + target "schema.table".
-  // Supports validating multiple tables in one connection-mode run.
-  const [tablePairs, setTablePairs] = useState<Array<{ source: string; target: string }>>([
-    { source: '', target: '' },
+  // Table pairs to validate: each is a source + target "schema.table"
+  // with its OWN check configuration and discovered columns.
+  const [tablePairs, setTablePairs] = useState<TablePair[]>([
+    makeDefaultPair(),
   ]);
 
   const [connError, setConnError] = useState('');
@@ -182,7 +222,7 @@ export default function ValidationWizardPage() {
   // Discover tables when source connection changes
   useEffect(() => {
     setSourceConnTables([]);
-    setTablePairs([{ source: '', target: '' }]);
+    setTablePairs([makeDefaultPair()]);
     if (!sourceConnectionId) return;
     setSourceConnTablesLoading(true);
     setConnError('');
@@ -205,20 +245,33 @@ export default function ValidationWizardPage() {
       .finally(() => setTargetConnTablesLoading(false));
   }, [targetConnectionId]);
 
-  // Load check-picker columns from the first selected source table.
-  // (Checks apply to all pairs; the column list is a convenience based on
-  // the first table.)
-  const firstPairSource = tablePairs[0]?.source || '';
+  // Per-pair column discovery: whenever a pair has a source table selected
+  // but its config has no columns loaded yet, fetch that table's columns
+  // into THAT pair's config (so each pair's check pickers use its own cols).
+  const pairSourcesKey = tablePairs.map((p) => p.source).join('|');
   useEffect(() => {
-    if (mode !== 'connection') return;
-    setAvailableColumns([]);
-    const found = sourceConnTables.find((t) => `${t.schema}.${t.table}` === firstPairSource);
-    if (!sourceConnectionId || !found) return;
-    getConnectionColumns(sourceConnectionId, found.schema, found.table)
-      .then((res) => setAvailableColumns((res.columns || []).map((c) => c.column_name)))
-      .catch(() => setAvailableColumns([]));
+    if (mode !== 'connection' || !sourceConnectionId) return;
+    tablePairs.forEach((pair, index) => {
+      if (!pair.source) return;
+      if (pair.config.columns.length > 0 || pair.config.columnsLoading) return;
+      const found = sourceConnTables.find((t) => `${t.schema}.${t.table}` === pair.source);
+      if (!found) return;
+      // mark loading for this pair
+      setTablePairs((prev) => prev.map((p, i) =>
+        i === index ? { ...p, config: { ...p.config, columnsLoading: true } } : p));
+      getConnectionColumns(sourceConnectionId, found.schema, found.table)
+        .then((res) => {
+          const cols = (res.columns || []).map((c) => c.column_name);
+          setTablePairs((prev) => prev.map((p, i) =>
+            i === index ? { ...p, config: { ...p.config, columns: cols, columnsLoading: false } } : p));
+        })
+        .catch(() => {
+          setTablePairs((prev) => prev.map((p, i) =>
+            i === index ? { ...p, config: { ...p.config, columns: [], columnsLoading: false } } : p));
+        });
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, sourceConnectionId, firstPairSource]);
+  }, [mode, sourceConnectionId, pairSourcesKey, sourceConnTables]);
 
   // Fully-specified pairs (both sides chosen), resolved to table objects
   const resolvedPairs = tablePairs
@@ -227,15 +280,41 @@ export default function ValidationWizardPage() {
       target: targetConnTables.find((t) => `${t.schema}.${t.table}` === p.target),
       sourceSel: p.source,
       targetSel: p.target,
+      config: p.config,
     }))
     .filter((p) => p.source && p.target);
 
   // Pair row helpers
-  const addTablePair = () => setTablePairs((prev) => [...prev, { source: '', target: '' }]);
+  const addTablePair = () => setTablePairs((prev) => [...prev, makeDefaultPair()]);
   const removeTablePair = (index: number) =>
     setTablePairs((prev) => prev.filter((_, i) => i !== index));
   const updateTablePair = (index: number, side: 'source' | 'target', value: string) =>
-    setTablePairs((prev) => prev.map((p, i) => (i === index ? { ...p, [side]: value } : p)));
+    setTablePairs((prev) => prev.map((p, i) => {
+      if (i !== index) return p;
+      if (side === 'source' && value !== p.source) {
+        // Source changed → reset that pair's columns so they're re-fetched
+        return { ...p, source: value, config: { ...p.config, columns: [], columnsLoading: false } };
+      }
+      return { ...p, [side]: value };
+    }));
+
+  // Per-pair check config helpers
+  const togglePairCheck = (index: number, check: string) => {
+    setTablePairs((prev) => prev.map((p, i) => {
+      if (i !== index) return p;
+      const checks = p.config.checks.includes(check)
+        ? p.config.checks.filter((c) => c !== check)
+        : [...p.config.checks, check];
+      return { ...p, config: { ...p.config, checks } };
+    }));
+  };
+
+  const updatePairConfigField = (index: number, field: keyof PairCheckConfig, value: any) => {
+    setTablePairs((prev) => prev.map((p, i) => {
+      if (i !== index) return p;
+      return { ...p, config: { ...p.config, [field]: value } };
+    }));
+  };
 
   // =========================================================
   // MIGRATION CHANGE
@@ -498,16 +577,18 @@ const validateCurrentStep = (): boolean => {
   }
 
   // Step 3 - Validation Checks
-  // Only require at least one check.
-  // Individual parameters remain optional for UI navigation.
   if (currentStep === 2) {
-    if (selectedChecks.length === 0) {
-      setError(
-        'Please select at least one validation check.'
-      );
+    if (mode === 'connection') {
+      // Per-pair: every pair must have at least one check
+      const unconfigured = tablePairs.findIndex((p) => p.source && p.config.checks.length === 0);
+      if (unconfigured >= 0) {
+        setError(`"${tablePairs[unconfigured].source}" has no checks selected.`);
+        return false;
+      }
+    } else if (selectedChecks.length === 0) {
+      setError('Please select at least one validation check.');
       return false;
     }
-
     return true;
   }
 
@@ -690,17 +771,20 @@ const validateCurrentStep = (): boolean => {
       setRunError('Select at least one complete source → target table pair.');
       return;
     }
-    if (selectedChecks.length === 0) {
-      setRunError('Select at least one validation check.');
+    // Verify every pair has at least one check
+    const unconfigured = resolvedPairs.findIndex((p) => p.config.checks.length === 0);
+    if (unconfigured >= 0) {
+      setRunError(`Table pair "${resolvedPairs[unconfigured].sourceSel}" has no checks selected.`);
       return;
     }
 
     setDirectRunning(true);
     try {
-      // Run each table pair through the direct-test endpoint and collect
-      // results. Pairs run sequentially so one failure doesn't abort the rest.
+      // Run each table pair through the direct-test endpoint with THAT PAIR's
+      // own check config. Pairs run sequentially; one failure doesn't abort.
       const results: DirectValidationResponse[] = [];
       for (const pair of resolvedPairs) {
+        const cfg = pair.config;
         try {
           const res = await runDirectValidationTest({
             source_connection_id: sourceConnectionId,
@@ -708,15 +792,15 @@ const validateCurrentStep = (): boolean => {
             source_schema: pair.source!.schema,
             target_schema: pair.target!.schema,
             table_name: pair.source!.table,
-            row_count: isCheckSelected('Row Count Validation'),
-            null_check: isCheckSelected('NULL Validation'),
-            null_column: nullColumn || undefined,
-            duplicate_check: isCheckSelected('Duplicate Validation'),
-            duplicate_match_key: duplicateMatchKey || undefined,
-            sum_check: isCheckSelected('SUM Validation'),
-            sum_column: sumColumn || undefined,
-            average_check: isCheckSelected('AVERAGE Validation'),
-            average_column: averageColumn || undefined,
+            row_count: cfg.checks.includes('Row Count Validation'),
+            null_check: cfg.checks.includes('NULL Validation'),
+            null_column: cfg.nullColumn || undefined,
+            duplicate_check: cfg.checks.includes('Duplicate Validation'),
+            duplicate_match_key: cfg.duplicateMatchKey || undefined,
+            sum_check: cfg.checks.includes('SUM Validation'),
+            sum_column: cfg.sumColumn || undefined,
+            average_check: cfg.checks.includes('AVERAGE Validation'),
+            average_column: cfg.averageColumn || undefined,
           });
           results.push(res);
         } catch (err: any) {
@@ -1247,7 +1331,145 @@ const validateCurrentStep = (): boolean => {
   </div>
 );
   // =========================================================
-  // STEP 3 - VALIDATION CHECKS
+  // STEP 3 - VALIDATION CHECKS (connection mode: per-pair)
+  // =========================================================
+
+  const renderPerPairChecksStep = () => {
+    return (
+      <div className="validation-wizard-content">
+        <h2>Validation Checks</h2>
+        <p className="validation-wizard-description">
+          Configure which checks to run on each table pair. Each pair can have
+          different checks and column selections.
+        </p>
+
+        {tablePairs.map((pair, index) => {
+          if (!pair.source) return null;
+          const cfg = pair.config;
+          const cols = cfg.columns;
+          const pairLabel = pair.source
+            ? `${pair.source} → ${pair.target || '(no target)'}`
+            : `Pair ${index + 1}`;
+
+          return (
+            <div key={index} className="validation-pair-check-card">
+              <div className="validation-pair-check-header">
+                <span className="validation-pair-check-label">{pairLabel}</span>
+                <span className="validation-pair-check-count">
+                  {cfg.checks.length} check{cfg.checks.length === 1 ? '' : 's'}
+                </span>
+              </div>
+
+              <div className="validation-pair-checks-grid">
+                {CHECKS.map((check) => {
+                  const selected = cfg.checks.includes(check);
+                  return (
+                    <div key={check} className="validation-pair-check-item">
+                      <label className="validation-check-item">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => togglePairCheck(index, check)}
+                        />
+                        <span>{check}</span>
+                      </label>
+
+                      {/* Column pickers for checks that need them */}
+                      {check === 'NULL Validation' && selected && (
+                        <select
+                          className="validation-pair-col-select"
+                          value={cfg.nullColumn}
+                          onChange={(e) => updatePairConfigField(index, 'nullColumn', e.target.value)}
+                        >
+                          <option value="">Select column</option>
+                          {cols.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      )}
+
+                      {check === 'Duplicate Validation' && selected && (
+                        <select
+                          className="validation-pair-col-select"
+                          value={cfg.duplicateMatchKey}
+                          onChange={(e) => updatePairConfigField(index, 'duplicateMatchKey', e.target.value)}
+                        >
+                          <option value="">Select match key</option>
+                          {cols.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      )}
+
+                      {check === 'SUM Validation' && selected && (
+                        <select
+                          className="validation-pair-col-select"
+                          value={cfg.sumColumn}
+                          onChange={(e) => updatePairConfigField(index, 'sumColumn', e.target.value)}
+                        >
+                          <option value="">Select numeric column</option>
+                          {cols.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      )}
+
+                      {check === 'AVERAGE Validation' && selected && (
+                        <select
+                          className="validation-pair-col-select"
+                          value={cfg.averageColumn}
+                          onChange={(e) => updatePairConfigField(index, 'averageColumn', e.target.value)}
+                        >
+                          <option value="">Select numeric column</option>
+                          {cols.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      )}
+
+                      {check === 'Specific Row Validation' && selected && (
+                        <div className="validation-pair-specific-row">
+                          <select
+                            className="validation-pair-col-select"
+                            value={cfg.specificRowMatchKey}
+                            onChange={(e) => updatePairConfigField(index, 'specificRowMatchKey', e.target.value)}
+                          >
+                            <option value="">Select match key</option>
+                            {cols.map((c) => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                          <input
+                            type="number"
+                            min="1"
+                            placeholder="Start"
+                            value={cfg.specificRowStart}
+                            onChange={(e) => updatePairConfigField(index, 'specificRowStart', e.target.value)}
+                            className="validation-pair-num-input"
+                          />
+                          <input
+                            type="number"
+                            min="1"
+                            placeholder="End"
+                            value={cfg.specificRowEnd}
+                            onChange={(e) => updatePairConfigField(index, 'specificRowEnd', e.target.value)}
+                            className="validation-pair-num-input"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {cfg.columnsLoading && (
+                <div className="validation-pair-loading">Loading columns…</div>
+              )}
+            </div>
+          );
+        })}
+
+        {tablePairs.every((p) => !p.source) && (
+          <div className="validation-error">
+            Go back to Step 2 and select at least one table pair.
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // =========================================================
+  // STEP 3 - VALIDATION CHECKS (migration mode: global)
   // =========================================================
 
   const renderValidationChecksStep = () => (
@@ -1567,12 +1789,26 @@ const validateCurrentStep = (): boolean => {
       <div className="validation-config-section-header">
         <h3>Validation Checks</h3>
         <span>
-          {selectedChecks.length} check
-          {selectedChecks.length === 1 ? '' : 's'} selected
+          {mode === 'connection'
+            ? `${tablePairs.filter((p) => p.source).length} table(s), per-pair config`
+            : `${selectedChecks.length} check${selectedChecks.length === 1 ? '' : 's'} selected`}
         </span>
       </div>
 
-      {selectedChecks.length === 0 ? (
+      {mode === 'connection' ? (
+        tablePairs.filter((p) => p.source).length === 0 ? (
+          <div className="validation-config-empty">No table pairs configured.</div>
+        ) : (
+          <div className="validation-config-checks">
+            {tablePairs.filter((p) => p.source).map((p, i) => (
+              <div key={i} className="validation-config-check">
+                <span className="validation-config-check-icon">✓</span>
+                <span>{p.source}: {p.config.checks.length > 0 ? p.config.checks.join(', ') : 'no checks'}</span>
+              </div>
+            ))}
+          </div>
+        )
+      ) : selectedChecks.length === 0 ? (
         <div className="validation-config-empty">
           No validation checks selected.
         </div>
@@ -1621,7 +1857,7 @@ const validateCurrentStep = (): boolean => {
               </p>
               <div className="validation-ready-summary">
                 <div><strong>Table pairs:</strong> {resolvedPairs.length}</div>
-                <div><strong>Checks:</strong> {selectedChecks.length}</div>
+                <div><strong>Checks:</strong> {resolvedPairs.reduce((sum, p) => sum + p.config.checks.length, 0)} total across all pairs</div>
               </div>
             </div>
           )}
@@ -1731,7 +1967,9 @@ const validateCurrentStep = (): boolean => {
           : renderDataDefinitionStep();
 
       case 2:
-        return renderValidationChecksStep();
+        return mode === 'connection'
+          ? renderPerPairChecksStep()
+          : renderValidationChecksStep();
 
       case 3:
         return renderConfigurationStep();
