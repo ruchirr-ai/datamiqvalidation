@@ -1,0 +1,16 @@
+[Unit]
+Description=DataMIQ FastAPI backend
+After=network.target
+
+[Service]
+# Single worker on purpose: main.py runs an in-process background scheduler
+# for scheduled migrations. Multiple workers would run it multiple times.
+User=ubuntu
+WorkingDirectory=/home/ubuntu/datamiq/backend
+ExecStart=/home/ubuntu/.local/bin/uv run uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=3
+Environment=PATH=/home/ubuntu/.local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=multi-user.target

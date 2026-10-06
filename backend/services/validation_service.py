@@ -1823,58 +1823,123 @@ class ValidationService:
 
     @staticmethod
     def _get_database_type(conn_params: dict) -> str:
-        """Normalize the database type already stored in connection params."""
-        raw = (
-            conn_params.get("database_type")
-            or conn_params.get("db_type")
-            or conn_params.get("connection_type")
-            or conn_params.get("engine")
-            or conn_params.get("service")
-            or conn_params.get("type")
-        )
-        if not raw:
-            candidate = str(conn_params.get("database", "")).strip().lower()
-            raw = {
-                "mongo": "mongodb",
-                "mongodb": "mongodb",
-                "documentdb": "documentdb",
-                "amazon documentdb": "documentdb",
-                "postgres": "postgresql",
-                "postgresql": "postgresql",
-                "mysql": "mysql",
-                "oracle": "oracle",
-                "sqlserver": "sqlserver",
-                "sql server": "sqlserver",
-                "mssql": "sqlserver",
-                "bigquery": "bigquery",
-                "clickhouse": "clickhouse",
-                "redshift": "redshift",
-                "sybase": "sybase",
-                "sap sybase": "sybase",
-                "db2": "db2",
-                "ibm db2": "db2",
-            }.get(candidate, "")
-        value = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
-        return {
+        """Normalize the database engine type from connection params.
+
+        Resolution order (first match wins):
+        1. An explicit engine key (database_type/db_type/connection_type/
+           engine/service/type).
+        2. The ``database`` field, if it names a known engine.
+        3. Inference from telltale signals (endpoint hostname, port, param
+           keys) — so a connection whose engine label is missing/mislabeled
+           still resolves instead of raising "unsupported type".
+
+        Returns a canonical engine key (e.g. "redshift", "postgresql",
+        "sqlserver", ...) or "" if it genuinely cannot be determined.
+        """
+        # Canonical alias map, shared by every lookup below.
+        alias = {
             "mongo": "mongodb",
             "mongodb": "mongodb",
             "documentdb": "documentdb",
             "amazon_documentdb": "documentdb",
+            "amazon documentdb": "documentdb",
             "postgres": "postgresql",
             "postgresql": "postgresql",
             "mysql": "mysql",
+            "mariadb": "mysql",
             "oracle": "oracle",
             "sql_server": "sqlserver",
             "sqlserver": "sqlserver",
+            "sql server": "sqlserver",
             "mssql": "sqlserver",
+            "microsoft sql server": "sqlserver",
             "bigquery": "bigquery",
+            "big_query": "bigquery",
             "clickhouse": "clickhouse",
             "redshift": "redshift",
+            "amazon redshift": "redshift",
             "sybase": "sybase",
             "sap_sybase": "sybase",
+            "sap sybase": "sybase",
             "db2": "db2",
             "ibm_db2": "db2",
-        }.get(value, value)
+            "ibm db2": "db2",
+        }
+
+        def _canon(v) -> str:
+            key = str(v or "").strip().lower()
+            if key in alias:
+                return alias[key]
+            key2 = key.replace("-", "_").replace(" ", "_")
+            return alias.get(key2, "")
+
+        # 1. Explicit engine keys
+        for field in (
+            "database_type", "db_type", "connection_type",
+            "engine", "service", "type",
+        ):
+            resolved = _canon(conn_params.get(field))
+            if resolved:
+                return resolved
+
+        # 2. The 'database' field, only if it names a known engine
+        resolved = _canon(conn_params.get("database"))
+        if resolved:
+            return resolved
+
+        # 3. Inference from telltale signals (hostname / port / param keys)
+        host = str(
+            conn_params.get("host")
+            or conn_params.get("server_name")
+            or conn_params.get("cluster")
+            or conn_params.get("endpoint")
+            or ""
+        ).lower()
+        if ".redshift.amazonaws.com" in host or "redshift-serverless" in host:
+            return "redshift"
+        if ".rds.amazonaws.com" in host:
+            # RDS covers several engines; disambiguate by port if possible.
+            pass
+        if ".docdb.amazonaws.com" in host:
+            return "documentdb"
+
+        # BigQuery is identified by service-account credentials + project id
+        if (
+            conn_params.get("credentials_json")
+            or conn_params.get("service_account_key")
+            or conn_params.get("serviceAccountKey")
+            or conn_params.get("project_id")
+            or conn_params.get("projectId")
+        ):
+            return "bigquery"
+
+        # MongoDB-style URI
+        uri = str(conn_params.get("uri") or conn_params.get("connection_string") or "").lower()
+        if uri.startswith("mongodb://") or uri.startswith("mongodb+srv://"):
+            return "mongodb"
+
+        # Port-based inference (last resort)
+        try:
+            port = int(conn_params.get("port") or 0)
+        except (TypeError, ValueError):
+            port = 0
+        port_map = {
+            5439: "redshift",
+            5432: "postgresql",
+            3306: "mysql",
+            1433: "sqlserver",
+            1521: "oracle",
+            27017: "mongodb",
+            8123: "clickhouse",
+            8443: "clickhouse",
+            50000: "db2",
+            5000: "sybase",
+        }
+        if port in port_map:
+            return port_map[port]
+
+        # Could not determine — return "" so callers can raise a clear error.
+        return ""
 
     @staticmethod
     def _quote_identifier(name: str, database_type: str) -> str:
@@ -1974,7 +2039,16 @@ class ValidationService:
                         )
                 dsn = ";".join(parts)
             return pyodbc.connect(dsn, timeout=timeout)
-        raise ValueError(f"Unsupported SQL database type: {db}")
+        if not db:
+            raise ValueError(
+                "Could not determine the database engine for this connection. "
+                "Ensure the connection's type is set (e.g. redshift, postgresql, "
+                "sqlserver, mysql)."
+            )
+        raise ValueError(
+            f"Unsupported SQL database type: '{db}'. Supported SQL engines: "
+            "postgresql, redshift, mysql, sqlserver, oracle, sybase, db2."
+        )
 
     @staticmethod
     def _mongo_client(conn_params: dict):
@@ -3727,7 +3801,12 @@ class ValidationService:
     # ------------------------------------------------------------------
 
     def _engine_for_connection(self, connection: "Connection") -> str:
-        """Resolve the normalized engine key for a connection record."""
+        """Resolve the normalized engine key for a connection record.
+
+        Uses the Connection.type column first, then the connection params
+        (including endpoint/port inference) so Redshift and any future
+        engine resolve reliably even if a label is missing.
+        """
         params = dict(connection.connection_params or {})
         ctype = (
             getattr(connection, "type", None)
@@ -3735,7 +3814,20 @@ class ValidationService:
         )
         if ctype:
             params["database_type"] = ctype
-        return self._get_database_type(params)
+        engine = self._get_database_type(params)
+        if engine:
+            return engine
+        # Fall back to the 'database' column as an engine hint, then raise clearly.
+        engine = self._get_database_type({"database_type": getattr(connection, "database", None)})
+        if engine:
+            return engine
+        raise ValueError(
+            f"Could not determine the database engine for connection "
+            f"'{getattr(connection, 'name', connection.id)}' "
+            f"(type={getattr(connection, 'type', None)!r}, "
+            f"database={getattr(connection, 'database', None)!r}). "
+            "Set the connection's type to a supported engine."
+        )
 
     def _direct_params(self, connection: "Connection", schema: str) -> dict:
         """Build decrypted conn params for a direct check, pinned to a schema.
