@@ -61,9 +61,12 @@ interface TablePair {
   config: PairCheckConfig;
 }
 
+// Default checks that are always on unless the user turns them off.
+const DEFAULT_CHECKS = ['Row Count Validation', 'Schema Validation'];
+
 function makeDefaultPairConfig(): PairCheckConfig {
   return {
-    checks: ['Row Count Validation'],
+    checks: [...DEFAULT_CHECKS],
     nullColumn: '',
     duplicateMatchKey: '',
     sumColumn: '',
@@ -314,6 +317,43 @@ export default function ValidationWizardPage() {
       if (i !== index) return p;
       return { ...p, config: { ...p.config, [field]: value } };
     }));
+  };
+
+  // Set every table pair to just the default checks (Row Count + Schema).
+  const runDefaultsForAll = () => {
+    setTablePairs((prev) => prev.map((p) => ({
+      ...p,
+      config: {
+        ...p.config,
+        checks: [...DEFAULT_CHECKS],
+        // defaults don't need columns; leave column params as-is
+      },
+    })));
+  };
+
+  // Copy the FIRST pair's check config (checks + column params) to all pairs.
+  const applyFirstPairToAll = () => {
+    setTablePairs((prev) => {
+      if (prev.length === 0) return prev;
+      const src = prev[0].config;
+      return prev.map((p, i) => {
+        if (i === 0) return p;
+        return {
+          ...p,
+          config: {
+            ...p.config,          // keep this pair's own discovered columns + loading
+            checks: [...src.checks],
+            nullColumn: src.nullColumn,
+            duplicateMatchKey: src.duplicateMatchKey,
+            sumColumn: src.sumColumn,
+            averageColumn: src.averageColumn,
+            specificRowMatchKey: src.specificRowMatchKey,
+            specificRowStart: src.specificRowStart,
+            specificRowEnd: src.specificRowEnd,
+          },
+        };
+      });
+    });
   };
 
   // =========================================================
@@ -1344,9 +1384,21 @@ const validateCurrentStep = (): boolean => {
       <div className="validation-wizard-content">
         <h2>Validation Checks</h2>
         <p className="validation-wizard-description">
-          Configure which checks to run on each table pair. Each pair can have
-          different checks and column selections.
+          Configure which checks to run on each table pair. Row Count and Schema
+          run by default; you can turn them off or add more per pair.
         </p>
+
+        {/* Quick actions */}
+        <div className="validation-checks-toolbar">
+          <button
+            type="button"
+            className="validation-secondary-btn"
+            onClick={runDefaultsForAll}
+            title="Set every table pair to Row Count + Schema only"
+          >
+            Run default (Row + Schema for all)
+          </button>
+        </div>
 
         {tablePairs.map((pair, index) => {
           if (!pair.source) return null;
@@ -1355,14 +1407,28 @@ const validateCurrentStep = (): boolean => {
           const pairLabel = pair.source
             ? `${pair.source} → ${pair.target || '(no target)'}`
             : `Pair ${index + 1}`;
+          const isFirstConfigurable = tablePairs.findIndex((p) => p.source) === index;
+          const configurablePairCount = tablePairs.filter((p) => p.source).length;
 
           return (
             <div key={index} className="validation-pair-check-card">
               <div className="validation-pair-check-header">
                 <span className="validation-pair-check-label">{pairLabel}</span>
-                <span className="validation-pair-check-count">
-                  {cfg.checks.length} check{cfg.checks.length === 1 ? '' : 's'}
-                </span>
+                <div className="validation-pair-check-header-right">
+                  {isFirstConfigurable && configurablePairCount > 1 && (
+                    <button
+                      type="button"
+                      className="validation-apply-all-btn"
+                      onClick={applyFirstPairToAll}
+                      title="Copy this pair's checks and columns to all other pairs"
+                    >
+                      Apply to all
+                    </button>
+                  )}
+                  <span className="validation-pair-check-count">
+                    {cfg.checks.length} check{cfg.checks.length === 1 ? '' : 's'}
+                  </span>
+                </div>
               </div>
 
               <div className="validation-pair-checks-grid">

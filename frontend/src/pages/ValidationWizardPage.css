@@ -1492,3 +1492,45 @@
   border-color: var(--color-error);
   color: var(--color-error);
 }
+
+/* =========================================================
+   Step 3 quick actions (Run default / Apply to all)
+   ========================================================= */
+
+.validation-checks-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.validation-pair-check-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.validation-apply-all-btn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border: 1px solid #2563eb;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #2563eb;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.validation-apply-all-btn:hover {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+[data-theme="dark"] .validation-apply-all-btn {
+  background: var(--color-bg-surface);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+[data-theme="dark"] .validation-apply-all-btn:hover {
+  background: var(--color-selected-bg);
+}
