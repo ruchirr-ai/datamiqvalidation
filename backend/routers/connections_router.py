@@ -43,6 +43,30 @@ try:
 except ImportError:
     SQLSERVER_AVAILABLE = False
 
+
+def _detect_sqlserver_driver(preferred: str = "") -> str:
+    """Return the best available SQL Server ODBC driver installed on the host.
+
+    Prefers an explicitly requested driver if it's actually installed, then
+    the newest Microsoft driver (18, then 17), then any driver whose name
+    contains 'SQL Server'. Falls back to 'ODBC Driver 18 for SQL Server'.
+    """
+    try:
+        installed = [d for d in pyodbc.drivers()]
+    except Exception:
+        installed = []
+
+    if preferred and preferred in installed:
+        return preferred
+    for name in ("ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"):
+        if name in installed:
+            return name
+    for d in installed:
+        if "sql server" in d.lower():
+            return d
+    # Nothing installed; return a sensible default so the error message is clear.
+    return preferred or "ODBC Driver 18 for SQL Server"
+
 try:
     import clickhouse_connect
     CLICKHOUSE_AVAILABLE = True
@@ -495,9 +519,10 @@ def test_sqlserver_connection(params: Dict[str, Any]) -> ConnectionResponse:
         else:
             windows_auth = bool(windows_auth_value)
 
-        driver = params.get('driver', 'ODBC Driver 17 for SQL Server')
+        # Auto-detect an installed driver; honor the user's choice only if present.
+        driver = _detect_sqlserver_driver(params.get('driver') or params.get('odbc_driver') or '')
 
-        logger.info(f"Testing SQL Server connection to {host}:{port}/{database}")
+        logger.info(f"Testing SQL Server connection to {host}:{port}/{database} using '{driver}'")
 
         # Build server string
         if instance_name:

@@ -2002,12 +2002,27 @@ class ValidationService:
             dsn = conn_params.get("dsn") or conn_params.get("data_source")
             driver = conn_params.get("driver") or conn_params.get("odbc_driver")
             if not dsn:
-                driver = driver or {
-                    "sqlserver": "ODBC Driver 18 for SQL Server",
-                    "oracle": "Oracle in OraDB19Home1",
-                    "sybase": "Adaptive Server Enterprise",
-                    "db2": "IBM DB2 ODBC DRIVER",
-                }[db]
+                if db == "sqlserver":
+                    # Auto-detect the installed SQL Server ODBC driver (18 or 17),
+                    # honoring a requested driver only if it's actually present.
+                    try:
+                        import pyodbc as _pyodbc
+                        installed = list(_pyodbc.drivers())
+                    except Exception:
+                        installed = []
+                    if not (driver and driver in installed):
+                        driver = next(
+                            (n for n in ("ODBC Driver 18 for SQL Server",
+                                         "ODBC Driver 17 for SQL Server") if n in installed),
+                            next((d for d in installed if "sql server" in d.lower()),
+                                 "ODBC Driver 18 for SQL Server"),
+                        )
+                else:
+                    driver = driver or {
+                        "oracle": "Oracle in OraDB19Home1",
+                        "sybase": "Adaptive Server Enterprise",
+                        "db2": "IBM DB2 ODBC DRIVER",
+                    }[db]
                 if not host:
                     raise ValueError(f"{db} host is missing")
                 server = f"{host},{port}" if db == "sqlserver" else f"{host}:{port}"
