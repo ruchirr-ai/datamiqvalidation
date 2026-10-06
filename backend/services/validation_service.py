@@ -2047,11 +2047,15 @@ class ValidationService:
                     encrypt = conn_params.get("encrypt")
                     if encrypt is not None:
                         parts.append(f"Encrypt={'yes' if bool(encrypt) else 'no'}")
+                    # Driver 18 verifies the server cert by default and rejects
+                    # self-signed certs. Default to trusting it (same as the
+                    # connection-test path) unless explicitly overridden.
                     trust_server_certificate = conn_params.get("trust_server_certificate")
-                    if trust_server_certificate is not None:
-                        parts.append(
-                            f"TrustServerCertificate={'yes' if bool(trust_server_certificate) else 'no'}"
-                        )
+                    if trust_server_certificate is None:
+                        trust_server_certificate = True
+                    parts.append(
+                        f"TrustServerCertificate={'yes' if bool(trust_server_certificate) else 'no'}"
+                    )
                 dsn = ";".join(parts)
             return pyodbc.connect(dsn, timeout=timeout)
         if not db:
