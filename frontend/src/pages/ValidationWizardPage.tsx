@@ -469,12 +469,6 @@ export default function ValidationWizardPage() {
 const validateCurrentStep = (): boolean => {
   setError('');
 
-  // NAVIGATION OVERRIDE: allow moving through every step without filling
-  // anything in (for previewing the wizard). Remove this early return to
-  // re-enable per-step input validation.
-  return true;
-
-  // eslint-disable-next-line no-unreachable
   // Step 1 - Source
   if (currentStep === 0) {
     if (mode === 'connection') {

@@ -2222,7 +2222,16 @@ class ValidationService:
                         "FROM SYSCAT.COLUMNS WHERE TABSCHEMA = ? AND TABNAME = ? ORDER BY COLNO",
                         (str(dataset_name).upper(), str(table_name).upper()),
                     )
+                elif db in ("postgresql", "redshift", "mysql"):
+                    # psycopg2 and pymysql use %s as the parameter placeholder.
+                    cur.execute(
+                        "SELECT column_name, data_type, is_nullable, ordinal_position "
+                        "FROM information_schema.columns "
+                        "WHERE table_schema = %s AND table_name = %s ORDER BY ordinal_position",
+                        (dataset_name, table_name),
+                    )
                 else:
+                    # pyodbc-based engines (sqlserver, sybase, etc.) use ? placeholders.
                     cur.execute(
                         "SELECT column_name, data_type, is_nullable, ordinal_position "
                         "FROM information_schema.columns "
