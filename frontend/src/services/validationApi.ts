@@ -293,6 +293,7 @@ export interface DirectValidationRequest {
   target_schema: string;
   table_name: string;
   row_count?: boolean;
+  ddl_check?: boolean;
   null_check?: boolean;
   null_column?: string;
   duplicate_check?: boolean;

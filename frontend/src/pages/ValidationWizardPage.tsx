@@ -793,6 +793,7 @@ const validateCurrentStep = (): boolean => {
             target_schema: pair.target!.schema,
             table_name: pair.source!.table,
             row_count: cfg.checks.includes('Row Count Validation'),
+            ddl_check: cfg.checks.includes('Schema Validation'),
             null_check: cfg.checks.includes('NULL Validation'),
             null_column: cfg.nullColumn || undefined,
             duplicate_check: cfg.checks.includes('Duplicate Validation'),

@@ -296,6 +296,7 @@ class DirectValidationRequest(BaseModel):
     table_name: str = Field(..., description="Table to validate (same name on both sides)")
 
     row_count: bool = Field(default=True, description="Run row count comparison")
+    ddl_check: bool = Field(default=False, description="Run schema/DDL comparison (live columns)")
     null_check: bool = Field(default=False, description="Run NULL count comparison")
     null_column: Optional[str] = Field(default=None, description="Column for NULL check")
     duplicate_check: bool = Field(default=False, description="Run duplicate count comparison")

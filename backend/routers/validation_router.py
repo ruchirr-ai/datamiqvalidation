@@ -555,6 +555,7 @@ async def run_direct_validation_test(
             table_name=request.table_name,
             checks={
                 "row_count": request.row_count,
+                "ddl_check": request.ddl_check,
                 "null_check": request.null_check,
                 "null_column": request.null_column,
                 "duplicate_check": request.duplicate_check,

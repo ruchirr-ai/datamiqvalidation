@@ -4012,6 +4012,52 @@ class ValidationService:
             )
             _record("row_count", res, "source_count", "target_count")
 
+        # Schema / DDL — compare live columns of source vs target
+        if checks.get("ddl_check") or checks.get("schema_check"):
+            try:
+                src_cols = self._get_database_columns(
+                    source_params, source_engine, source_schema, table_name,
+                )
+                tgt_cols = self._get_database_columns(
+                    target_params, target_engine, target_schema, table_name,
+                )
+                src_map = {c["column_name"].lower(): c for c in src_cols}
+                tgt_map = {c["column_name"].lower(): c for c in tgt_cols}
+
+                missing_in_target = [c["column_name"] for k, c in src_map.items() if k not in tgt_map]
+                extra_in_target = [c["column_name"] for k, c in tgt_map.items() if k not in src_map]
+                type_mismatches = []
+                for k, sc in src_map.items():
+                    tc = tgt_map.get(k)
+                    if tc and not self._types_equivalent(sc["data_type"], tc["data_type"]):
+                        type_mismatches.append({
+                            "column": sc["column_name"],
+                            "source_type": sc["data_type"],
+                            "target_type": tc["data_type"],
+                        })
+
+                passed = not missing_in_target and not extra_in_target and not type_mismatches
+                results["schema_check"] = {
+                    "status": "passed" if passed else "failed",
+                    "source_value": len(src_cols),
+                    "target_value": len(tgt_cols),
+                    "difference": len(src_cols) - len(tgt_cols),
+                    "details": {
+                        "missing_in_target": missing_in_target,
+                        "extra_in_target": extra_in_target,
+                        "type_mismatches": type_mismatches,
+                    },
+                }
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "Schema validation failed",
+                    extra={"table_name": table_name, "error": str(exc)},
+                )
+                results["schema_check"] = {
+                    "status": "error",
+                    "error_message": self._sanitize_error_message(str(exc)),
+                }
+
         # NULL
         if checks.get("null_check"):
             col = checks.get("null_column")
