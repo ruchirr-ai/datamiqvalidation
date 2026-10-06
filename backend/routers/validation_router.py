@@ -564,6 +564,10 @@ async def run_direct_validation_test(
                 "sum_column": request.sum_column,
                 "average_check": request.average_check,
                 "average_column": request.average_column,
+                "specific_row_check": request.specific_row_check,
+                "specific_row_match_key": request.specific_row_match_key,
+                "specific_row_start": request.specific_row_start,
+                "specific_row_end": request.specific_row_end,
             },
         )
         return DirectValidationResponse(**result)

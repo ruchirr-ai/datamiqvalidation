@@ -302,6 +302,10 @@ export interface DirectValidationRequest {
   sum_column?: string;
   average_check?: boolean;
   average_column?: string;
+  specific_row_check?: boolean;
+  specific_row_match_key?: string;
+  specific_row_start?: number;
+  specific_row_end?: number;
 }
 
 export interface DirectValidationCheckResult {

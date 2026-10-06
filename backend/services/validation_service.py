@@ -4110,6 +4110,58 @@ class ValidationService:
                 )
                 _record("average_check", res, "source_value", "target_value")
 
+        # Specific Row — compare a deterministic range of rows (by match key)
+        if checks.get("specific_row_check"):
+            key = checks.get("specific_row_match_key")
+            start = checks.get("specific_row_start")
+            end = checks.get("specific_row_end")
+            if not key:
+                results["specific_row_check"] = {"status": "error", "error_message": "specific_row_match_key is required"}
+            elif start is None or end is None:
+                results["specific_row_check"] = {"status": "error", "error_message": "specific_row_start and specific_row_end are required"}
+            else:
+                try:
+                    res = self._validate_records(
+                        run_id=0,
+                        table_name=table_name,
+                        dataset_name=source_schema,
+                        source_conn_params=source_params,
+                        target_conn_params={**target_params, "_validation_namespace": target_schema},
+                        primary_key=[key],
+                        batch_size=10000,
+                        type_mapping_overrides={},
+                        workspace_id=0,
+                        specific_row_start=int(start),
+                        specific_row_end=int(end),
+                    )
+                    r = res.get("result", {}) or {}
+                    if res.get("status") == "error":
+                        results["specific_row_check"] = {
+                            "status": "error",
+                            "error_message": res.get("error_message", "specific row check failed"),
+                        }
+                    else:
+                        results["specific_row_check"] = {
+                            "status": res.get("status"),
+                            "source_value": r.get("total_compared"),
+                            "target_value": r.get("matched_count"),
+                            "difference": (r.get("missing_count", 0) + r.get("mismatch_count", 0)),
+                            "details": {
+                                "matched": r.get("matched_count"),
+                                "missing": r.get("missing_count"),
+                                "mismatched": r.get("mismatch_count"),
+                            },
+                        }
+                except Exception as exc:  # noqa: BLE001
+                    logger.error(
+                        "Specific row validation failed",
+                        extra={"table_name": table_name, "error": str(exc)},
+                    )
+                    results["specific_row_check"] = {
+                        "status": "error",
+                        "error_message": self._sanitize_error_message(str(exc)),
+                    }
+
         statuses = [r.get("status") for r in results.values()]
         if not statuses:
             overall = "no_checks"

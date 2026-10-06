@@ -802,6 +802,10 @@ const validateCurrentStep = (): boolean => {
             sum_column: cfg.sumColumn || undefined,
             average_check: cfg.checks.includes('AVERAGE Validation'),
             average_column: cfg.averageColumn || undefined,
+            specific_row_check: cfg.checks.includes('Specific Row Validation'),
+            specific_row_match_key: cfg.specificRowMatchKey || undefined,
+            specific_row_start: cfg.specificRowStart ? Number(cfg.specificRowStart) : undefined,
+            specific_row_end: cfg.specificRowEnd ? Number(cfg.specificRowEnd) : undefined,
           });
           results.push(res);
         } catch (err: any) {

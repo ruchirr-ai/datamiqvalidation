@@ -305,6 +305,10 @@ class DirectValidationRequest(BaseModel):
     sum_column: Optional[str] = Field(default=None, description="Numeric column for SUM check")
     average_check: bool = Field(default=False, description="Run AVERAGE comparison")
     average_column: Optional[str] = Field(default=None, description="Numeric column for AVERAGE check")
+    specific_row_check: bool = Field(default=False, description="Run specific-row comparison over a key range")
+    specific_row_match_key: Optional[str] = Field(default=None, description="Match key column for specific-row check")
+    specific_row_start: Optional[int] = Field(default=None, description="Start row (1-based) for specific-row check")
+    specific_row_end: Optional[int] = Field(default=None, description="End row (1-based, inclusive) for specific-row check")
 
 
 class DirectValidationCheckResult(BaseModel):
