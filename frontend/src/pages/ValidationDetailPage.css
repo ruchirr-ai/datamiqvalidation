@@ -816,3 +816,54 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================================================
+   DARK MODE — validation detail page
+   Only overrides sections that use hardcoded light colors.
+   ========================================================= */
+
+/* Result metrics/cards */
+[data-theme="dark"] .validation-result-section,
+[data-theme="dark"] .validation-result-card {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+[data-theme="dark"] .validation-result-section h3,
+[data-theme="dark"] .validation-result-title,
+[data-theme="dark"] .validation-result-metric-value,
+[data-theme="dark"] .validation-discrepancy-col {
+  color: var(--color-text-primary);
+}
+[data-theme="dark"] .validation-result-metric,
+[data-theme="dark"] .validation-discrepancy-item,
+[data-theme="dark"] .validation-no-discrepancies {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-divider);
+}
+[data-theme="dark"] .validation-discrepancy-values > div {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+
+/* AI analysis section */
+[data-theme="dark"] .validation-ai-section {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+[data-theme="dark"] .validation-ai-section .validation-detail-section-header {
+  background: var(--color-bg-secondary);
+  border-bottom-color: var(--color-divider);
+}
+
+/* Discrepancy type badges */
+[data-theme="dark"] .validation-detail-discrepancy-type.missing_column { background: rgba(251,113,133,0.15); color: var(--color-error); }
+[data-theme="dark"] .validation-detail-discrepancy-type.extra_column   { background: rgba(251,191,36,0.15); color: var(--color-warning); }
+[data-theme="dark"] .validation-detail-discrepancy-type.type_mismatch  { background: rgba(96,165,250,0.15); color: var(--color-primary); }
+[data-theme="dark"] .validation-detail-discrepancy-type.nullability_mismatch { background: rgba(171,71,188,0.15); color: #CE93D8; }
+[data-theme="dark"] .vd-status-badge.skipped { background: var(--color-hover-bg); color: var(--color-text-secondary); border-color: var(--color-divider); }
+
+/* Checks grid */
+[data-theme="dark"] .validation-detail-check-item {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}

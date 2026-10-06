@@ -171,3 +171,8 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Dark mode: status badges (rest of this file already uses theme vars) */
+[data-theme="dark"] .vd-status-badge.passed { background: rgba(74,222,128,0.15); color: var(--color-success); }
+[data-theme="dark"] .vd-status-badge.failed { background: rgba(251,113,133,0.15); color: var(--color-error); }
+[data-theme="dark"] .vd-status-badge.error  { background: rgba(251,191,36,0.15); color: var(--color-warning); }

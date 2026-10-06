@@ -1078,3 +1078,17 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================================================
+   DARK MODE — validation dashboard status/log badges
+   (most of this file already uses theme vars; only the
+   hardcoded status badges need dark-friendly backgrounds)
+   ========================================================= */
+
+[data-theme="dark"] .validation-status-badge.completed { background: rgba(74,222,128,0.15); color: var(--color-success); }
+[data-theme="dark"] .validation-status-badge.running   { background: rgba(96,165,250,0.15); color: var(--color-primary); }
+[data-theme="dark"] .validation-status-badge.failed    { background: rgba(251,113,133,0.15); color: var(--color-error); }
+
+[data-theme="dark"] .log-step-badge.passed { background: rgba(74,222,128,0.15); color: var(--color-success); }
+[data-theme="dark"] .log-step-badge.failed { background: rgba(251,113,133,0.15); color: var(--color-error); }
+[data-theme="dark"] .log-step-badge.error  { background: rgba(251,191,36,0.15); color: var(--color-warning); }

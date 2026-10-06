@@ -1344,3 +1344,151 @@
   font-size: 12px;
   color: #6b7280;
 }
+
+/* =========================================================
+   DARK MODE OVERRIDES — validation wizard
+   The wizard CSS uses hardcoded light colors; these remap
+   them to the app's dark theme tokens when data-theme="dark".
+   ========================================================= */
+
+[data-theme="dark"] .validation-wizard-page {
+  background: var(--color-bg-primary);
+}
+
+/* Surfaces: cards, panels, inputs */
+[data-theme="dark"] .validation-wizard-card,
+[data-theme="dark"] .validation-table-card,
+[data-theme="dark"] .validation-config-section,
+[data-theme="dark"] .validation-pair-check-card,
+[data-theme="dark"] .validation-ready-card,
+[data-theme="dark"] .validation-direct-results,
+[data-theme="dark"] .validation-wizard-actions {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+
+/* Headers / subtle fills */
+[data-theme="dark"] .validation-table-card-header,
+[data-theme="dark"] .validation-config-section-header,
+[data-theme="dark"] .validation-pair-check-header,
+[data-theme="dark"] .validation-direct-results-header,
+[data-theme="dark"] .validation-check-config,
+[data-theme="dark"] .validation-table-multi-select,
+[data-theme="dark"] .validation-config-value,
+[data-theme="dark"] .validation-config-check,
+[data-theme="dark"] .validation-table-target-item,
+[data-theme="dark"] .validation-config-empty,
+[data-theme="dark"] .validation-connection-summary {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-divider);
+}
+
+/* Inputs, selects, number fields */
+[data-theme="dark"] .validation-form-group input,
+[data-theme="dark"] .validation-form-group select,
+[data-theme="dark"] .validation-check-config input,
+[data-theme="dark"] .validation-check-config select,
+[data-theme="dark"] .validation-table-card-body select,
+[data-theme="dark"] .validation-table-card-body input,
+[data-theme="dark"] .validation-row-range input,
+[data-theme="dark"] .validation-pair-row select,
+[data-theme="dark"] .validation-pair-col-select,
+[data-theme="dark"] .validation-pair-num-input,
+[data-theme="dark"] .validation-pair-remove,
+[data-theme="dark"] .validation-secondary-btn,
+[data-theme="dark"] .validation-tables-trigger {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+  color: var(--color-text-primary);
+}
+
+/* Text colors */
+[data-theme="dark"] .validation-wizard-content h2,
+[data-theme="dark"] .validation-wizard-header h1,
+[data-theme="dark"] .validation-table-card-header h3,
+[data-theme="dark"] .validation-config-section-header h3,
+[data-theme="dark"] .validation-check-item span,
+[data-theme="dark"] .validation-form-group label,
+[data-theme="dark"] .validation-check-config label,
+[data-theme="dark"] .validation-table-card-body label,
+[data-theme="dark"] .validation-config-value,
+[data-theme="dark"] .validation-config-check span,
+[data-theme="dark"] .validation-pair-check-label,
+[data-theme="dark"] .validation-ready-card h3,
+[data-theme="dark"] .validation-direct-table td,
+[data-theme="dark"] .validation-table-option {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .validation-wizard-header p,
+[data-theme="dark"] .validation-wizard-description,
+[data-theme="dark"] .validation-wizard-step-label,
+[data-theme="dark"] .validation-table-help,
+[data-theme="dark"] .validation-table-selection-count,
+[data-theme="dark"] .validation-pair-count,
+[data-theme="dark"] .validation-config-label,
+[data-theme="dark"] .validation-config-section-header span,
+[data-theme="dark"] .validation-direct-table th,
+[data-theme="dark"] .validation-direct-results-header,
+[data-theme="dark"] .optional-label {
+  color: var(--color-text-secondary);
+}
+
+/* Check rows + hover */
+[data-theme="dark"] .validation-check-item,
+[data-theme="dark"] .validation-table-option {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+[data-theme="dark"] .validation-check-item:hover,
+[data-theme="dark"] .validation-table-option:hover,
+[data-theme="dark"] .validation-table-option.selected,
+[data-theme="dark"] .validation-secondary-btn:hover:not(:disabled) {
+  background: var(--color-hover-bg);
+}
+
+/* Mode toggle */
+[data-theme="dark"] .validation-mode-option {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+[data-theme="dark"] .validation-mode-option.active {
+  background: var(--color-selected-bg);
+  border-color: var(--color-primary);
+}
+[data-theme="dark"] .validation-mode-title { color: var(--color-text-primary); }
+[data-theme="dark"] .validation-mode-desc { color: var(--color-text-secondary); }
+
+/* Dividers / tables */
+[data-theme="dark"] .validation-direct-table th,
+[data-theme="dark"] .validation-direct-table td,
+[data-theme="dark"] .validation-table-option {
+  border-color: var(--color-divider);
+}
+[data-theme="dark"] .validation-direct-table th {
+  background: var(--color-bg-secondary);
+}
+
+/* Rows / connectors */
+[data-theme="dark"] .validation-wizard-step-connector,
+[data-theme="dark"] .validation-table-connector-line {
+  background: var(--color-divider);
+}
+
+/* Badges — keep semantic colors but dark-friendly backgrounds */
+[data-theme="dark"] .validation-direct-badge.passed { background: rgba(74,222,128,0.15); color: var(--color-success); }
+[data-theme="dark"] .validation-direct-badge.failed { background: rgba(251,113,133,0.15); color: var(--color-error); }
+[data-theme="dark"] .validation-direct-badge.error  { background: rgba(251,191,36,0.15); color: var(--color-warning); }
+[data-theme="dark"] .validation-direct-badge.no_checks,
+[data-theme="dark"] .validation-direct-badge.pending { background: var(--color-hover-bg); color: var(--color-text-secondary); }
+[data-theme="dark"] .validation-pair-check-count {
+  background: var(--color-selected-bg);
+  color: var(--color-primary);
+}
+
+/* Error box */
+[data-theme="dark"] .validation-error {
+  background: var(--color-error-bg);
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
