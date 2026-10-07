@@ -16,6 +16,11 @@ import {
   ValidationReport,
   ValidationTableDetail,
 } from '../services/validationApi';
+import {
+  downloadCsv,
+  downloadValidationPdf,
+  ValidationReportRow,
+} from '../utils/validationReport';
 import './ValidationDetailPage.css';
 
 // ---------------------------------------------------------------------------
@@ -180,112 +185,47 @@ export const ValidationDetailPage: React.FC = () => {
     }
   };
 
+ // Build normalized report rows (shared by CSV + PDF export)
+ const buildReportRows = (): ValidationReportRow[] => {
+   if (!report) return [];
+   const rows: ValidationReportRow[] = [];
+   const add = (tableName: string, check: string, status: string | null | undefined, detail: unknown) =>
+     rows.push({ tableName, check, status: status || 'skipped', details: JSON.stringify(detail || {}) });
+   report.tables.forEach((t) => {
+     add(t.table_name, 'Row Count', t.row_count_status, t.row_count_result);
+     add(t.table_name, 'NULL', t.null_status, t.null_result);
+     add(t.table_name, 'Schema', t.ddl_status, t.ddl_comparison_result);
+     add(t.table_name, 'Duplicate', t.duplicate_status, t.duplicate_result);
+     add(t.table_name, 'SUM', t.sum_status, t.sum_result);
+     add(t.table_name, 'AVERAGE', t.average_status, t.average_result);
+     add(t.table_name, 'Specific Row', t.specific_row_status, t.specific_row_result);
+   });
+   return rows;
+ };
+
  const handleDownloadReport = () => {
-  if (!report) return;
+   if (!report) return;
+   downloadCsv(`validation-report-${runId}`, buildReportRows());
+ };
 
-  const rows: string[][] = [];
-
-  const escapeCsv = (value: unknown) => {
-    const text = String(value ?? '');
-    return `"${text.replace(/"/g, '""')}"`;
-  };
-
-  const addRow = (
-    tableName: string,
-    check: string,
-    status: string | null | undefined,
-    details: string
-  ) => {
-    rows.push([
-      tableName,
-      check,
-      status || 'Skipped',
-      details,
-    ]);
-  };
-
-  report.tables.forEach((table) => {
-    addRow(
-      table.table_name,
-      'Row Count',
-      table.row_count_status,
-      JSON.stringify(table.row_count_result || {})
-    );
-
-    addRow(
-      table.table_name,
-      'NULL',
-      table.null_status,
-      JSON.stringify(table.null_result || {})
-    );
-
-    addRow(
-      table.table_name,
-      'Schema',
-      table.ddl_status,
-      JSON.stringify(table.ddl_comparison_result || {})
-    );
-
-    addRow(
-      table.table_name,
-      'Duplicate',
-      table.duplicate_status,
-      JSON.stringify(table.duplicate_result || {})
-    );
-
-    addRow(
-      table.table_name,
-      'SUM',
-      table.sum_status,
-      JSON.stringify(table.sum_result || {})
-    );
-
-    addRow(
-      table.table_name,
-      'AVERAGE',
-      table.average_status,
-      JSON.stringify(table.average_result || {})
-    );
-
-    addRow(
-      table.table_name,
-      'Specific Row',
-      table.specific_row_status,
-      JSON.stringify(table.specific_row_result || {})
-    );
-  });
-
-  const csvRows = [
-    [
-      'Table Name',
-      'Validation Check',
-      'Status',
-      'Details',
-    ],
-    ...rows,
-  ];
-
-  const csvContent = csvRows
-    .map((row) => row.map(escapeCsv).join(','))
-    .join('\n');
-
-  const blob = new Blob(
-    [csvContent],
-    { type: 'text/csv;charset=utf-8;' }
-  );
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-
-  a.href = url;
-  a.download = `validation-report-${runId}.csv`;
-
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-
-  URL.revokeObjectURL(url);
-};
+ const handleDownloadPdf = () => {
+   if (!report) return;
+   downloadValidationPdf(
+     `validation-report-${runId}`,
+     {
+       title: report.run_name || `Validation Run #${runId}`,
+       subtitle: `${report.source_connection_name || 'Source'} -> ${report.target_connection_name || 'Target'}`,
+       overallStatus: report.overall_status,
+       summary: [
+         { label: 'Tables', value: report.total_tables },
+         { label: 'Passed', value: report.tables_passed },
+         { label: 'Failed', value: report.tables_failed },
+         { label: 'Errors', value: report.tables_error },
+       ],
+     },
+     buildReportRows(),
+   );
+ };
 
   const toggleExpand = (tableName: string) => {
     setExpandedTable((prev) => (prev === tableName ? null : tableName));
@@ -389,7 +329,19 @@ export const ValidationDetailPage: React.FC = () => {
               <path d="M8 2v8M5 7l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M2 12v1a1 1 0 001 1h10a1 1 0 001-1v-1" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            Download Report
+            Download CSV
+          </button>
+
+          <button
+            className="validation-detail-download-btn"
+            onClick={handleDownloadPdf}
+            type="button"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d="M8 2v8M5 7l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M2 12v1a1 1 0 001 1h10a1 1 0 001-1v-1" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Download PDF
           </button>
 
           <button

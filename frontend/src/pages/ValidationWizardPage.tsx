@@ -4,6 +4,11 @@ import './ValidationWizardPage.css';
 
 import { bqRedshiftApi } from '../services/bqRedshiftApi';
 import { listConnections, Connection } from '../services/api';
+import {
+  downloadCsv,
+  downloadValidationPdf,
+  ValidationReportRow,
+} from '../utils/validationReport';
 
 import {
   createValidationRun,
@@ -882,6 +887,55 @@ const validateCurrentStep = (): boolean => {
     } finally {
       setDirectRunning(false);
     }
+  };
+
+  // Convert direct (connection-mode) results into normalized report rows
+  const buildDirectReportRows = (): ValidationReportRow[] => {
+    const rows: ValidationReportRow[] = [];
+    directResults.forEach((result) => {
+      Object.entries(result.checks).forEach(([checkName, r]) => {
+        rows.push({
+          tableName: `${result.source_connection} → ${result.target_connection} · ${result.table_name}`,
+          check: checkName === '_error' ? 'Error' : checkName,
+          status: r.status,
+          details: r.error_message
+            ? `error: ${r.error_message}`
+            : `source=${r.source_value ?? '—'}, target=${r.target_value ?? '—'}, diff=${r.difference ?? '—'}`,
+        });
+      });
+    });
+    return rows;
+  };
+
+  const directReportFilename = () => `validation-direct-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}`;
+
+  const handleDirectCsv = () => {
+    if (directResults.length === 0) return;
+    downloadCsv(directReportFilename(), buildDirectReportRows());
+  };
+
+  const handleDirectPdf = () => {
+    if (directResults.length === 0) return;
+    const overall = directResults.some((r) => r.overall_status === 'error')
+      ? 'error'
+      : directResults.some((r) => r.overall_status === 'failed')
+        ? 'failed'
+        : 'passed';
+    downloadValidationPdf(
+      directReportFilename(),
+      {
+        title: runName.trim() || 'Direct Connection Validation',
+        subtitle: `${connections.find((c) => c.id === sourceConnectionId)?.name || 'Source'} -> ${connections.find((c) => c.id === targetConnectionId)?.name || 'Target'}`,
+        overallStatus: overall,
+        summary: [
+          { label: 'Table pairs', value: directResults.length },
+          { label: 'Passed', value: directResults.filter((r) => r.overall_status === 'passed').length },
+          { label: 'Failed', value: directResults.filter((r) => r.overall_status === 'failed').length },
+          { label: 'Errors', value: directResults.filter((r) => r.overall_status === 'error').length },
+        ],
+      },
+      buildDirectReportRows(),
+    );
   };
 
   // =========================================================
@@ -1933,6 +1987,22 @@ const validateCurrentStep = (): boolean => {
             </div>
           )}
 
+          {directResults.length > 0 && (
+            <div className="validation-direct-export">
+              <span className="validation-direct-export-label">
+                Save these results (they are not stored in the dashboard):
+              </span>
+              <div className="validation-direct-export-btns">
+                <button type="button" className="validation-secondary-btn" onClick={handleDirectCsv}>
+                  Download CSV
+                </button>
+                <button type="button" className="validation-secondary-btn" onClick={handleDirectPdf}>
+                  Download PDF
+                </button>
+              </div>
+            </div>
+          )}
+
           {directResults.map((result, idx) => (
             <div className="validation-direct-results" key={idx}>
               <div className="validation-direct-results-header">
@@ -2128,6 +2198,18 @@ const validateCurrentStep = (): boolean => {
             {mode === 'connection'
               ? (directRunning ? 'Running…' : (directResults.length > 0 ? 'Run Again' : 'Run Validation'))
               : (runSubmitting ? 'Starting Validation...' : 'Run Validation')}
+          </button>
+        )}
+
+        {/* Clear exit back to the validations dashboard — always available on
+            the final step so there's somewhere to go after running. */}
+        {currentStep === STEPS.length - 1 && (
+          <button
+            type="button"
+            className="validation-secondary-btn validation-return-btn"
+            onClick={() => navigate('/validations')}
+          >
+            Return to Validations
           </button>
         )}
 

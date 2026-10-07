@@ -30,7 +30,6 @@ import {
   MigrationColumn,
 } from '../services/validationApi';
 import { bqRedshiftApi } from '../services/bqRedshiftApi';
-import { QuickValidationTest } from './QuickValidationTest';
 import './ValidationDashboardPage.css';
 
 const AUTO_REFRESH_MS = 5000;
@@ -136,8 +135,6 @@ export const ValidationDashboardPage: React.FC = () => {
 
   // --- Create form ---
   const [showForm, setShowForm] = useState(false);
-  // --- Quick direct-test panel ---
-  const [showQuickTest, setShowQuickTest] = useState(false);
   const [runName, setRunName] = useState<string>('');
   const [formMigrationId, setFormMigrationId] = useState<number>(0);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
@@ -519,14 +516,6 @@ export const ValidationDashboardPage: React.FC = () => {
             </svg>
             {t('validation.newValidation')}
           </button>
-          <button
-            className="validation-filter-select"
-            onClick={() => setShowQuickTest((v) => !v)}
-            type="button"
-            style={{ cursor: 'pointer' }}
-          >
-            {showQuickTest ? 'Hide Quick Test' : 'Quick Test'}
-          </button>
           <select
             className="validation-filter-select"
             value={statusFilter}
@@ -540,9 +529,6 @@ export const ValidationDashboardPage: React.FC = () => {
         </div>
         <div className="validation-toolbar-right" />
       </div>
-
-      {/* Quick direct-test panel (SQL Server / Redshift, no migration) */}
-      {showQuickTest && <QuickValidationTest />}
 
       {/* Create Form */}
       {showForm && (
