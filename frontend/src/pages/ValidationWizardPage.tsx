@@ -1269,35 +1269,6 @@ const validateCurrentStep = (): boolean => {
 
           {connError && <div className="validation-error">{connError}</div>}
 
-          {/* Save current setup as a re-runnable configuration */}
-          <div className="validation-save-config">
-            <div className="validation-save-config-row">
-              <input
-                type="text"
-                className="validation-save-config-input"
-                placeholder="Name this validation (e.g. Nightly sales check)"
-                value={saveConfigName}
-                onChange={(e) => setSaveConfigName(e.target.value)}
-              />
-              <button
-                type="button"
-                className="validation-secondary-btn"
-                onClick={handleSaveConfig}
-                disabled={savingConfig}
-                title="Save connections + table pairs + checks so you can re-run later"
-              >
-                {savingConfig ? 'Saving…' : 'Save this configuration'}
-              </button>
-            </div>
-            {saveConfigMessage && (
-              <div className="validation-save-config-msg">{saveConfigMessage}</div>
-            )}
-            <p className="validation-save-config-help">
-              Saves the setup only (connections, table pairs, and checks) so you
-              can load and re-run it. Results are never stored.
-            </p>
-          </div>
-
           {/* Previously saved validations — click to repopulate the form */}
           <div className="validation-saved-list">
             <div className="validation-saved-list-head">
@@ -2214,6 +2185,37 @@ const validateCurrentStep = (): boolean => {
             Run the checks directly between the selected connections. Results
             appear below and are not saved to the dashboard.
           </p>
+
+          {/* Save this setup as a re-runnable configuration (setup only,
+              never results). Appears in the Saved validations list in Step 1. */}
+          <div className="validation-save-config">
+            <div className="validation-save-config-row">
+              <input
+                type="text"
+                className="validation-save-config-input"
+                placeholder="Name this validation (e.g. Nightly sales check)"
+                value={saveConfigName}
+                onChange={(e) => setSaveConfigName(e.target.value)}
+              />
+              <button
+                type="button"
+                className="validation-secondary-btn"
+                onClick={handleSaveConfig}
+                disabled={savingConfig}
+                title="Save connections + table pairs + checks so you can re-run later"
+              >
+                {savingConfig ? 'Saving…' : 'Save this configuration'}
+              </button>
+            </div>
+            {saveConfigMessage && (
+              <div className="validation-save-config-msg">{saveConfigMessage}</div>
+            )}
+            {connError && <div className="validation-error">{connError}</div>}
+            <p className="validation-save-config-help">
+              Saves the setup only (connections, table pairs, and checks) so you
+              can load and re-run it from Step 1 later. Results are never stored.
+            </p>
+          </div>
 
           {directResults.length === 0 && (
             <div className="validation-ready-card">
