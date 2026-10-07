@@ -1573,3 +1573,185 @@
 [data-theme="dark"] .validation-direct-export-label {
   color: var(--color-text-secondary);
 }
+
+/* =========================================================
+   Saved direct-validation configurations (Step 1, connection mode)
+   ========================================================= */
+
+.validation-save-config {
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.validation-save-config-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.validation-save-config-input {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background: #ffffff;
+  color: #111827;
+}
+
+.validation-save-config-msg {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.validation-save-config-help {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.validation-saved-list {
+  margin-top: 18px;
+}
+
+.validation-saved-list-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.validation-saved-list-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.validation-saved-list-loading {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.validation-saved-empty {
+  padding: 14px 16px;
+  background: #f9fafb;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.validation-saved-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.validation-saved-item {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.validation-saved-item:hover {
+  border-color: #2563eb;
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.12);
+}
+
+.validation-saved-item.loaded {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.validation-saved-item-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.validation-saved-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.validation-saved-item-meta {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.validation-saved-item-delete {
+  flex: 0 0 auto;
+  width: 40px;
+  border: none;
+  border-left: 1px solid #e5e7eb;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.validation-saved-item-delete:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* Dark mode */
+[data-theme="dark"] .validation-save-config,
+[data-theme="dark"] .validation-saved-empty,
+[data-theme="dark"] .validation-saved-item {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+}
+[data-theme="dark"] .validation-save-config-input {
+  background: var(--color-bg-surface);
+  border-color: var(--color-divider);
+  color: var(--color-text-primary);
+}
+[data-theme="dark"] .validation-saved-list-head h3,
+[data-theme="dark"] .validation-saved-item-name {
+  color: var(--color-text-primary);
+}
+[data-theme="dark"] .validation-save-config-help,
+[data-theme="dark"] .validation-saved-list-loading,
+[data-theme="dark"] .validation-saved-empty,
+[data-theme="dark"] .validation-saved-item-meta {
+  color: var(--color-text-secondary);
+}
+[data-theme="dark"] .validation-saved-item:hover {
+  border-color: var(--color-primary);
+}
+[data-theme="dark"] .validation-saved-item.loaded {
+  border-color: var(--color-primary);
+  background: var(--color-selected-bg);
+}
+[data-theme="dark"] .validation-saved-item-delete {
+  border-left-color: var(--color-divider);
+}
+[data-theme="dark"] .validation-saved-item-delete:hover {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}

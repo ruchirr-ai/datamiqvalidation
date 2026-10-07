@@ -388,3 +388,54 @@ export const getConnectionColumns = async (
     `/api/validations/connections/${connectionId}/columns?${params.toString()}`
   );
 };
+
+// ---------------------------------------------------------------------------
+// Saved direct validation configurations
+// ---------------------------------------------------------------------------
+
+/**
+ * Reusable setup for a direct (connection-to-connection) validation.
+ * The `config` object holds the wizard's table pairs and per-pair checks so
+ * the form can be repopulated on load. Only the setup is stored, not results.
+ */
+export interface SaveDirectConfigRequest {
+  name: string;
+  source_connection_id: number;
+  target_connection_id: number;
+  config: Record<string, unknown>;
+}
+
+export interface DirectConfig {
+  id: number;
+  workspace_id: number;
+  name: string;
+  source_connection_id: number;
+  target_connection_id: number;
+  config: Record<string, unknown>;
+  created_by: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/**
+ * Save a reusable direct-validation configuration.
+ */
+export const saveDirectConfig = async (
+  data: SaveDirectConfigRequest
+): Promise<DirectConfig> => {
+  return api.post<DirectConfig>('/api/validations/direct-configs', data);
+};
+
+/**
+ * List saved direct-validation configurations for the workspace.
+ */
+export const listDirectConfigs = async (): Promise<DirectConfig[]> => {
+  return api.get<DirectConfig[]>('/api/validations/direct-configs');
+};
+
+/**
+ * Delete a saved direct-validation configuration.
+ */
+export const deleteDirectConfig = async (configId: number): Promise<void> => {
+  return api.delete<void>(`/api/validations/direct-configs/${configId}`);
+};

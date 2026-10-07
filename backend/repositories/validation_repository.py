@@ -12,6 +12,7 @@ from typing import List, Optional, Tuple
 
 from models.validation_run import ValidationRun
 from models.validation_table_result import ValidationTableResult
+from models.direct_validation_config import DirectValidationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -364,3 +365,74 @@ class ValidationRepository:
             result_id, workspace_id, list(kwargs.keys()),
         )
         return result
+
+    # ── DirectValidationConfig operations ─────────────────────────────
+
+    def create_direct_config(self, **kwargs) -> DirectValidationConfig:
+        """Create a new saved direct validation configuration.
+
+        Args:
+            **kwargs: DirectValidationConfig field values.
+                      Must include workspace_id.
+
+        Returns:
+            The persisted DirectValidationConfig instance.
+        """
+        config = DirectValidationConfig(**kwargs)
+        self.db.add(config)
+        self.db.commit()
+        self.db.refresh(config)
+        logger.info(
+            "Created direct validation config id=%s workspace_id=%s name=%s",
+            config.id, config.workspace_id, config.name,
+        )
+        return config
+
+    def get_direct_config(
+        self, config_id: int, workspace_id: int
+    ) -> Optional[DirectValidationConfig]:
+        """Get a saved direct validation config scoped to a workspace."""
+        return self.db.query(DirectValidationConfig).filter(
+            DirectValidationConfig.id == config_id,
+            DirectValidationConfig.workspace_id == workspace_id,
+        ).first()
+
+    def list_direct_configs(
+        self, workspace_id: int
+    ) -> List[DirectValidationConfig]:
+        """List all saved direct validation configs for a workspace.
+
+        Args:
+            workspace_id: Tenant isolation filter.
+
+        Returns:
+            List of DirectValidationConfig instances, newest first.
+        """
+        return (
+            self.db.query(DirectValidationConfig)
+            .filter(DirectValidationConfig.workspace_id == workspace_id)
+            .order_by(DirectValidationConfig.created_at.desc())
+            .all()
+        )
+
+    def delete_direct_config(self, config_id: int, workspace_id: int) -> bool:
+        """Delete a saved direct validation config scoped to a workspace.
+
+        Args:
+            config_id: The config primary key.
+            workspace_id: Tenant isolation filter.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        config = self.get_direct_config(config_id, workspace_id)
+        if not config:
+            return False
+
+        self.db.delete(config)
+        self.db.commit()
+        logger.info(
+            "Deleted direct validation config id=%s workspace_id=%s",
+            config_id, workspace_id,
+        )
+        return True

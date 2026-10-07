@@ -4226,3 +4226,64 @@ class ValidationService:
             )
         return deleted
 
+    # ------------------------------------------------------------------
+    # Saved direct validation configurations
+    # ------------------------------------------------------------------
+
+    def save_direct_config(
+        self,
+        workspace_id: int,
+        name: str,
+        source_connection_id: int,
+        target_connection_id: int,
+        config: Dict[str, Any],
+        created_by: str,
+    ) -> Dict[str, Any]:
+        """Persist a reusable direct-validation configuration.
+
+        Stores only the setup (connections + table pairs + per-pair checks),
+        never results. Direct validations remain ephemeral by design.
+
+        Args:
+            workspace_id: Tenant isolation identifier.
+            name: Display name for the saved configuration.
+            source_connection_id: Source connection ID.
+            target_connection_id: Target connection ID.
+            config: Table pairs and per-pair check configuration.
+            created_by: User identifier of the creator.
+
+        Returns:
+            The persisted configuration as a dictionary.
+        """
+        record = self.repo.create_direct_config(
+            workspace_id=workspace_id,
+            name=name,
+            source_connection_id=source_connection_id,
+            target_connection_id=target_connection_id,
+            config=config,
+            created_by=created_by,
+        )
+        return record.to_dict()
+
+    def list_direct_configs(self, workspace_id: int) -> list:
+        """List saved direct-validation configurations for a workspace.
+
+        Args:
+            workspace_id: Tenant isolation identifier.
+
+        Returns:
+            List of configuration dictionaries, newest first.
+        """
+        return [c.to_dict() for c in self.repo.list_direct_configs(workspace_id)]
+
+    def delete_direct_config(self, config_id: int, workspace_id: int) -> bool:
+        """Delete a saved direct-validation configuration.
+
+        Args:
+            config_id: The configuration primary key.
+            workspace_id: Tenant isolation identifier.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        return self.repo.delete_direct_config(config_id, workspace_id)

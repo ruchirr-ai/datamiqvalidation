@@ -329,3 +329,38 @@ class DirectValidationResponse(BaseModel):
     target_connection: str
     table_name: str
     checks: dict
+
+
+# ---------------------------------------------------------------------------
+# Saved direct validation configurations
+# ---------------------------------------------------------------------------
+
+class SaveDirectConfigRequest(BaseModel):
+    """Request body for POST /api/validations/direct-configs.
+
+    Persists the reusable setup of a direct (connection-to-connection)
+    validation so it can be re-loaded into the wizard and re-run. Only the
+    configuration is stored, never results.
+    """
+    name: str = Field(..., min_length=1, max_length=255, description="Display name for the saved configuration")
+    source_connection_id: int = Field(..., description="Source connection ID")
+    target_connection_id: int = Field(..., description="Target connection ID")
+    config: dict = Field(
+        ...,
+        description="Table pairs and per-pair check configuration, as produced by the wizard",
+    )
+
+
+class DirectConfigResponse(BaseModel):
+    """Response schema for a saved direct validation configuration."""
+    id: int
+    workspace_id: int
+    name: str
+    source_connection_id: int
+    target_connection_id: int
+    config: dict
+    created_by: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}

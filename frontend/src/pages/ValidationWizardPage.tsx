@@ -17,9 +17,13 @@ import {
   getConnectionTables,
   getConnectionColumns,
   runDirectValidationTest,
+  saveDirectConfig,
+  listDirectConfigs,
+  deleteDirectConfig,
   type CreateValidationRunRequest,
   type DiscoveredTable,
   type DirectValidationResponse,
+  type DirectConfig,
 } from '../services/validationApi';
 
 // Engines the direct connection-to-connection path supports
@@ -121,6 +125,14 @@ export default function ValidationWizardPage() {
   // Direct (ephemeral) run state — one DirectValidationResponse per pair
   const [directRunning, setDirectRunning] = useState(false);
   const [directResults, setDirectResults] = useState<DirectValidationResponse[]>([]);
+
+  // Saved direct-validation configurations (setup only, re-runnable)
+  const [savedConfigs, setSavedConfigs] = useState<DirectConfig[]>([]);
+  const [savedConfigsLoading, setSavedConfigsLoading] = useState(false);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [saveConfigName, setSaveConfigName] = useState('');
+  const [saveConfigMessage, setSaveConfigMessage] = useState('');
+  const [loadedConfigId, setLoadedConfigId] = useState<number | null>(null);
 
   // =========================================================
   // STEP 1 - CONNECTIONS
@@ -226,6 +238,157 @@ export default function ValidationWizardPage() {
       })
       .catch(() => setConnections([]));
   }, [mode, connections.length]);
+
+  // Load saved direct-validation configs when entering connection mode
+  useEffect(() => {
+    if (mode !== 'connection') return;
+    void fetchSavedConfigs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  const fetchSavedConfigs = async () => {
+    setSavedConfigsLoading(true);
+    try {
+      const configs = await listDirectConfigs();
+      setSavedConfigs(configs || []);
+    } catch {
+      setSavedConfigs([]);
+    } finally {
+      setSavedConfigsLoading(false);
+    }
+  };
+
+  // Save the current connection-mode setup (connections + table pairs + checks)
+  // as a re-runnable configuration. Stores setup only, never results.
+  const handleSaveConfig = async () => {
+    setSaveConfigMessage('');
+    setConnError('');
+
+    if (!sourceConnectionId || !targetConnectionId) {
+      setConnError('Select both a source and a target connection before saving.');
+      return;
+    }
+    const name = saveConfigName.trim() || runName.trim();
+    if (!name) {
+      setConnError('Enter a name for this saved validation.');
+      return;
+    }
+    // Persist only pairs that have a source selected, with their check config.
+    const pairsToSave = tablePairs
+      .filter((p) => p.source)
+      .map((p) => ({
+        source: p.source,
+        target: p.target,
+        config: {
+          checks: p.config.checks,
+          nullColumn: p.config.nullColumn,
+          duplicateMatchKey: p.config.duplicateMatchKey,
+          sumColumn: p.config.sumColumn,
+          averageColumn: p.config.averageColumn,
+          specificRowMatchKey: p.config.specificRowMatchKey,
+          specificRowStart: p.config.specificRowStart,
+          specificRowEnd: p.config.specificRowEnd,
+        },
+      }));
+
+    if (pairsToSave.length === 0) {
+      setConnError('Add at least one table pair before saving (set it up in Steps 2–3).');
+      return;
+    }
+
+    setSavingConfig(true);
+    try {
+      await saveDirectConfig({
+        name,
+        source_connection_id: sourceConnectionId,
+        target_connection_id: targetConnectionId,
+        config: { runName: runName.trim(), tablePairs: pairsToSave },
+      });
+      setSaveConfigName('');
+      setSaveConfigMessage(`Saved "${name}".`);
+      await fetchSavedConfigs();
+    } catch (err: any) {
+      setConnError(
+        err?.response?.data?.detail ||
+          err?.detail ||
+          err?.message ||
+          'Unable to save this configuration.'
+      );
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  // Load a saved configuration back into the wizard form. Repopulates the
+  // connections and table pairs/checks; does NOT auto-run.
+  const handleLoadConfig = (cfg: DirectConfig) => {
+    setConnError('');
+    setSaveConfigMessage('');
+    setDirectResults([]);
+
+    const raw: any = cfg.config || {};
+    const savedPairs: any[] = Array.isArray(raw.tablePairs) ? raw.tablePairs : [];
+
+    // Set connections first; the table-discovery effects will fire on change.
+    setSourceConnectionId(cfg.source_connection_id);
+    setTargetConnectionId(cfg.target_connection_id);
+    if (typeof raw.runName === 'string' && raw.runName) {
+      setRunName(raw.runName);
+    } else {
+      setRunName(cfg.name);
+    }
+
+    // Rebuild table pairs with their saved check config. Columns are left
+    // empty so the per-pair discovery effect refetches them for the pickers.
+    const rebuilt: TablePair[] = savedPairs.length > 0
+      ? savedPairs.map((p) => {
+          const base = makeDefaultPairConfig();
+          const c = p.config || {};
+          return {
+            source: p.source || '',
+            target: p.target || '',
+            config: {
+              ...base,
+              checks: Array.isArray(c.checks) ? c.checks : [...DEFAULT_CHECKS],
+              nullColumn: c.nullColumn || '',
+              duplicateMatchKey: c.duplicateMatchKey || '',
+              sumColumn: c.sumColumn || '',
+              averageColumn: c.averageColumn || '',
+              specificRowMatchKey: c.specificRowMatchKey || '',
+              specificRowStart: c.specificRowStart || '',
+              specificRowEnd: c.specificRowEnd || '',
+              columns: [],
+              columnsLoading: false,
+            },
+          };
+        })
+      : [makeDefaultPair()];
+
+    // The source-connection effect resets tablePairs to a default pair, so
+    // apply the rebuilt pairs on the next tick to win that race.
+    setTimeout(() => setTablePairs(rebuilt), 0);
+
+    setLoadedConfigId(cfg.id);
+    setSaveConfigMessage(`Loaded "${cfg.name}". Review Steps 2–3, then run.`);
+  };
+
+  const handleDeleteConfig = async (configId: number) => {
+    try {
+      await deleteDirectConfig(configId);
+      if (loadedConfigId === configId) setLoadedConfigId(null);
+      await fetchSavedConfigs();
+    } catch (err: any) {
+      setConnError(
+        err?.response?.data?.detail ||
+          err?.detail ||
+          err?.message ||
+          'Unable to delete this configuration.'
+      );
+    }
+  };
+
+  const connectionNameById = (id: number) =>
+    connections.find((c) => c.id === id)?.name || `Connection ${id}`;
 
   // Discover tables when source connection changes
   useEffect(() => {
@@ -1105,6 +1268,86 @@ const validateCurrentStep = (): boolean => {
           </div>
 
           {connError && <div className="validation-error">{connError}</div>}
+
+          {/* Save current setup as a re-runnable configuration */}
+          <div className="validation-save-config">
+            <div className="validation-save-config-row">
+              <input
+                type="text"
+                className="validation-save-config-input"
+                placeholder="Name this validation (e.g. Nightly sales check)"
+                value={saveConfigName}
+                onChange={(e) => setSaveConfigName(e.target.value)}
+              />
+              <button
+                type="button"
+                className="validation-secondary-btn"
+                onClick={handleSaveConfig}
+                disabled={savingConfig}
+                title="Save connections + table pairs + checks so you can re-run later"
+              >
+                {savingConfig ? 'Saving…' : 'Save this configuration'}
+              </button>
+            </div>
+            {saveConfigMessage && (
+              <div className="validation-save-config-msg">{saveConfigMessage}</div>
+            )}
+            <p className="validation-save-config-help">
+              Saves the setup only (connections, table pairs, and checks) so you
+              can load and re-run it. Results are never stored.
+            </p>
+          </div>
+
+          {/* Previously saved validations — click to repopulate the form */}
+          <div className="validation-saved-list">
+            <div className="validation-saved-list-head">
+              <h3>Saved validations</h3>
+              {savedConfigsLoading && (
+                <span className="validation-saved-list-loading">Loading…</span>
+              )}
+            </div>
+
+            {!savedConfigsLoading && savedConfigs.length === 0 ? (
+              <div className="validation-saved-empty">
+                No saved validations yet. Set one up and click “Save this
+                configuration” to reuse it later.
+              </div>
+            ) : (
+              <ul className="validation-saved-items">
+                {savedConfigs.map((cfg) => (
+                  <li
+                    key={cfg.id}
+                    className={`validation-saved-item ${loadedConfigId === cfg.id ? 'loaded' : ''}`}
+                  >
+                    <button
+                      type="button"
+                      className="validation-saved-item-main"
+                      onClick={() => handleLoadConfig(cfg)}
+                      title="Load this setup into the wizard"
+                    >
+                      <span className="validation-saved-item-name">{cfg.name}</span>
+                      <span className="validation-saved-item-meta">
+                        {connectionNameById(cfg.source_connection_id)} →{' '}
+                        {connectionNameById(cfg.target_connection_id)}
+                        {Array.isArray((cfg.config as any)?.tablePairs)
+                          ? ` · ${(cfg.config as any).tablePairs.length} pair${(cfg.config as any).tablePairs.length === 1 ? '' : 's'}`
+                          : ''}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="validation-saved-item-delete"
+                      onClick={() => handleDeleteConfig(cfg.id)}
+                      aria-label={`Delete saved validation ${cfg.name}`}
+                      title="Delete this saved validation"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </>
       ) : (
       <>

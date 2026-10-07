@@ -22,6 +22,8 @@ from models.validation_schemas import (
     ValidationTableResultResponse,
     DirectValidationRequest,
     DirectValidationResponse,
+    SaveDirectConfigRequest,
+    DirectConfigResponse,
 )
 from services.validation_cache import ValidationCache
 from services.validation_service import ValidationService
@@ -295,6 +297,112 @@ async def get_migration_table_columns(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred while retrieving table columns",
         )
+
+
+# ---------------------------------------------------------------------------
+# Saved direct validation configurations
+# (declared before /{run_id} so these paths are not captured by it)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/direct-configs",
+    response_model=DirectConfigResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def save_direct_config(
+    request: SaveDirectConfigRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """Save a reusable direct (connection-to-connection) validation setup.
+
+    Persists only the configuration (connections + table pairs + checks),
+    never results. The saved config can later be loaded into the wizard
+    and re-run.
+    """
+    try:
+        service = _build_service(db)
+        saved = service.save_direct_config(
+            workspace_id=workspace_id,
+            name=request.name,
+            source_connection_id=request.source_connection_id,
+            target_connection_id=request.target_connection_id,
+            config=request.config,
+            created_by=str(current_user.user_id),
+        )
+        return DirectConfigResponse(**saved)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except Exception as exc:
+        logger.error(
+            "Failed to save direct validation config",
+            extra={"workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while saving the configuration",
+        )
+
+
+@router.get("/direct-configs", response_model=list[DirectConfigResponse])
+async def list_direct_configs(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """List saved direct-validation configurations for the workspace."""
+    try:
+        service = _build_service(db)
+        configs = service.list_direct_configs(workspace_id=workspace_id)
+        return [DirectConfigResponse(**c) for c in configs]
+    except Exception as exc:
+        logger.error(
+            "Failed to list direct validation configs",
+            extra={"workspace_id": workspace_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while listing configurations",
+        )
+
+
+@router.delete(
+    "/direct-configs/{config_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_direct_config(
+    config_id: int,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+    workspace_id: int = Depends(get_workspace_id),
+):
+    """Delete a saved direct-validation configuration."""
+    try:
+        service = _build_service(db)
+        deleted = service.delete_direct_config(
+            config_id=config_id, workspace_id=workspace_id
+        )
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Direct validation config {config_id} not found",
+            )
+        return None
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Failed to delete direct validation config",
+            extra={"workspace_id": workspace_id, "config_id": config_id, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while deleting the configuration",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Get validation run details
 # ---------------------------------------------------------------------------
