@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import './ValidationWizardPage.css';
 
 import { bqRedshiftApi } from '../services/bqRedshiftApi';
@@ -94,12 +94,20 @@ function makeDefaultPair(): TablePair {
 
 export default function ValidationWizardPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // A saved config id passed from the dashboard (?config=<id>) to auto-load.
+  const presetConfigId = searchParams.get('config');
+  const presetConfigApplied = useRef(false);
 
   const [currentStep, setCurrentStep] = useState(0);
 
   // Create mode: validate a completed migration (persisted) or two
   // connections directly (ephemeral, inline results, not saved).
-  const [mode, setMode] = useState<ValidationMode>('migration');
+  // Default to connection mode when arriving with a preset config to load.
+  const [mode, setMode] = useState<ValidationMode>(
+    presetConfigId ? 'connection' : 'migration'
+  );
 
   // =========================================================
   // CONNECTION MODE STATE
@@ -257,6 +265,19 @@ export default function ValidationWizardPage() {
       setSavedConfigsLoading(false);
     }
   };
+
+  // When arriving from the dashboard with ?config=<id>, auto-load that saved
+  // config into the form once the list has been fetched (runs once).
+  useEffect(() => {
+    if (!presetConfigId || presetConfigApplied.current) return;
+    if (savedConfigsLoading) return;
+    const match = savedConfigs.find((c) => String(c.id) === String(presetConfigId));
+    if (match) {
+      presetConfigApplied.current = true;
+      handleLoadConfig(match);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetConfigId, savedConfigs, savedConfigsLoading]);
 
   // Save the current connection-mode setup (connections + table pairs + checks)
   // as a re-runnable configuration. Stores setup only, never results.

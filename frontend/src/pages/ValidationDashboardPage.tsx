@@ -28,6 +28,9 @@ import {
   getValidationTableResults,
   getMigrationTableColumns,
   MigrationColumn,
+  listDirectConfigs,
+  deleteDirectConfig,
+  DirectConfig,
 } from '../services/validationApi';
 import { bqRedshiftApi } from '../services/bqRedshiftApi';
 import './ValidationDashboardPage.css';
@@ -121,6 +124,10 @@ export const ValidationDashboardPage: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // --- Saved direct-validation configurations ---
+  const [savedConfigs, setSavedConfigs] = useState<DirectConfig[]>([]);
+  const [savedConfigsLoading, setSavedConfigsLoading] = useState(true);
 
   // --- Expandable rows ---
   const [expandedRunId, setExpandedRunId] = useState<number | null>(null);
@@ -258,6 +265,44 @@ export const ValidationDashboardPage: React.FC = () => {
     setLoading(true);
     fetchRuns();
   }, [fetchRuns]);
+
+  // --- Fetch saved direct-validation configurations (landing page) ---
+  const fetchSavedConfigs = useCallback(async () => {
+    try {
+      setSavedConfigsLoading(true);
+      const configs = await listDirectConfigs();
+      setSavedConfigs(configs || []);
+    } catch {
+      setSavedConfigs([]);
+    } finally {
+      setSavedConfigsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSavedConfigs();
+  }, [fetchSavedConfigs]);
+
+  // Open a saved config in the wizard (preloaded via ?config=<id>)
+  const handleRunSavedConfig = (configId: number) => {
+    navigate(`/validations/new?config=${configId}`);
+  };
+
+  const handleDeleteSavedConfig = async (e: React.MouseEvent, configId: number) => {
+    e.stopPropagation();
+    if (!window.confirm('Delete this saved validation? This cannot be undone.')) return;
+    try {
+      await deleteDirectConfig(configId);
+      fetchSavedConfigs();
+    } catch {
+      fetchSavedConfigs();
+    }
+  };
+
+  const savedConfigPairCount = (cfg: DirectConfig): number => {
+    const pairs = (cfg.config as { tablePairs?: unknown[] })?.tablePairs;
+    return Array.isArray(pairs) ? pairs.length : 0;
+  };
 
   // Auto-refresh when any run is running or pending
   useEffect(() => {
@@ -529,6 +574,67 @@ export const ValidationDashboardPage: React.FC = () => {
         </div>
         <div className="validation-toolbar-right" />
       </div>
+
+      {/* Saved validations — reusable direct (connection-to-connection) setups */}
+      {(savedConfigsLoading || savedConfigs.length > 0) && (
+        <div className="validation-saved-configs">
+          <div className="validation-saved-configs-head">
+            <h2 className="validation-saved-configs-title">Saved validations</h2>
+            {savedConfigsLoading && (
+              <span className="validation-saved-configs-loading">Loading…</span>
+            )}
+          </div>
+
+          {!savedConfigsLoading && savedConfigs.length > 0 && (
+            <div className="validation-saved-configs-grid">
+              {savedConfigs.map((cfg) => {
+                const pairs = savedConfigPairCount(cfg);
+                return (
+                  <div
+                    key={cfg.id}
+                    className="validation-saved-config-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleRunSavedConfig(cfg.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleRunSavedConfig(cfg.id);
+                      }
+                    }}
+                    title="Open this saved validation in the wizard"
+                  >
+                    <div className="validation-saved-config-top">
+                      <span className="validation-saved-config-name">{cfg.name}</span>
+                      <button
+                        type="button"
+                        className="validation-saved-config-delete"
+                        onClick={(e) => handleDeleteSavedConfig(e, cfg.id)}
+                        aria-label={`Delete saved validation ${cfg.name}`}
+                        title="Delete"
+                      >
+                        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                          <path d="M3 4h10M6 4V3a1 1 0 011-1h2a1 1 0 011 1v1M5 4v8a1 1 0 001 1h4a1 1 0 001-1V4" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="validation-saved-config-meta">
+                      <span className="validation-saved-config-badge">Direct</span>
+                      <span>{pairs} table pair{pairs === 1 ? '' : 's'}</span>
+                    </div>
+                    <div className="validation-saved-config-run">
+                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                        <path d="M3 2l8 5-8 5V2z" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      Open &amp; run
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Create Form */}
       {showForm && (
