@@ -8,6 +8,9 @@ import {
   downloadCsv,
   downloadValidationPdf,
   ValidationReportRow,
+  ReportDiscrepancy,
+  extractRecordDiscrepancies,
+  extractDirectSchemaDiscrepancies,
 } from '../utils/validationReport';
 
 import {
@@ -1074,17 +1077,62 @@ const validateCurrentStep = (): boolean => {
   };
 
   // Convert direct (connection-mode) results into normalized report rows
+  // Friendly labels for the direct-path check keys returned by the backend.
+  const DIRECT_CHECK_LABELS: Record<string, string> = {
+    row_count: 'Row Count',
+    schema_check: 'Schema',
+    null_check: 'NULL',
+    duplicate_check: 'Duplicate',
+    sum_check: 'SUM',
+    average_check: 'AVERAGE',
+    specific_row_check: 'Specific Row',
+  };
+
+  // Convert direct (connection-mode) results into normalized report rows.
+  // For failed checks we also surface the exact row/column-level mismatches:
+  //  - Schema: columns missing/extra/with type mismatches between source & target.
+  //  - Specific Row: the sampled rows (by match key) whose values differ, plus
+  //    rows missing in the target — including the differing column and values.
   const buildDirectReportRows = (): ValidationReportRow[] => {
     const rows: ValidationReportRow[] = [];
     directResults.forEach((result) => {
+      const tableName = `${result.source_connection} → ${result.target_connection} · ${result.table_name}`;
       Object.entries(result.checks).forEach(([checkName, r]) => {
+        const label =
+          checkName === '_error' ? 'Error' : (DIRECT_CHECK_LABELS[checkName] || checkName);
+
+        // Pull structured discrepancies out of the per-check details.
+        let discrepancies: ReportDiscrepancy[] | undefined;
+        const details = (r.details || null) as Record<string, any> | null;
+        if (checkName === 'schema_check') {
+          const d = extractDirectSchemaDiscrepancies(details);
+          if (d.length > 0) discrepancies = d;
+        } else if (checkName === 'specific_row_check') {
+          const d = extractRecordDiscrepancies(details);
+          if (d.length > 0) discrepancies = d;
+        }
+
+        // Readable one-line summary.
+        let detailsText: string;
+        if (r.error_message) {
+          detailsText = `error: ${r.error_message}`;
+        } else if (checkName === 'schema_check' && details) {
+          const missing = (details.missing_in_target || []).length;
+          const extra = (details.extra_in_target || []).length;
+          const typeMism = (details.type_mismatches || []).length;
+          detailsText = `source cols=${r.source_value ?? '—'}, target cols=${r.target_value ?? '—'}, missing=${missing}, extra=${extra}, type mismatches=${typeMism}`;
+        } else if (checkName === 'specific_row_check' && details) {
+          detailsText = `compared=${r.source_value ?? '—'}, matched=${details.matched ?? '—'}, missing=${details.missing ?? '—'}, mismatched=${details.mismatched ?? '—'}`;
+        } else {
+          detailsText = `source=${r.source_value ?? '—'}, target=${r.target_value ?? '—'}, diff=${r.difference ?? '—'}`;
+        }
+
         rows.push({
-          tableName: `${result.source_connection} → ${result.target_connection} · ${result.table_name}`,
-          check: checkName === '_error' ? 'Error' : checkName,
+          tableName,
+          check: label,
           status: r.status,
-          details: r.error_message
-            ? `error: ${r.error_message}`
-            : `source=${r.source_value ?? '—'}, target=${r.target_value ?? '—'}, diff=${r.difference ?? '—'}`,
+          details: detailsText,
+          discrepancies,
         });
       });
     });

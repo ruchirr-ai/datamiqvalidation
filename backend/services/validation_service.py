@@ -4169,6 +4169,11 @@ class ValidationService:
                                 "matched": r.get("matched_count"),
                                 "missing": r.get("missing_count"),
                                 "mismatched": r.get("mismatch_count"),
+                                "extra": r.get("extra_count"),
+                                # Preserve the row/column-level mismatch samples so
+                                # reports (PDF/CSV) can show exactly which rows and
+                                # columns failed, not just the counts.
+                                "sample_discrepancies": r.get("sample_discrepancies", []),
                             },
                         }
                 except Exception as exc:  # noqa: BLE001

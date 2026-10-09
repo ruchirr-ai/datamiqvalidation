@@ -20,6 +20,9 @@ import {
   downloadCsv,
   downloadValidationPdf,
   ValidationReportRow,
+  summarizeResult,
+  extractRecordDiscrepancies,
+  extractSchemaDiscrepancies,
 } from '../utils/validationReport';
 import './ValidationDetailPage.css';
 
@@ -185,20 +188,38 @@ export const ValidationDetailPage: React.FC = () => {
     }
   };
 
- // Build normalized report rows (shared by CSV + PDF export)
+ // Build normalized report rows (shared by CSV + PDF export).
+ // Each row carries a readable one-line summary plus, for failed checks,
+ // the exact row/column-level discrepancies so the report shows what mismatched.
  const buildReportRows = (): ValidationReportRow[] => {
    if (!report) return [];
    const rows: ValidationReportRow[] = [];
-   const add = (tableName: string, check: string, status: string | null | undefined, detail: unknown) =>
-     rows.push({ tableName, check, status: status || 'skipped', details: JSON.stringify(detail || {}) });
+   const add = (
+     tableName: string,
+     check: string,
+     status: string | null | undefined,
+     result: Record<string, any> | null | undefined,
+     discrepancies?: ReturnType<typeof extractRecordDiscrepancies>,
+   ) => {
+     // Skip checks that never ran (no status / explicitly skipped) to keep the report clean.
+     if (!status || status === 'skipped') return;
+     rows.push({
+       tableName,
+       check,
+       status,
+       details: summarizeResult(check, result),
+       discrepancies: discrepancies && discrepancies.length > 0 ? discrepancies : undefined,
+     });
+   };
    report.tables.forEach((t) => {
      add(t.table_name, 'Row Count', t.row_count_status, t.row_count_result);
      add(t.table_name, 'NULL', t.null_status, t.null_result);
-     add(t.table_name, 'Schema', t.ddl_status, t.ddl_comparison_result);
+     add(t.table_name, 'Schema', t.ddl_status, t.ddl_comparison_result, extractSchemaDiscrepancies(t.ddl_comparison_result));
      add(t.table_name, 'Duplicate', t.duplicate_status, t.duplicate_result);
      add(t.table_name, 'SUM', t.sum_status, t.sum_result);
      add(t.table_name, 'AVERAGE', t.average_status, t.average_result);
-     add(t.table_name, 'Specific Row', t.specific_row_status, t.specific_row_result);
+     add(t.table_name, 'Data Match', t.data_match_status, t.data_match_result, extractRecordDiscrepancies(t.data_match_result));
+     add(t.table_name, 'Specific Row', t.specific_row_status, t.specific_row_result, extractRecordDiscrepancies(t.specific_row_result));
    });
    return rows;
  };

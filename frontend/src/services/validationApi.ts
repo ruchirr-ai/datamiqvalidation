@@ -314,6 +314,9 @@ export interface DirectValidationCheckResult {
   target_value?: number | null;
   difference?: number | null;
   error_message?: string | null;
+  // Extra per-check detail. For schema_check: { missing_in_target, extra_in_target, type_mismatches }.
+  // For specific_row_check: { matched, missing, mismatched, extra, sample_discrepancies }.
+  details?: Record<string, unknown> | null;
 }
 
 export interface DirectValidationResponse {
