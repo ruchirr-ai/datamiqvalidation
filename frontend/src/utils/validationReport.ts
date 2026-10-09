@@ -64,6 +64,10 @@ const prettyType = (t: string): string => {
     case 'extra_column': return 'Extra column';
     case 'type_mismatch': return 'Type mismatch';
     case 'nullability_mismatch': return 'Nullability mismatch';
+    case 'null_in_source': return 'NULL in source';
+    case 'null_in_target': return 'NULL in target';
+    case 'duplicate_in_source': return 'Duplicate in source';
+    case 'duplicate_in_target': return 'Duplicate in target';
     default: return t ? t.replace(/_/g, ' ') : 'Mismatch';
   }
 };
@@ -98,10 +102,36 @@ export function extractRecordDiscrepancies(
       type: d?.type || 'mismatch',
       primaryKey: formatPk(d?.primary_key),
     };
-    if (d?.type === 'value_mismatch' && d?.details) {
-      base.column = d.details.column;
-      base.sourceValue = asStr(d.details.source_value);
-      base.targetValue = asStr(d.details.target_value);
+    const det = d?.details || {};
+    switch (d?.type) {
+      case 'value_mismatch':
+        base.column = det.column;
+        base.sourceValue = asStr(det.source_value);
+        base.targetValue = asStr(det.target_value);
+        break;
+      case 'null_in_source':
+        base.column = det.column;
+        base.sourceValue = 'NULL';
+        base.targetValue = '';
+        break;
+      case 'null_in_target':
+        base.column = det.column;
+        base.sourceValue = '';
+        base.targetValue = 'NULL';
+        break;
+      case 'duplicate_in_source':
+        base.column = det.column;
+        base.sourceValue = det.copies != null ? `${det.copies} copies` : 'duplicated';
+        base.targetValue = '';
+        break;
+      case 'duplicate_in_target':
+        base.column = det.column;
+        base.sourceValue = '';
+        base.targetValue = det.copies != null ? `${det.copies} copies` : 'duplicated';
+        break;
+      default:
+        // missing_in_target / extra_in_target carry only a primary key
+        break;
     }
     return base;
   });

@@ -213,9 +213,9 @@ export const ValidationDetailPage: React.FC = () => {
    };
    report.tables.forEach((t) => {
      add(t.table_name, 'Row Count', t.row_count_status, t.row_count_result);
-     add(t.table_name, 'NULL', t.null_status, t.null_result);
+     add(t.table_name, 'NULL', t.null_status, t.null_result, extractRecordDiscrepancies(t.null_result));
      add(t.table_name, 'Schema', t.ddl_status, t.ddl_comparison_result, extractSchemaDiscrepancies(t.ddl_comparison_result));
-     add(t.table_name, 'Duplicate', t.duplicate_status, t.duplicate_result);
+     add(t.table_name, 'Duplicate', t.duplicate_status, t.duplicate_result, extractRecordDiscrepancies(t.duplicate_result));
      add(t.table_name, 'SUM', t.sum_status, t.sum_result);
      add(t.table_name, 'AVERAGE', t.average_status, t.average_result);
      add(t.table_name, 'Data Match', t.data_match_status, t.data_match_result, extractRecordDiscrepancies(t.data_match_result));

@@ -51,6 +51,14 @@ class ValidationService:
         cache: ValidationCache instance for Redis caching.
     """
 
+    # Max number of sampled offending rows/keys surfaced per check so reports
+    # can show exactly what mismatched without pulling unbounded data.
+    MAX_SAMPLE_ROWS = 100
+
+    # Columns preferred (in order) when identifying a sampled row that has no
+    # declared primary key available to the check (e.g. NULL validation).
+    _PREFERRED_ID_COLUMNS = ("id", "pk", "uuid", "guid", "key")
+
     def __init__(self, db: Session, cache: ValidationCache):
         self.db = db
         self.repo = ValidationRepository(db)
@@ -1942,6 +1950,73 @@ class ValidationService:
         return ""
 
     @staticmethod
+    def _stringify_value(value: Any) -> Optional[str]:
+        """Coerce a cell value to a string for report display (None -> None)."""
+        return None if value is None else str(value)
+
+    @staticmethod
+    def _row_limit_clause(database_type: str, limit: int) -> str:
+        """Return a dialect-appropriate row-limit clause.
+
+        SQL Server uses TOP (handled by callers via a different shape), but for
+        the sampling queries here it supports OFFSET/FETCH only with ORDER BY;
+        to stay simple and portable we use ``TOP`` by rewriting is avoided —
+        instead SQL Server accepts ``OFFSET 0 ROWS FETCH NEXT n ROWS ONLY`` only
+        with ORDER BY. Since the duplicate query already has ORDER BY and the
+        null query does not, we special-case: for sqlserver without ORDER BY we
+        fall back to no clause and rely on the Python-side cap. For all other
+        engines ``LIMIT n`` is used.
+        """
+        if database_type == "sqlserver":
+            # TOP must appear right after SELECT, which these queries don't use;
+            # avoid producing invalid SQL. The Python-side slice still caps rows.
+            return ""
+        return f"LIMIT {int(limit)}"
+
+    @classmethod
+    def _row_identifier(cls, row: Dict[str, Any], exclude_column: str) -> Dict[str, Any]:
+        """Build a compact identifier for a sampled row.
+
+        Prefers a conventional id-like column; otherwise falls back to the first
+        few columns of the row so the report can point the user at the record.
+        Values are stringified and truncated for safe display.
+
+        Args:
+            row: The full sampled row as a column->value dict.
+            exclude_column: The column being validated (e.g. the NULL column),
+                excluded from the identifier since its value is NULL/irrelevant.
+
+        Returns:
+            A dict of up to 3 identifying column->value pairs.
+        """
+        if not row:
+            return {}
+        lowered = {str(k).lower(): k for k in row.keys()}
+
+        # 1) Prefer a conventional identifier column.
+        for pref in cls._PREFERRED_ID_COLUMNS:
+            if pref in lowered:
+                actual = lowered[pref]
+                return {actual: cls._truncate(cls._stringify_value(row.get(actual)))}
+
+        # 2) Fall back to the first few non-excluded columns.
+        ident: Dict[str, Any] = {}
+        for key, val in row.items():
+            if str(key).lower() == str(exclude_column).lower():
+                continue
+            ident[key] = cls._truncate(cls._stringify_value(val))
+            if len(ident) >= 3:
+                break
+        return ident
+
+    @staticmethod
+    def _truncate(value: Optional[str], max_len: int = 80) -> Optional[str]:
+        """Truncate long string values for compact report display."""
+        if value is None:
+            return None
+        return value if len(value) <= max_len else value[: max_len - 1] + "\u2026"
+
+    @staticmethod
     def _quote_identifier(name: str, database_type: str) -> str:
         if not name or not re.match(r"^[A-Za-z_][A-Za-z0-9_$]*$", str(name)):
             raise ValueError(f"Invalid identifier: {name}")
@@ -3497,6 +3572,7 @@ class ValidationService:
                 raise ValueError(f"Invalid column name: {column_name}")
 
             counts = []
+            samples_by_side = []
             for params in (source_conn_params, target_conn_params):
                 db = self._get_database_type(params)
                 effective_dataset_name = (
@@ -3510,6 +3586,13 @@ class ValidationService:
                         count = client[db_name][table_name].count_documents(
                             {column_name: {"$type": 10}}
                         )
+                        rows = client[db_name][table_name].find(
+                            {column_name: {"$type": 10}}
+                        ).limit(self.MAX_SAMPLE_ROWS)
+                        samples = [
+                            self._row_identifier(dict(doc), column_name)
+                            for doc in rows
+                        ]
                     finally:
                         client.close()
 
@@ -3520,6 +3603,14 @@ class ValidationService:
                         f"WHERE `{column_name}` IS NULL"
                     ).result())
                     count = int(rows[0][0]) if rows else 0
+                    sample_rows = list(client.query(
+                        f"SELECT * FROM `{project_id}.{effective_dataset_name}.{table_name}` "
+                        f"WHERE `{column_name}` IS NULL LIMIT {self.MAX_SAMPLE_ROWS}"
+                    ).result())
+                    samples = [
+                        self._row_identifier(dict(r.items()), column_name)
+                        for r in sample_rows
+                    ]
 
                 elif db == "clickhouse":
                     client = self._clickhouse_client(params)
@@ -3530,6 +3621,15 @@ class ValidationService:
                             f"SELECT countIf(isNull({col})) FROM {ref}"
                         ).result_rows
                         count = int(rows[0][0]) if rows else 0
+                        qr = client.query(
+                            f"SELECT * FROM {ref} WHERE isNull({col}) "
+                            f"LIMIT {self.MAX_SAMPLE_ROWS}"
+                        )
+                        cols = qr.column_names
+                        samples = [
+                            self._row_identifier(dict(zip(cols, row)), column_name)
+                            for row in qr.result_rows
+                        ]
                     finally:
                         client.close()
 
@@ -3544,20 +3644,54 @@ class ValidationService:
                             )
                             row = cur.fetchone()
                             count = int(row[0]) if row else 0
+
+                            cur.execute(
+                                f"SELECT * FROM {ref} WHERE {col} IS NULL "
+                                f"{self._row_limit_clause(db, self.MAX_SAMPLE_ROWS)}"
+                            )
+                            col_names = [d[0] for d in cur.description] if cur.description else []
+                            samples = [
+                                self._row_identifier(dict(zip(col_names, r)), column_name)
+                                for r in cur.fetchall()[: self.MAX_SAMPLE_ROWS]
+                            ]
                     finally:
                         conn.close()
 
                 counts.append(count)
+                samples_by_side.append(samples)
 
             source_count, target_count = counts
+            source_samples, target_samples = samples_by_side
             difference = source_count - target_count
             status = "passed" if source_count == target_count else "failed"
+
+            # Build row-level discrepancy samples: which rows have NULLs, on
+            # whichever side(s) have them. Each entry identifies the row.
+            sample_discrepancies: List[Dict[str, Any]] = []
+            for ident in source_samples:
+                if len(sample_discrepancies) >= self.MAX_SAMPLE_ROWS:
+                    break
+                sample_discrepancies.append({
+                    "type": "null_in_source",
+                    "primary_key": ident,
+                    "details": {"column": column_name},
+                })
+            for ident in target_samples:
+                if len(sample_discrepancies) >= self.MAX_SAMPLE_ROWS:
+                    break
+                sample_discrepancies.append({
+                    "type": "null_in_target",
+                    "primary_key": ident,
+                    "details": {"column": column_name},
+                })
+
             result = {
                 "column": column_name,
                 "source_null_count": source_count,
                 "target_null_count": target_count,
                 "difference": difference,
                 "status": status,
+                "sample_discrepancies": sample_discrepancies,
             }
             return {
                 "status": status,
@@ -3729,6 +3863,7 @@ class ValidationService:
                 raise ValueError(f"Invalid match key: {match_key}")
 
             counts = []
+            dup_keys_by_side = []
             for params in (source_conn_params, target_conn_params):
                 db = self._get_database_type(params)
                 effective_dataset_name = (
@@ -3742,13 +3877,16 @@ class ValidationService:
                         pipeline = [
                             {"$group": {"_id": f"${match_key}", "n": {"$sum": 1}}},
                             {"$match": {"n": {"$gt": 1}}},
-                            {"$count": "duplicate_groups"},
+                            {"$sort": {"n": -1}},
                         ]
-                        row = next(
-                            iter(client[db_name][table_name].aggregate(pipeline)),
-                            None,
+                        groups = list(
+                            client[db_name][table_name].aggregate(pipeline)
                         )
-                        count = int(row["duplicate_groups"]) if row else 0
+                        count = len(groups)
+                        dup_keys = [
+                            {"value": g["_id"], "copies": int(g["n"])}
+                            for g in groups[: self.MAX_SAMPLE_ROWS]
+                        ]
                     finally:
                         client.close()
 
@@ -3761,6 +3899,15 @@ class ValidationService:
                         f"GROUP BY `{match_key}` HAVING COUNT(*) > 1)"
                     ).result())
                     count = int(rows[0][0]) if rows else 0
+                    dup_rows = list(client.query(
+                        f"SELECT `{match_key}` AS k, COUNT(*) AS n "
+                        f"FROM `{project_id}.{effective_dataset_name}.{table_name}` "
+                        f"GROUP BY `{match_key}` HAVING COUNT(*) > 1 "
+                        f"ORDER BY n DESC LIMIT {self.MAX_SAMPLE_ROWS}"
+                    ).result())
+                    dup_keys = [
+                        {"value": r[0], "copies": int(r[1])} for r in dup_rows
+                    ]
 
                 elif db == "clickhouse":
                     client = self._clickhouse_client(params)
@@ -3773,6 +3920,14 @@ class ValidationService:
                             f"GROUP BY {col} HAVING count() > 1)"
                         ).result_rows
                         count = int(rows[0][0]) if rows else 0
+                        dup_rows = client.query(
+                            f"SELECT {col} AS k, count() AS n FROM {ref} "
+                            f"GROUP BY {col} HAVING count() > 1 "
+                            f"ORDER BY n DESC LIMIT {self.MAX_SAMPLE_ROWS}"
+                        ).result_rows
+                        dup_keys = [
+                            {"value": r[0], "copies": int(r[1])} for r in dup_rows
+                        ]
                     finally:
                         client.close()
 
@@ -3789,19 +3944,54 @@ class ValidationService:
                             )
                             row = cur.fetchone()
                             count = int(row[0]) if row else 0
+
+                            cur.execute(
+                                f"SELECT {col} AS k, COUNT(*) AS n FROM {ref} "
+                                f"GROUP BY {col} HAVING COUNT(*) > 1 "
+                                f"ORDER BY n DESC "
+                                f"{self._row_limit_clause(db, self.MAX_SAMPLE_ROWS)}"
+                            )
+                            dup_keys = [
+                                {"value": r[0], "copies": int(r[1])}
+                                for r in cur.fetchall()[: self.MAX_SAMPLE_ROWS]
+                            ]
                     finally:
                         conn.close()
 
                 counts.append(count)
+                dup_keys_by_side.append(dup_keys)
 
             source_count, target_count = counts
+            source_dups, target_dups = dup_keys_by_side
             passed = source_count == target_count
+
+            # Row-level detail: which key values are duplicated and how many
+            # copies, on each side.
+            sample_discrepancies: List[Dict[str, Any]] = []
+            for d in source_dups:
+                if len(sample_discrepancies) >= self.MAX_SAMPLE_ROWS:
+                    break
+                sample_discrepancies.append({
+                    "type": "duplicate_in_source",
+                    "primary_key": {match_key: self._stringify_value(d["value"])},
+                    "details": {"column": match_key, "copies": d["copies"]},
+                })
+            for d in target_dups:
+                if len(sample_discrepancies) >= self.MAX_SAMPLE_ROWS:
+                    break
+                sample_discrepancies.append({
+                    "type": "duplicate_in_target",
+                    "primary_key": {match_key: self._stringify_value(d["value"])},
+                    "details": {"column": match_key, "copies": d["copies"]},
+                })
+
             result = {
                 "match_key": match_key,
                 "source_duplicate_count": source_count,
                 "target_duplicate_count": target_count,
                 "difference": source_count - target_count,
                 "status": "passed" if passed else "failed",
+                "sample_discrepancies": sample_discrepancies,
             }
             return {
                 "status": result["status"],
@@ -4004,7 +4194,12 @@ class ValidationService:
         results: Dict[str, Any] = {}
 
         def _record(check_name: str, check_result: dict, src_key: str, tgt_key: str):
-            """Normalize a check helper result into the direct-test shape."""
+            """Normalize a check helper result into the direct-test shape.
+
+            Preserves any row/column-level ``sample_discrepancies`` the helper
+            produced (NULL, Duplicate) so reports can show exactly which rows or
+            key values failed, not just the counts.
+            """
             r = check_result.get("result", {}) or {}
             if check_result.get("status") == "error":
                 results[check_name] = {
@@ -4012,12 +4207,16 @@ class ValidationService:
                     "error_message": check_result.get("error_message", "check failed"),
                 }
             else:
-                results[check_name] = {
+                entry = {
                     "status": check_result.get("status"),
                     "source_value": r.get(src_key),
                     "target_value": r.get(tgt_key),
                     "difference": r.get("difference"),
                 }
+                samples = r.get("sample_discrepancies")
+                if samples:
+                    entry["details"] = {"sample_discrepancies": samples}
+                results[check_name] = entry
 
         # Row count
         if checks.get("row_count"):

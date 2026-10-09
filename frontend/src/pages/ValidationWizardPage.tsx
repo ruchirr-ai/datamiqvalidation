@@ -1107,7 +1107,12 @@ const validateCurrentStep = (): boolean => {
         if (checkName === 'schema_check') {
           const d = extractDirectSchemaDiscrepancies(details);
           if (d.length > 0) discrepancies = d;
-        } else if (checkName === 'specific_row_check') {
+        } else if (
+          checkName === 'specific_row_check' ||
+          checkName === 'null_check' ||
+          checkName === 'duplicate_check'
+        ) {
+          // These carry row/column-level mismatch samples in details.sample_discrepancies.
           const d = extractRecordDiscrepancies(details);
           if (d.length > 0) discrepancies = d;
         }
