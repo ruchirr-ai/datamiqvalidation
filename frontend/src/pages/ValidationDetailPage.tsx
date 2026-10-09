@@ -21,6 +21,7 @@ import {
   downloadValidationPdf,
   ValidationReportRow,
   summarizeResult,
+  statusDisplayFor,
   extractRecordDiscrepancies,
   extractSchemaDiscrepancies,
 } from '../utils/validationReport';
@@ -55,11 +56,14 @@ function formatDuration(seconds: number | null): string {
 
 function StatusBadge({
   status,
+  label: labelOverride,
 }: {
   status?: string | null;
+  label?: string;
 }) {
   const label =
-    status === 'passed'
+    labelOverride ||
+    (status === 'passed'
       ? 'Passed'
       : status === 'failed'
       ? 'Failed'
@@ -67,7 +71,7 @@ function StatusBadge({
       ? 'Error'
       : status === 'skipped'
       ? 'Skipped'
-      : 'Pending';
+      : 'Pending');
 
   return (
     <span className={`vd-status-badge ${status || 'pending'}`}>
@@ -207,6 +211,7 @@ export const ValidationDetailPage: React.FC = () => {
        tableName,
        check,
        status,
+       statusDisplay: statusDisplayFor(check, status, result),
        details: summarizeResult(check, result),
        discrepancies: discrepancies && discrepancies.length > 0 ? discrepancies : undefined,
      });
@@ -492,6 +497,23 @@ function ValidationChecksSection({
 }: {
   table: ValidationTableDetail;
 }) {
+  // Existence-style wording for NULL / Duplicate so it's clear whether any
+  // were found, rather than passed/failed.
+  const nullDisplay =
+    table.null_status && table.null_status !== 'skipped' && table.null_status !== 'error'
+      ? (Number((table.null_result as any)?.source_null_count || 0) > 0 ||
+         Number((table.null_result as any)?.target_null_count || 0) > 0
+          ? 'Nulls found'
+          : 'No nulls found')
+      : undefined;
+  const duplicateDisplay =
+    table.duplicate_status && table.duplicate_status !== 'skipped' && table.duplicate_status !== 'error'
+      ? (Number((table.duplicate_result as any)?.source_duplicate_count || 0) > 0 ||
+         Number((table.duplicate_result as any)?.target_duplicate_count || 0) > 0
+          ? 'Duplicates found'
+          : 'No duplicates found')
+      : undefined;
+
   const checks = [
     {
       label: 'Row Count',
@@ -500,6 +522,7 @@ function ValidationChecksSection({
     {
       label: 'NULL',
       status: table.null_status,
+      display: nullDisplay,
     },
     {
       label: 'Schema',
@@ -508,6 +531,7 @@ function ValidationChecksSection({
     {
       label: 'Duplicate',
       status: table.duplicate_status,
+      display: duplicateDisplay,
     },
     {
       label: 'SUM',
@@ -549,6 +573,7 @@ checks executed
 
             <StatusBadge
               status={check.status}
+              label={(check as { display?: string }).display}
             />
           </div>
         ))}

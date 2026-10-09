@@ -1088,6 +1088,19 @@ const validateCurrentStep = (): boolean => {
     specific_row_check: 'Specific Row',
   };
 
+  // On-screen status wording for a direct check. NULL/Duplicate read as
+  // "found / not found"; everything else keeps passed/failed/error.
+  const directCheckStatusLabel = (
+    checkName: string,
+    r: { status: string; source_value?: number | null; target_value?: number | null; error_message?: string | null },
+  ): string => {
+    if (r.error_message || r.status === 'error') return 'error';
+    const found = Number(r.source_value || 0) > 0 || Number(r.target_value || 0) > 0;
+    if (checkName === 'duplicate_check') return found ? 'duplicates found' : 'no duplicates';
+    if (checkName === 'null_check') return found ? 'nulls found' : 'no nulls';
+    return r.status;
+  };
+
   // Convert direct (connection-mode) results into normalized report rows.
   // For failed checks we also surface the exact row/column-level mismatches:
   //  - Schema: columns missing/extra/with type mismatches between source & target.
@@ -1132,10 +1145,23 @@ const validateCurrentStep = (): boolean => {
           detailsText = `source=${r.source_value ?? '—'}, target=${r.target_value ?? '—'}, diff=${r.difference ?? '—'}`;
         }
 
+        // Clearer "found / not found" wording for existence-style checks.
+        let statusDisplay: string | undefined;
+        if (r.status === 'error') {
+          statusDisplay = 'Error';
+        } else if (checkName === 'duplicate_check') {
+          const found = Number(r.source_value || 0) > 0 || Number(r.target_value || 0) > 0;
+          statusDisplay = found ? 'Duplicates found' : 'No duplicates found';
+        } else if (checkName === 'null_check') {
+          const found = Number(r.source_value || 0) > 0 || Number(r.target_value || 0) > 0;
+          statusDisplay = found ? 'Nulls found' : 'No nulls found';
+        }
+
         rows.push({
           tableName,
           check: label,
           status: r.status,
+          statusDisplay,
           details: detailsText,
           discrepancies,
         });
@@ -2347,22 +2373,26 @@ const validateCurrentStep = (): boolean => {
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(result.checks).map(([name, r]) => (
-                    <tr key={name}>
-                      <td>{name === '_error' ? 'Error' : name}</td>
-                      <td>{r.error_message ? '—' : String(r.source_value ?? '—')}</td>
-                      <td>{r.error_message ? '—' : String(r.target_value ?? '—')}</td>
-                      <td>{r.error_message ? '—' : String(r.difference ?? '—')}</td>
-                      <td>
-                        <span className={`validation-direct-badge ${r.status}`}>{r.status}</span>
-                        {r.error_message && (
-                          <div className="validation-direct-err" title={r.error_message}>
-                            {r.error_message}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {Object.entries(result.checks).map(([name, r]) => {
+                    const label = name === '_error' ? 'Error' : (DIRECT_CHECK_LABELS[name] || name);
+                    const statusText = directCheckStatusLabel(name, r);
+                    return (
+                      <tr key={name}>
+                        <td>{label}</td>
+                        <td>{r.error_message ? '—' : String(r.source_value ?? '—')}</td>
+                        <td>{r.error_message ? '—' : String(r.target_value ?? '—')}</td>
+                        <td>{r.error_message ? '—' : String(r.difference ?? '—')}</td>
+                        <td>
+                          <span className={`validation-direct-badge ${r.status}`}>{statusText}</span>
+                          {r.error_message && (
+                            <div className="validation-direct-err" title={r.error_message}>
+                              {r.error_message}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

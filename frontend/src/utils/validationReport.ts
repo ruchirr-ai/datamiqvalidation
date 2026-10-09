@@ -31,7 +31,8 @@ export interface ReportDiscrepancy {
 export interface ValidationReportRow {
   tableName: string;      // e.g. "customers" or "dbo.customers → public.customers"
   check: string;          // "Row Count", "NULL", "Schema", ...
-  status: string;         // "passed" | "failed" | "error" | "skipped" | ...
+  status: string;         // "passed" | "failed" | "error" | "skipped" | ... (drives color/logic)
+  statusDisplay?: string; // optional human label shown instead of the raw status (e.g. "Duplicates found")
   details: string;        // human-readable one-line summary
   discrepancies?: ReportDiscrepancy[]; // row/column-level mismatch detail (for failed checks)
 }
@@ -203,6 +204,31 @@ export function summarizeResult(check: string, result: Record<string, any> | nul
   }
 }
 
+/**
+ * A clearer status label for existence-style checks (NULL, Duplicate), where
+ * "found / not found" reads better than "passed / failed". Derives from the
+ * actual counts in the result so it reflects whether nulls/duplicates exist on
+ * EITHER side. Returns undefined for other checks (use the raw status instead).
+ */
+export function statusDisplayFor(
+  check: string,
+  status: string | null | undefined,
+  result: Record<string, any> | null | undefined,
+): string | undefined {
+  if (status === 'error') return 'Error';
+  if (!status || status === 'skipped') return undefined;
+  const r = result || {};
+  if (check === 'Duplicate') {
+    const found = Number(r.source_duplicate_count || 0) > 0 || Number(r.target_duplicate_count || 0) > 0;
+    return found ? 'Duplicates found' : 'No duplicates found';
+  }
+  if (check === 'NULL') {
+    const found = Number(r.source_null_count || 0) > 0 || Number(r.target_null_count || 0) > 0;
+    return found ? 'Nulls found' : 'No nulls found';
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // CSV
 // ---------------------------------------------------------------------------
@@ -212,7 +238,7 @@ export function buildValidationCsv(rows: ValidationReportRow[]): string {
 
   // Section 1: summary of every check
   const summaryHeader = ['Table Name', 'Validation Check', 'Status', 'Details'];
-  const summaryBody = rows.map((r) => [r.tableName, r.check, statusLabel(r.status), r.details]);
+  const summaryBody = rows.map((r) => [r.tableName, r.check, r.statusDisplay || statusLabel(r.status), r.details]);
 
   // Section 2: full mismatch detail (one line per discrepancy)
   const detailHeader = ['Table Name', 'Check', 'Mismatch Type', 'Primary Key / Row', 'Column', 'Source Value', 'Target Value', 'Note'];
@@ -335,7 +361,7 @@ export function downloadValidationPdf(
     body: rows.map((r) => [
       sanitize(r.tableName),
       sanitize(r.check),
-      statusLabel(r.status),
+      sanitize(r.statusDisplay || statusLabel(r.status)),
       sanitize(r.details),
     ]),
     theme: 'striped',
@@ -343,16 +369,17 @@ export function downloadValidationPdf(
     bodyStyles: { fontSize: 8, textColor: DARK },
     columnStyles: {
       0: { cellWidth: 42 },
-      1: { cellWidth: 24 },
-      2: { cellWidth: 18 },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 30 },
       3: { cellWidth: 'auto' },
     },
     didParseCell: (data) => {
+      // Color the status cell by the row's REAL status (not the display label).
       if (data.section === 'body' && data.column.index === 2) {
-        const v = String(data.cell.raw).toLowerCase();
-        if (v === 'passed') data.cell.styles.textColor = [22, 163, 74];
-        else if (v === 'failed') data.cell.styles.textColor = RED;
-        else if (v === 'error') data.cell.styles.textColor = [234, 88, 12];
+        const real = (rows[data.row.index]?.status || '').toLowerCase();
+        if (real === 'passed') data.cell.styles.textColor = [22, 163, 74];
+        else if (real === 'failed') data.cell.styles.textColor = RED;
+        else if (real === 'error') data.cell.styles.textColor = [234, 88, 12];
         else data.cell.styles.textColor = GREY;
       }
     },
