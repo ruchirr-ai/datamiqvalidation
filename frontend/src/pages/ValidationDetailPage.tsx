@@ -794,6 +794,43 @@ function SpecificRowValidationSection({
     </div>
   );
 }
+/** Render the sampled rows that have NULLs, grouped by side. */
+function NullSamples({ result }: { result: Record<string, any> }) {
+  const samples: any[] = Array.isArray(result.sample_discrepancies)
+    ? result.sample_discrepancies
+    : [];
+  if (samples.length === 0) return null;
+
+  const fmtRow = (pk: Record<string, any> | null | undefined) => {
+    if (!pk || Object.keys(pk).length === 0) return '(row identifier unavailable)';
+    return Object.entries(pk).map(([k, v]) => `${k}=${v}`).join(', ');
+  };
+
+  return (
+    <div className="validation-discrepancies">
+      <h4>Rows containing NULL ({samples.length} shown)</h4>
+      <table className="vd-discrepancy-table">
+        <thead>
+          <tr>
+            <th>Side</th>
+            <th>Column</th>
+            <th>Row</th>
+          </tr>
+        </thead>
+        <tbody>
+          {samples.map((d: any, i: number) => (
+            <tr key={i}>
+              <td>{d.type === 'null_in_source' ? 'Source' : 'Target'}</td>
+              <td>{d?.details?.column || result.column || '—'}</td>
+              <td><code>{fmtRow(d.primary_key)}</code></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function NullValidationSection({
   result,
 }: {
@@ -808,7 +845,7 @@ function NullValidationSection({
       <div className="validation-result-section-header">
         <div>
           <h3>NULL Validation Details</h3>
-          <span>NULL count comparison</span>
+          <span>NULL count comparison + rows containing NULL</span>
         </div>
       </div>
 
@@ -833,10 +870,49 @@ function NullValidationSection({
           <strong>{result.difference ?? 0}</strong>
         </div>
       </div>
+
+      <NullSamples result={result} />
     </div>
   );
 }
 
+
+/** Render which key values are duplicated and how many copies, by side. */
+function DuplicateSamples({ result }: { result: Record<string, any> }) {
+  const samples: any[] = Array.isArray(result.sample_discrepancies)
+    ? result.sample_discrepancies
+    : [];
+  if (samples.length === 0) return null;
+
+  const keyVal = (pk: Record<string, any> | null | undefined) => {
+    if (!pk || Object.keys(pk).length === 0) return '—';
+    return Object.values(pk).map((v) => String(v)).join(', ');
+  };
+
+  return (
+    <div className="validation-discrepancies">
+      <h4>Duplicated values ({samples.length} shown)</h4>
+      <table className="vd-discrepancy-table">
+        <thead>
+          <tr>
+            <th>Side</th>
+            <th>Key ({result.match_key || 'value'})</th>
+            <th>Copies</th>
+          </tr>
+        </thead>
+        <tbody>
+          {samples.map((d: any, i: number) => (
+            <tr key={i}>
+              <td>{d.type === 'duplicate_in_source' ? 'Source' : 'Target'}</td>
+              <td><code>{keyVal(d.primary_key)}</code></td>
+              <td>{d?.details?.copies ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 function DuplicateValidationSection({
   result,
@@ -852,7 +928,7 @@ function DuplicateValidationSection({
       <div className="validation-result-section-header">
         <div>
           <h3>Duplicate Validation Details</h3>
-          <span>Duplicate group comparison</span>
+          <span>Duplicate group comparison + which values are duplicated</span>
         </div>
       </div>
 
@@ -881,6 +957,8 @@ function DuplicateValidationSection({
           <strong>{result.difference ?? 0}</strong>
         </div>
       </div>
+
+      <DuplicateSamples result={result} />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import './ValidationWizardPage.css';
 
@@ -1099,6 +1099,66 @@ const validateCurrentStep = (): boolean => {
     if (checkName === 'duplicate_check') return found ? 'duplicates found' : 'no duplicates';
     if (checkName === 'null_check') return found ? 'nulls found' : 'no nulls';
     return r.status;
+  };
+
+  // Build on-screen detail rows for a direct check so the user sees EXACTLY
+  // which rows/keys/columns are affected (not just counts).
+  const directCheckDetailRows = (
+    checkName: string,
+    r: { details?: Record<string, any> | null },
+  ): Array<{ typeLabel: string; row: string; column: string; source: string; target: string }> => {
+    const details = r.details || {};
+    const out: Array<{ typeLabel: string; row: string; column: string; source: string; target: string }> = [];
+
+    const fmtPk = (pk: Record<string, any> | null | undefined): string => {
+      if (!pk || typeof pk !== 'object' || Object.keys(pk).length === 0) return '—';
+      return Object.entries(pk).map(([k, v]) => `${k}=${v}`).join(', ');
+    };
+
+    // Schema check: columns missing/extra/type-mismatched between source & target.
+    if (checkName === 'schema_check') {
+      (details.missing_in_target || []).forEach((c: string) =>
+        out.push({ typeLabel: 'Missing in target', row: '—', column: c, source: 'present', target: 'absent' }));
+      (details.extra_in_target || []).forEach((c: string) =>
+        out.push({ typeLabel: 'Extra in target', row: '—', column: c, source: 'absent', target: 'present' }));
+      (details.type_mismatches || []).forEach((m: any) =>
+        out.push({ typeLabel: 'Type mismatch', row: '—', column: m?.column || '—', source: m?.source_type ?? '—', target: m?.target_type ?? '—' }));
+      return out;
+    }
+
+    // NULL / Duplicate / Specific Row: sample_discrepancies list.
+    const samples: any[] = Array.isArray(details.sample_discrepancies)
+      ? details.sample_discrepancies
+      : [];
+    samples.forEach((d: any) => {
+      const det = d?.details || {};
+      switch (d?.type) {
+        case 'duplicate_in_source':
+          out.push({ typeLabel: 'Duplicate (source)', row: fmtPk(d.primary_key), column: det.column || '—', source: det.copies != null ? `${det.copies} copies` : 'duplicated', target: '—' });
+          break;
+        case 'duplicate_in_target':
+          out.push({ typeLabel: 'Duplicate (target)', row: fmtPk(d.primary_key), column: det.column || '—', source: '—', target: det.copies != null ? `${det.copies} copies` : 'duplicated' });
+          break;
+        case 'null_in_source':
+          out.push({ typeLabel: 'NULL (source)', row: fmtPk(d.primary_key), column: det.column || '—', source: 'NULL', target: '—' });
+          break;
+        case 'null_in_target':
+          out.push({ typeLabel: 'NULL (target)', row: fmtPk(d.primary_key), column: det.column || '—', source: '—', target: 'NULL' });
+          break;
+        case 'value_mismatch':
+          out.push({ typeLabel: 'Value mismatch', row: fmtPk(d.primary_key), column: det.column || '—', source: String(det.source_value ?? 'NULL'), target: String(det.target_value ?? 'NULL') });
+          break;
+        case 'missing_in_target':
+          out.push({ typeLabel: 'Missing in target', row: fmtPk(d.primary_key), column: '—', source: 'present', target: 'absent' });
+          break;
+        case 'extra_in_target':
+          out.push({ typeLabel: 'Extra in target', row: fmtPk(d.primary_key), column: '—', source: 'absent', target: 'present' });
+          break;
+        default:
+          out.push({ typeLabel: d?.type || 'mismatch', row: fmtPk(d.primary_key), column: det.column || '—', source: '—', target: '—' });
+      }
+    });
+    return out;
   };
 
   // Convert direct (connection-mode) results into normalized report rows.
@@ -2376,21 +2436,61 @@ const validateCurrentStep = (): boolean => {
                   {Object.entries(result.checks).map(([name, r]) => {
                     const label = name === '_error' ? 'Error' : (DIRECT_CHECK_LABELS[name] || name);
                     const statusText = directCheckStatusLabel(name, r);
+                    const detailRows = directCheckDetailRows(name, r);
                     return (
-                      <tr key={name}>
-                        <td>{label}</td>
-                        <td>{r.error_message ? '—' : String(r.source_value ?? '—')}</td>
-                        <td>{r.error_message ? '—' : String(r.target_value ?? '—')}</td>
-                        <td>{r.error_message ? '—' : String(r.difference ?? '—')}</td>
-                        <td>
-                          <span className={`validation-direct-badge ${r.status}`}>{statusText}</span>
-                          {r.error_message && (
-                            <div className="validation-direct-err" title={r.error_message}>
-                              {r.error_message}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
+                      <Fragment key={name}>
+                        <tr>
+                          <td>{label}</td>
+                          <td>{r.error_message ? '—' : String(r.source_value ?? '—')}</td>
+                          <td>{r.error_message ? '—' : String(r.target_value ?? '—')}</td>
+                          <td>{r.error_message ? '—' : String(r.difference ?? '—')}</td>
+                          <td>
+                            <span className={`validation-direct-badge ${r.status}`}>{statusText}</span>
+                            {r.error_message && (
+                              <div className="validation-direct-err" title={r.error_message}>
+                                {r.error_message}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                        {detailRows.length > 0 && (
+                          <tr className="validation-direct-detail-row">
+                            <td colSpan={5}>
+                              <div className="validation-direct-detail">
+                                <div className="validation-direct-detail-title">
+                                  {name === 'duplicate_check'
+                                    ? 'Where the duplicates are'
+                                    : name === 'null_check'
+                                      ? 'Where the NULLs are'
+                                      : 'Mismatch details'}
+                                </div>
+                                <table className="validation-direct-detail-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Type</th>
+                                      <th>Row / Key</th>
+                                      <th>Column</th>
+                                      <th>Source</th>
+                                      <th>Target</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {detailRows.map((d, i) => (
+                                      <tr key={i}>
+                                        <td>{d.typeLabel}</td>
+                                        <td><code>{d.row}</code></td>
+                                        <td>{d.column}</td>
+                                        <td>{d.source}</td>
+                                        <td>{d.target}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     );
                   })}
                 </tbody>

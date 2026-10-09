@@ -1755,3 +1755,72 @@
   background: var(--color-error-bg);
   color: var(--color-error);
 }
+
+/* =========================================================
+   Direct results — inline mismatch detail (where duplicates/nulls are)
+   ========================================================= */
+
+.validation-direct-detail-row td {
+  padding: 0 !important;
+  background: #f8fafc;
+}
+
+.validation-direct-detail {
+  padding: 10px 14px 14px;
+}
+
+.validation-direct-detail-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #b45309;
+  margin-bottom: 8px;
+}
+
+.validation-direct-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.validation-direct-detail-table th,
+.validation-direct-detail-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: top;
+}
+
+.validation-direct-detail-table th {
+  background: #eef2f7;
+  color: #475569;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.validation-direct-detail-table code {
+  font-size: 11px;
+  background: #eef2f7;
+  padding: 1px 5px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+/* Dark mode */
+[data-theme="dark"] .validation-direct-detail-row td {
+  background: var(--color-bg-secondary);
+}
+[data-theme="dark"] .validation-direct-detail-title {
+  color: var(--color-warning);
+}
+[data-theme="dark"] .validation-direct-detail-table th {
+  background: var(--color-bg-surface);
+  color: var(--color-text-secondary);
+}
+[data-theme="dark"] .validation-direct-detail-table th,
+[data-theme="dark"] .validation-direct-detail-table td {
+  border-color: var(--color-divider);
+}
+[data-theme="dark"] .validation-direct-detail-table code {
+  background: var(--color-bg-surface);
+  color: var(--color-text-primary);
+}
